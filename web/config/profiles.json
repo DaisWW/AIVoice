@@ -4,6 +4,11 @@
       "id": "gpt_sovits_v2_stable",
       "label": "GPT-SoVITS V2 稳定",
       "description": "较稳的节奏和随机性",
+      "engine": "gpt_sovits_v2",
+      "stage": "当前基准",
+      "license": "MIT",
+      "workflow": "text_to_speech",
+      "required": true,
       "clone_overrides": {
         "top_k": 15,
         "top_p": 0.88,
@@ -15,12 +20,129 @@
       "id": "gpt_sovits_v2_expressive",
       "label": "GPT-SoVITS V2 表现",
       "description": "保留更多语气和发音变化",
+      "engine": "gpt_sovits_v2",
+      "stage": "当前基准",
+      "license": "MIT",
+      "workflow": "text_to_speech",
+      "required": true,
       "clone_overrides": {
         "top_k": 20,
         "top_p": 0.93,
         "temperature": 0.86,
         "repetition_penalty": 1.18
       }
+    },
+    {
+      "id": "gpt_sovits_v2_pro_plus_stable",
+      "label": "GPT-SoVITS V2ProPlus 稳定",
+      "description": "比 V2 音质更高，保留较稳的节奏和咬字",
+      "engine": "gpt_sovits_v2",
+      "model_version": "v2ProPlus",
+      "stage": "稳定增强",
+      "license": "MIT",
+      "workflow": "text_to_speech",
+      "clone_overrides": {
+        "top_k": 15,
+        "top_p": 0.88,
+        "temperature": 0.72,
+        "repetition_penalty": 1.28
+      }
+    },
+    {
+      "id": "gpt_sovits_v2_pro_plus_expressive",
+      "label": "GPT-SoVITS V2ProPlus 表现",
+      "description": "更高音质并保留更多语气变化",
+      "engine": "gpt_sovits_v2",
+      "model_version": "v2ProPlus",
+      "stage": "稳定增强",
+      "license": "MIT",
+      "workflow": "text_to_speech",
+      "clone_overrides": {
+        "top_k": 20,
+        "top_p": 0.93,
+        "temperature": 0.86,
+        "repetition_penalty": 1.18
+      }
+    },
+    {
+      "id": "cosyvoice3_0_5b",
+      "label": "CosyVoice3 0.5B",
+      "description": "拼音、音素和语气指令能力较强，适合虫语台本",
+      "engine": "cosyvoice3",
+      "model_path": "tools/models/cosyvoice3_0_5b",
+      "stage": "优先接入",
+      "license": "Apache-2.0",
+      "workflow": "text_to_speech",
+      "generation_parameters": ["speed_factor"],
+      "clone_overrides": {"speed_factor": 1.0}
+    },
+    {
+      "id": "qwen3_tts_0_6b_base",
+      "label": "Qwen3-TTS 0.6B Base",
+      "description": "三秒声音克隆，中文自然度好，适合 12 GB 显存",
+      "engine": "qwen3_tts",
+      "model_path": "tools/models/qwen3_tts_0_6b_base",
+      "stage": "优先接入",
+      "license": "Apache-2.0",
+      "workflow": "text_to_speech",
+      "generation_parameters": [
+        "temperature",
+        "top_k",
+        "top_p",
+        "repetition_penalty"
+      ],
+      "clone_overrides": {
+        "temperature": 0.9,
+        "top_k": 50,
+        "top_p": 1.0,
+        "repetition_penalty": 1.05
+      }
+    },
+    {
+      "id": "qwen3_tts_1_7b_base",
+      "label": "Qwen3-TTS 1.7B Base",
+      "description": "无参考文本的音色克隆，作为 12 GB 显存的高质量主模型",
+      "engine": "qwen3_tts",
+      "model_path": "tools/models/qwen3_tts_1_7b_base",
+      "stage": "高质量主模型",
+      "license": "Apache-2.0",
+      "workflow": "text_to_speech",
+      "generation_parameters": [
+        "temperature",
+        "top_k",
+        "top_p",
+        "repetition_penalty"
+      ],
+      "clone_overrides": {
+        "temperature": 0.9,
+        "top_k": 50,
+        "top_p": 1.0,
+        "repetition_penalty": 1.05
+      }
+    },
+    {
+      "id": "indextts_2_5",
+      "label": "IndexTTS 2.5",
+      "description": "情绪、时长与拼音控制优秀，作为实验模型评估",
+      "engine": "indextts_2_5",
+      "stage": "实验模型",
+      "license": "商用许可待确认",
+      "workflow": "text_to_speech",
+      "generation_parameters": [],
+      "available": false,
+      "availability_reason": "需先确认商用许可，再安装和验收"
+    },
+    {
+      "id": "seed_vc",
+      "label": "Seed-VC",
+      "description": "将真人表演音频转换为目标音色，保留怪叫和情绪细节",
+      "engine": "seed_vc",
+      "stage": "独立流程",
+      "license": "待项目确认",
+      "workflow": "voice_conversion",
+      "generation_parameters": [],
+      "available": false,
+      "availability_reason": "属于音频转音色流程，不进入当前台本 TTS 队列"
     }
   ]
 }

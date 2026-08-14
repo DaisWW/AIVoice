@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from typing import Any
@@ -23,7 +24,11 @@ class GenerationParameter:
         number = float(value)
         if not math.isfinite(number) or not self.minimum <= number <= self.maximum:
             raise ValueError(f"{self.label}需在 {self.minimum:g} 到 {self.maximum:g} 之间")
-        return int(round(number)) if self.integer else round(number, 4)
+        if self.integer:
+            if not number.is_integer():
+                raise ValueError(f"{self.label}必须是整数")
+            return int(number)
+        return round(number, 4)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -47,7 +52,7 @@ GENERATION_PARAMETERS = (
         0.8,
         0.1,
         1.5,
-        0.05,
+        0.01,
         simple=True,
     ),
     GenerationParameter(
@@ -104,6 +109,15 @@ def normalize_generation_settings(values: Any) -> dict[str, float | int]:
     return {
         key: PARAMETERS_BY_KEY[key].normalize(value) for key, value in values.items()
     }
+
+
+def stored_generation_settings(value: Any) -> dict[str, float | int]:
+    """Read legacy database values without breaking job display or recovery."""
+    try:
+        payload = json.loads(value) if isinstance(value, str) else value
+        return normalize_generation_settings(payload or {})
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
 
 
 def public_generation_controls() -> list[dict[str, Any]]:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any
 
 from .database import Database
 from .engine_adapter import VoiceEngine
-from .generation_settings import normalize_generation_settings
+from .generation_settings import stored_generation_settings
 from .settings import Settings
 
 
@@ -193,7 +192,9 @@ class JobProcessor:
                 item=candidate,
                 reference=reference,
                 model_id=str(job["model_id"]),
-                seed=int(candidate["seed"] or 20260807),
+                seed=int(
+                    candidate["seed"] if candidate.get("seed") is not None else 20260807
+                ),
                 output_path=_candidate_output_path(candidate, paths),
                 generation_settings=_generation_settings(candidate),
             )
@@ -252,12 +253,7 @@ def _has_completed_output(item: dict[str, Any]) -> bool:
 
 
 def _generation_settings(candidate: dict[str, Any]) -> dict[str, float | int]:
-    try:
-        return normalize_generation_settings(
-            json.loads(str(candidate.get("generation_settings_json") or "{}"))
-        )
-    except (json.JSONDecodeError, ValueError, TypeError):
-        return {}
+    return stored_generation_settings(candidate.get("generation_settings_json"))
 
 
 def _candidate_output_path(candidate: dict[str, Any], paths: JobPaths) -> Path:

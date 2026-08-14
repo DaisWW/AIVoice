@@ -1,10 +1,20 @@
 import { $, setButtonBusy } from "../core/dom.js";
+import { GenerationSettingsControls } from "../generation/generation-settings-controls.js";
+
+const GENERATION_INPUTS = Object.freeze({
+  temperature: "candidateTemperature",
+  speed_factor: "candidateSpeed",
+  top_k: "candidateTopK",
+  top_p: "candidateTopP",
+  repetition_penalty: "candidatePenalty",
+});
 
 export class CandidateController {
   #state;
   #api;
   #shell;
   #jobs;
+  #controls;
   #job = null;
   #item = null;
   #source = null;
@@ -14,13 +24,13 @@ export class CandidateController {
     this.#api = api;
     this.#shell = shell;
     this.#jobs = jobs;
+    this.#controls = new GenerationSettingsControls(state, GENERATION_INPUTS);
   }
 
   bind() {
     $("#candidateRegenerateForm").addEventListener("submit", (event) => this.#regenerate(event));
-    ["candidateTemperature", "candidateSpeed", "candidateTopK", "candidateTopP", "candidatePenalty"].forEach((id) => {
-      $("#" + id)?.addEventListener("input", () => this.#syncGenerationOutputs());
-    });
+    $("#candidateLockSeed").addEventListener("change", () => this.#syncSeedLock());
+    this.#controls.bind();
   }
 
   openRegenerate(job, item, source = null) {
@@ -32,32 +42,36 @@ export class CandidateController {
     $("#candidatePronunciation").value = source?.pronunciation || item.pronunciation || "";
     $("#candidateDirection").value = source?.direction || item.direction || "auto";
     $("#candidateName").value = `重做 ${((item.candidates || []).length || 0) + 1}`;
-    $("#candidateSeed").value = "";
-    const defaults = this.#state.config.generation_defaults || {};
-    $("#candidateTemperature").value = source?.generation_settings?.temperature ?? defaults.temperature ?? 0.8;
-    $("#candidateSpeed").value = source?.generation_settings?.speed_factor ?? defaults.speed_factor ?? 1;
-    $("#candidateTopK").value = source?.generation_settings?.top_k ?? defaults.top_k ?? 15;
-    $("#candidateTopP").value = source?.generation_settings?.top_p ?? defaults.top_p ?? 0.9;
-    $("#candidatePenalty").value = source?.generation_settings?.repetition_penalty ?? defaults.repetition_penalty ?? 1.25;
+    const hasSourceSeed = source?.seed !== null && source?.seed !== undefined;
+    $("#candidateLockSeed").checked = hasSourceSeed;
+    $("#candidateSeed").value = hasSourceSeed ? source.seed : "";
+    this.#syncSeedLock(false);
+    this.#controls.configure();
+    const model = this.#state.model(job.model_id);
+    this.#controls.setSupported(model?.generation_parameters);
+    this.#controls.set({
+      ...this.#modelDefaults(job.model_id),
+      ...(source?.generation_settings || {}),
+    });
     $("#candidateSource").textContent = source?.name || "当前采用候选";
-    this.#syncGenerationOutputs();
     $("#candidateRegenerateDialog").showModal();
     $("#candidateText").focus();
   }
 
-  #syncGenerationOutputs() {
-    const pairs = [
-      ["candidateTemperature", "candidateTemperatureValue"],
-      ["candidateSpeed", "candidateSpeedValue"],
-      ["candidateTopK", "candidateTopKValue"],
-      ["candidateTopP", "candidateTopPValue"],
-      ["candidatePenalty", "candidatePenaltyValue"],
-    ];
-    pairs.forEach(([input, output]) => {
-      const element = $("#" + input);
-      const target = $("#" + output);
-      if (element && target) target.textContent = element.value;
-    });
+  #modelDefaults(modelId) {
+    const model = this.#state.model(modelId);
+    return {
+      ...(this.#state.config.generation_defaults || {}),
+      ...(model?.generation_defaults || {}),
+    };
+  }
+
+  #syncSeedLock(clearUnlocked = true) {
+    const locked = $("#candidateLockSeed").checked;
+    const input = $("#candidateSeed");
+    input.disabled = locked;
+    if (locked && this.#source?.seed !== undefined) input.value = this.#source.seed;
+    else if (clearUnlocked) input.value = "";
   }
 
   async #regenerate(event) {
@@ -74,18 +88,12 @@ export class CandidateController {
         direction: $("#candidateDirection").value,
         source_candidate_id: this.#source?.id || null,
         seed: seed ? Number(seed) : null,
-        generation_settings: {
-          temperature: Number($("#candidateTemperature").value),
-          speed_factor: Number($("#candidateSpeed").value),
-          top_k: Number($("#candidateTopK").value),
-          top_p: Number($("#candidateTopP").value),
-          repetition_penalty: Number($("#candidatePenalty").value),
-        },
+        generation_settings: this.#controls.values(),
       };
       const path = `${this.#state.jobApiBase}/${encodeURIComponent(this.#job.id)}/items/${encodeURIComponent(this.#item.id)}/regenerate`;
       await this.#api.post(path, body);
       $("#candidateRegenerateDialog").close();
-      this.#shell.toast("单句已加入 GPT 队列");
+      this.#shell.toast("单句已加入生成队列");
       await this.#jobs.refresh(true);
       this.#jobs.schedule(600);
     } catch (error) {

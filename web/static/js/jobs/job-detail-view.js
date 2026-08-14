@@ -89,6 +89,7 @@ export class JobDetailView {
   #patchSummary(job) {
     $("[data-overview-value='voice']", this.#root).textContent = job.voice_name;
     $("[data-overview-value='model']", this.#root).textContent = this.#modelLabel(job.model_id);
+    $("[data-output-label]", this.#root).textContent = `${this.#modelLabel(job.model_id)} 原音`;
     $("[data-overview-value='owner']", this.#root).textContent =
       this.#state.isAdmin ? job.client_id : job.id;
     const accepted = $("[data-accepted-count]", this.#root);
@@ -184,7 +185,7 @@ export class JobDetailView {
           <div class="detail-heading">
             <div class="detail-status-line">
               <span class="status ${escapeHtml(job.status)}" data-job-status>${escapeHtml(statusText(job.status))}</span>
-              <span class="current-version">输出 <strong>GPT-SoVITS 原音</strong></span>
+              <span class="current-version">输出 <strong data-output-label>${escapeHtml(this.#modelLabel(job.model_id))} 原音</strong></span>
             </div>
             <h2 data-job-title title="${escapeHtml(job.name)}">${escapeHtml(job.name)}</h2>
           </div>

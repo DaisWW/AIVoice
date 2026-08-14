@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from ..domain import ScriptItem
-from ..generation_settings import normalize_generation_settings
+from ..generation_settings import stored_generation_settings
 from ..script_parser import ScriptFormatError, analyze_script_pronunciation
 from ..services import ApplicationServices
 from ..storage import ensure_within
@@ -27,14 +27,20 @@ def regenerate_candidate(
     item = _job_item(services, job, item_id)
     _validate_name(request.name)
     script_item = _script_item(item, request)
-    try:
-        generation_settings = normalize_generation_settings(request.generation_settings)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
     source_id = request.source_candidate_id or str(
         item.get("accepted_candidate_id") or ""
     )
     source = _optional_source(services, job, item, source_id)
+    try:
+        generation_settings = services.profiles.resolve_generation_settings(
+            str(job["model_id"]),
+            stored_generation_settings(
+                source.get("generation_settings_json") if source else None
+            ),
+            request.generation_settings,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     candidate_id = services.database.candidates.create_regeneration(
         job_item=item,
         script_item=script_item,

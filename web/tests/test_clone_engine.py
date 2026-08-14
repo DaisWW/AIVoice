@@ -20,10 +20,43 @@ from gpt_sovits_clone import (  # noqa: E402
     AUDIO_EXTENSIONS,
     build_reference_audio,
     decode_audio,
+    missing_models,
+    model_paths,
     synthesize,
     to_float_audio,
     write_wav,
 )
+from convert_gpt_sovits_transformers import _convert_model  # noqa: E402
+
+
+def test_model_paths_select_v2_pro_plus_weights(tmp_path: Path) -> None:
+    paths = model_paths(tmp_path, "v2ProPlus")
+
+    assert paths["t2s"].name == "s1v3.ckpt"
+    assert paths["vits"].parts[-2:] == ("v2Pro", "s2Gv2ProPlus.pth")
+
+
+def test_model_paths_reject_unknown_version(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="不支持的 GPT-SoVITS 版本"):
+        model_paths(tmp_path, "future")
+
+
+def test_model_check_requires_safe_bert_weights(tmp_path: Path) -> None:
+    paths = model_paths(tmp_path)
+
+    missing = missing_models(paths)
+
+    assert paths["bert"] / "model.safetensors" in missing
+    assert paths["bert"] / "pytorch_model.bin" not in missing
+    assert paths["hubert"] / "model.safetensors" in missing
+    assert paths["hubert"] / "pytorch_model.bin" not in missing
+
+
+def test_safe_weight_conversion_rejects_partial_existing_target(tmp_path: Path) -> None:
+    (tmp_path / "model.safetensors").write_bytes(b"partial")
+
+    with pytest.raises(FileNotFoundError, match="待转换权重"):
+        _convert_model(tmp_path, "unused", False, ())
 
 
 @pytest.mark.parametrize(

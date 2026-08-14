@@ -236,6 +236,8 @@ docker/voice-lab.env
 
 # Downloaded third-party engines, caches, and model weights
 tools/CosyVoice/
+tools/Qwen3-TTS/
+tools/Qwen3-TTS.incomplete-*/
 tools/OpenVoice/
 tools/_metadata/
 tools/downloads/

@@ -14,12 +14,19 @@ if (-not (Test-Path -LiteralPath $RuffPath)) {
     $RuffPath = (Get-Command ruff -ErrorAction Stop).Source
 }
 
-& $PythonPath -m black --check web\app web\tests code\gpt_sovits_clone.py code\gpt_sovits_audio.py voice_core
+$CodeFiles = @(
+    "code\convert_gpt_sovits_transformers.py",
+    "code\download_optional_models.py",
+    "code\gpt_sovits_clone.py",
+    "code\gpt_sovits_audio.py"
+)
+
+& $PythonPath -m black --check web\app web\tests @CodeFiles voice_core
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& $RuffPath check web\app web\tests code\gpt_sovits_clone.py code\gpt_sovits_audio.py voice_core
+& $RuffPath check web\app web\tests @CodeFiles voice_core
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

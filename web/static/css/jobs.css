@@ -633,6 +633,28 @@
   gap: 6px;
 }
 
+.candidate-parameters {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.candidate-parameters span {
+  flex: 0 0 auto;
+}
+
+.candidate-parameters code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--warm);
+  font: 8px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-action {
   min-height: 27px;
   padding: 0 9px;

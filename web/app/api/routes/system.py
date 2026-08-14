@@ -35,15 +35,16 @@ def health(services: ServicesDep) -> dict[str, Any]:
 
 @router.get("/config")
 def config(services: ServicesDep) -> dict[str, Any]:
+    engine_status = services.engine.model_status()
     return {
-        **services.profiles.public(),
+        **services.profiles.public(engine_status.get("models", {})),
         "script_extensions": sorted(SUPPORTED_SCRIPT_EXTENSIONS),
         "audio_extensions": sorted(SUPPORTED_AUDIO_EXTENSIONS),
         "reference_emotions": public_reference_emotions(),
         "generation_controls": public_generation_controls(),
         "generation_defaults": generation_defaults(),
         "voice_requirements": f"真人模板支持 {AUDIO_FORMAT_LABEL}，上传后自动转为单声道 48 kHz WAV。建议无背景音乐、每条 3-15 秒，至少上传 2 条。",
-        "output_description": "直接输出 GPT-SoVITS V2 克隆原音，不做降噪、变调、EQ、压缩、混响或响度处理。",
+        "output_description": "直接输出所选声音克隆模型原音，不做降噪、变调、EQ、压缩、混响或响度处理。",
         "script_format": {
             "txt_markdown": "正常中文台词 | mo——la，na？↗",
             "tab": "正常中文台词<TAB>mo——la，na？↗",

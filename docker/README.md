@@ -2,7 +2,7 @@
 
 ## 运行范围
 
-容器只运行 GPT-SoVITS V2 声音克隆，不包含降噪、变调、EQ、压缩、混响、响度统一或其他后期处理。生成结果直接保存为 GPT-SoVITS 原音。
+容器只运行声音克隆，不包含降噪、变调、EQ、压缩、混响、响度统一或其他后期处理。生成结果直接保存为所选模型原音。
 
 ## 首次准备（只做一次）
 
@@ -62,9 +62,12 @@ VOICE_LAB_BUILD_PROXY=http://host.docker.internal:7897
 ```text
 tools\GPT-SoVITS\GPT_SoVITS\pretrained_models
 tools\GPT-SoVITS\GPT_SoVITS\text\G2PWModel
+tools\CosyVoice
+tools\Qwen3-TTS
+tools\models
 ```
 
-这样镜像更新不会重复占用约 1.8 GB 模型空间，模型也可以独立备份。
+这样镜像更新不会重复占用模型空间，模型也可以独立备份。GPT-SoVITS 是基准模型；CosyVoice3 与 Qwen3-TTS 未安装时会在网页中禁用，不影响服务启动。
 
 ## 数据持久化
 
@@ -84,4 +87,4 @@ docker compose --project-directory C:\Workspace\Git\voice `
   -f C:\Workspace\Git\voice\docker\compose.yaml ps
 ```
 
-状态应为 `healthy`。网页 `/api/health` 应同时显示 `ok: true`、模型缺失列表为空和 GPU 队列存活。正式验收再提交一条短台本生成，确认音频能播放和下载。
+状态应为 `healthy`。网页 `/api/health` 应同时显示 `ok: true`、基准模型可用和 GPU 队列存活；可选模型状态会分别列出。正式验收再提交一条短台本生成，确认音频能播放和下载。

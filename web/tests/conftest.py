@@ -53,10 +53,15 @@ class FakeEngine:
         self.settings = settings
         self.generate_calls = 0
         self.generation_settings_calls: list[dict[str, float | int]] = []
+        self.seed_calls: list[int] = []
         self.output_paths: list[Path] = []
 
     def model_status(self) -> dict[str, object]:
         return {"loaded": True, "missing_models": []}
+
+    def model_available(self, model_id: str) -> SimpleNamespace:
+        del model_id
+        return SimpleNamespace(available=True, reason="")
 
     def prepare_reference(
         self, voice_files: list[dict[str, object]], target_path: Path
@@ -78,9 +83,10 @@ class FakeEngine:
         output_path: Path,
         generation_settings: dict[str, float | int] | None = None,
     ) -> SimpleNamespace:
-        del item, reference, model_id, seed
+        del item, reference, model_id
         self.generate_calls += 1
         self.generation_settings_calls.append(generation_settings or {})
+        self.seed_calls.append(seed)
         self.output_paths.append(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = make_wav_bytes()
@@ -108,7 +114,20 @@ def settings_factory(tmp_path: Path):
         )
         settings.profiles_path.write_text(
             json.dumps(
-                {"models": [{"id": "test_model", "label": "Test", "description": ""}]}
+                {
+                    "models": [
+                        {
+                            "id": "test_model",
+                            "label": "Test",
+                            "description": "",
+                            "clone_overrides": {
+                                "temperature": 0.72,
+                                "top_p": 0.88,
+                                "repetition_penalty": 1.28,
+                            },
+                        }
+                    ]
+                }
             ),
             encoding="utf-8",
         )

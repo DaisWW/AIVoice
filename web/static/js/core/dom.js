@@ -28,13 +28,17 @@ export function setButtonBusy(button, busy) {
 
 export function renderSelect(select, items, placeholder, getLabel) {
   const current = select.value;
-  const options = items.map((item) => ({ id: item.id, text: getLabel(item) }));
+  const options = items.map((item) => ({
+    id: item.id,
+    text: getLabel(item),
+    disabled: item.available === false || item.disabled === true,
+  }));
   const signature = JSON.stringify([placeholder, options]);
   if (select.dataset.optionsSignature === signature) return;
   select.innerHTML = [
     placeholder ? `<option value="">${escapeHtml(placeholder)}</option>` : "",
     ...options.map(
-      (item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.text)}</option>`,
+      (item) => `<option value="${escapeHtml(item.id)}"${item.disabled ? " disabled" : ""}>${escapeHtml(item.text)}</option>`,
     ),
   ].join("");
   if (items.some((item) => item.id === current)) select.value = current;

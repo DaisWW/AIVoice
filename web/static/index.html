@@ -180,10 +180,29 @@
       </fieldset>
 
       <fieldset class="form-section">
-        <label class="field-label" for="modelSelect">声音克隆模型</label>
+        <label class="field-label" for="modelSelect">模型 / 预设</label>
         <select id="modelSelect" name="model_id" required></select>
         <small id="modelDescription" class="field-note"></small>
-        <p class="clone-output-note">直接输出 GPT-SoVITS 原音，不进行降噪、变调、EQ、压缩、混响或响度处理。</p>
+        <div class="model-compare-field">
+          <span class="field-label">同时对比其他模型 <small>可选，最多 3 个</small></span>
+          <div id="modelCompareList" class="model-compare-list" role="group" aria-label="同时对比其他模型"></div>
+          <small id="modelCompareHint" class="field-note">其他模型采用各自预设，并与主模型共享候选种子。</small>
+        </div>
+        <div class="generation-mode-tabs" role="group" aria-label="生成参数模式">
+          <button class="active" type="button" data-generation-mode="simple" aria-pressed="true">小白模式</button>
+          <button type="button" data-generation-mode="advanced" aria-pressed="false">高级模式</button>
+        </div>
+        <div class="create-generation-controls">
+          <label for="createTemperature"><span>表现变化</span><output id="createTemperatureValue">0.8</output><input id="createTemperature" type="range" min="0.1" max="1.5" step="0.01"></label>
+          <label for="createSpeed"><span>生成语速</span><output id="createSpeedValue">1.0</output><input id="createSpeed" type="range" min="0.65" max="1.5" step="0.01"></label>
+          <label class="seed-field" for="createBaseSeed"><span>基准随机种子</span><input id="createBaseSeed" type="number" min="0" max="2147483640" placeholder="留空则随机"><small>多模型对比时，留空也会自动共享同一组种子</small></label>
+        </div>
+        <div id="createAdvancedSettings" class="create-generation-controls advanced" hidden>
+          <label for="createTopK"><span>候选词范围</span><output id="createTopKValue">15</output><input id="createTopK" type="range" min="1" max="100" step="1"></label>
+          <label for="createTopP"><span>累计概率范围</span><output id="createTopPValue">0.9</output><input id="createTopP" type="range" min="0.1" max="1" step="0.01"></label>
+          <label for="createPenalty"><span>重复抑制</span><output id="createPenaltyValue">1.25</output><input id="createPenalty" type="range" min="1" max="2" step="0.01"></label>
+        </div>
+        <p id="modelOutputNote" class="clone-output-note">直接输出模型原音，不进行降噪、变调、EQ、压缩、混响或响度处理。</p>
       </fieldset>
 
       <div class="drawer-spacer"></div>
@@ -274,7 +293,7 @@
         </label>
       </div>
       <section class="generation-take-controls">
-        <label for="candidateTemperature"><span>表现变化</span><output id="candidateTemperatureValue">0.8</output><input id="candidateTemperature" type="range" min="0.1" max="1.5" step="0.05"></label>
+        <label for="candidateTemperature"><span>表现变化</span><output id="candidateTemperatureValue">0.8</output><input id="candidateTemperature" type="range" min="0.1" max="1.5" step="0.01"></label>
         <label for="candidateSpeed"><span>生成语速</span><output id="candidateSpeedValue">1.0</output><input id="candidateSpeed" type="range" min="0.65" max="1.5" step="0.01"></label>
       </section>
       <details class="candidate-advanced">
@@ -284,11 +303,12 @@
           <label for="candidateTopP"><span class="field-label">累计概率范围</span><input id="candidateTopP" type="range" min="0.1" max="1" step="0.01"><output id="candidateTopPValue">0.9</output></label>
           <label for="candidatePenalty"><span class="field-label">重复抑制</span><input id="candidatePenalty" type="range" min="1" max="2" step="0.01"><output id="candidatePenaltyValue">1.25</output></label>
           <label for="candidateSeed"><span class="field-label">随机种子</span><input id="candidateSeed" type="number" min="0" max="2147483647" placeholder="自动随机"></label>
+          <label class="seed-lock" for="candidateLockSeed"><span class="field-label">A/B 可复现</span><span><input id="candidateLockSeed" type="checkbox" checked> 锁定参考候选种子</span></label>
         </div>
       </details>
       <div class="modal-actions">
         <button class="quiet-button" type="button" data-close-dialog="candidateRegenerateDialog">取消</button>
-        <button class="primary-button" type="submit">加入 GPT 队列</button>
+        <button class="primary-button" type="submit">加入生成队列</button>
       </div>
     </form>
   </dialog>

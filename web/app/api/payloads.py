@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..generation_settings import stored_generation_settings
 from ..services import ApplicationServices
 
 
@@ -83,7 +84,9 @@ def candidate_payload(
         "emphasis": [
             value for value in str(candidate.get("emphasis") or "").split(",") if value
         ],
-        "generation_settings": _json_object(candidate.get("generation_settings_json")),
+        "generation_settings": stored_generation_settings(
+            candidate.get("generation_settings_json")
+        ),
         "status": candidate["status"],
         "accepted": candidate.get("accepted_candidate_id") == candidate["id"],
         "duration_seconds": candidate.get("duration_seconds"),
@@ -169,8 +172,7 @@ class JobPresenter:
         )
         payload["can_export"] = bool(items) and payload["accepted_items"] == len(items)
 
-    @staticmethod
-    def _summary(job: dict[str, Any]) -> dict[str, Any]:
+    def _summary(self, job: dict[str, Any]) -> dict[str, Any]:
         total = int(job["total_items"])
         completed = int(job["completed_items"])
         return {
@@ -182,7 +184,7 @@ class JobPresenter:
             "voice_id": job["voice_id"],
             "voice_name": job["voice_name"],
             "model_id": job["model_id"],
-            "output_type": "gpt_sovits_raw",
+            "output_type": self._output_type(str(job["model_id"])),
             "candidate_count": int(job.get("candidate_count") or 1),
             "reference_emotion": job.get("reference_emotion") or "all",
             "status": job["status"],
@@ -195,6 +197,13 @@ class JobPresenter:
             "eta_seconds": JobPresenter._eta(job),
             "error": job["error"],
         }
+
+    def _output_type(self, model_id: str) -> str:
+        try:
+            engine = str(self._services.profiles.model(model_id)["engine"])
+        except ValueError:
+            return "gpt_sovits_raw"
+        return "gpt_sovits_raw" if engine == "gpt_sovits_v2" else f"{engine}_raw"
 
     @staticmethod
     def _eta(job: dict[str, Any]) -> int | None:

@@ -7,6 +7,7 @@ import sqlite3
 import wave
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -150,7 +151,21 @@ def test_clone_only_upload_queue_play_and_download_workflow(app_client) -> None:
     assert [item["text"] for item in job["items"]] == ["第一句", "第二句"]
     assert all(len(item["candidates"]) == 2 for item in job["items"])
     assert services.engine.generate_calls == 4
-    assert all(call == {} for call in services.engine.generation_settings_calls)
+    expected_settings = {
+        "temperature": 0.72,
+        "speed_factor": 1.0,
+        "top_k": 15,
+        "top_p": 0.88,
+        "repetition_penalty": 1.28,
+    }
+    assert all(
+        candidate["generation_settings"] == expected_settings
+        for item in job["items"]
+        for candidate in item["candidates"]
+    )
+    assert all(
+        call == expected_settings for call in services.engine.generation_settings_calls
+    )
     assert "effect_id" not in job
     assert "effect_settings" not in job
     assert "variants" not in job
@@ -180,6 +195,7 @@ def test_clone_only_upload_queue_play_and_download_workflow(app_client) -> None:
 
     config = client.get("/api/config").json()
     assert [model["id"] for model in config["models"]] == ["test_model"]
+    assert config["models"][0]["generation_defaults"] == expected_settings
     assert "effects" not in config
     assert "postprocess_controls" not in config
     assert "不做降噪" in config["output_description"]
@@ -265,6 +281,214 @@ def test_regenerate_accept_and_export_clone_candidate(app_client) -> None:
     )
 
 
+def test_create_job_applies_custom_settings_and_reproducible_seed_sequence(
+    app_client,
+) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "reproducible voice")
+    script = _create_script(
+        client,
+        "reproducible.txt",
+        "第一句 | mo-la\n第二句 | gu-na\n",
+    )
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 3,
+            "base_seed": 0,
+            "generation_settings": json.dumps(
+                {"temperature": 0.63, "speed_factor": 0.91}
+            ),
+        },
+    )
+    assert response.status_code == 201
+    job = wait_for_job(client, response.json()["job"]["id"])
+    candidates = [
+        candidate for item in job["items"] for candidate in item["candidates"]
+    ]
+
+    assert [candidate["seed"] for candidate in candidates] == list(range(6))
+    assert services.engine.seed_calls[-6:] == list(range(6))
+    assert all(
+        candidate["generation_settings"]["temperature"] == 0.63
+        for candidate in candidates
+    )
+    assert all(
+        candidate["generation_settings"]["speed_factor"] == 0.91
+        for candidate in candidates
+    )
+    assert all(
+        call["temperature"] == 0.63
+        for call in services.engine.generation_settings_calls[-6:]
+    )
+
+
+def test_create_jobs_compare_models_with_shared_seeds_and_model_defaults(
+    settings_factory,
+) -> None:
+    settings = _multi_model_settings(settings_factory)
+    application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
+
+    with TestClient(application) as client:
+        voice = _create_voice(client, "comparison voice")
+        script = _create_script(
+            client,
+            "comparison.txt",
+            "第一句 | mo-la\n第二句 | gu-na\n",
+        )
+        response = client.post(
+            "/api/jobs",
+            data={
+                "voice_id": voice["id"],
+                "model_id": "primary_model",
+                "model_ids": json.dumps(["secondary_model"]),
+                "script_id": script["id"],
+                "candidate_count": 2,
+                "base_seed": 321,
+                "generation_settings": json.dumps(
+                    {"temperature": 0.61, "speed_factor": 0.91}
+                ),
+            },
+        )
+
+        assert response.status_code == 201
+        created = response.json()
+        assert created["job"] == created["jobs"][0]
+        assert [job["model_id"] for job in created["jobs"]] == [
+            "primary_model",
+            "secondary_model",
+        ]
+        jobs = [wait_for_job(client, job["id"]) for job in created["jobs"]]
+
+    candidate_groups = [
+        [candidate for item in job["items"] for candidate in item["candidates"]]
+        for job in jobs
+    ]
+    assert [
+        [candidate["seed"] for candidate in group] for group in candidate_groups
+    ] == [
+        [321, 322, 323, 324],
+        [321, 322, 323, 324],
+    ]
+    assert all(
+        candidate["generation_settings"] == {"temperature": 0.61, "speed_factor": 0.91}
+        for candidate in candidate_groups[0]
+    )
+    assert all(
+        candidate["generation_settings"] == {"temperature": 0.95, "top_k": 42}
+        for candidate in candidate_groups[1]
+    )
+
+
+def test_create_jobs_auto_shares_seed_and_rejects_unavailable_model(
+    settings_factory,
+) -> None:
+    settings = _multi_model_settings(settings_factory)
+    application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
+
+    with TestClient(application) as client:
+        voice = _create_voice(client, "automatic seed voice")
+        script = _create_script(client, "automatic-seed.txt", "台词 | mo-la\n")
+        response = client.post(
+            "/api/jobs",
+            data={
+                "voice_id": voice["id"],
+                "model_id": "primary_model",
+                "model_ids": json.dumps(["secondary_model"]),
+                "script_id": script["id"],
+            },
+        )
+        assert response.status_code == 201
+        jobs = [wait_for_job(client, job["id"]) for job in response.json()["jobs"]]
+        seeds = [
+            [candidate["seed"] for candidate in job["items"][0]["candidates"]]
+            for job in jobs
+        ]
+        assert seeds[0] == seeds[1]
+
+        services = application.state.services
+        services.engine.model_available = lambda model_id: SimpleNamespace(
+            available=model_id != "secondary_model",
+            reason="测试模型未安装" if model_id == "secondary_model" else "",
+        )
+        rejected = client.post(
+            "/api/jobs",
+            data={
+                "voice_id": voice["id"],
+                "model_id": "primary_model",
+                "model_ids": json.dumps(["secondary_model"]),
+                "script_id": script["id"],
+            },
+        )
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"] == "测试模型未安装"
+
+
+def test_create_job_rejects_invalid_generation_settings_and_seed(app_client) -> None:
+    client, _ = app_client
+    voice = _create_voice(client, "invalid create settings voice")
+    script = _create_script(client, "invalid-create.txt", "台词 | mo-la\n")
+    base = {
+        "voice_id": voice["id"],
+        "model_id": "test_model",
+        "script_id": script["id"],
+    }
+
+    invalid_settings = client.post(
+        "/api/jobs",
+        data={**base, "generation_settings": '{"top_k": 1.5}'},
+    )
+    invalid_seed = client.post(
+        "/api/jobs",
+        data={**base, "candidate_count": 3, "base_seed": 2_147_483_646},
+    )
+
+    assert invalid_settings.status_code == 422
+    assert "必须是整数" in invalid_settings.json()["detail"]
+    assert invalid_seed.status_code == 422
+    assert "基准随机种子" in invalid_seed.json()["detail"]
+
+
+def test_create_job_validates_settings_before_storing_uploaded_script(
+    app_client,
+) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "invalid upload settings voice")
+    before = services.database.monitoring.counts()["scripts"]
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "generation_settings": "[]",
+        },
+        files={"script": ("inline.txt", "台词 | mo-la\n", "text/plain")},
+    )
+
+    assert response.status_code == 422
+    assert "生成参数必须是对象" in response.json()["detail"]
+    assert services.database.monitoring.counts()["scripts"] == before
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "base_seed": -1,
+        },
+        files={"script": ("inline.txt", "台词 | mo-la\n", "text/plain")},
+    )
+
+    assert response.status_code == 422
+    assert "基准随机种子" in response.json()["detail"]
+    assert services.database.monitoring.counts()["scripts"] == before
+
+
 def test_regenerate_rejects_invalid_generation_settings(app_client) -> None:
     client, _ = app_client
     voice = _create_voice(client, "settings voice")
@@ -291,6 +515,45 @@ def test_regenerate_rejects_invalid_generation_settings(app_client) -> None:
 
     assert response.status_code == 422
     assert "表现变化" in response.json()["detail"]
+
+
+def test_regenerate_inherits_unspecified_generation_settings(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "inherit settings voice")
+    script = _create_script(client, "inherit-settings.txt", "台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    item = job["items"][0]
+    source = item["candidates"][0]
+
+    response = client.post(
+        f"/api/jobs/{job['id']}/items/{item['id']}/regenerate",
+        json={
+            "text": item["text"],
+            "pronunciation": item["pronunciation"],
+            "source_candidate_id": source["id"],
+            "generation_settings": {"temperature": 1.05},
+        },
+    )
+    assert response.status_code == 201
+    candidate_id = response.json()["candidate"]["id"]
+    candidate = wait_for_candidate(client, job["id"], item["id"], candidate_id)
+
+    assert candidate["generation_settings"] == {
+        **source["generation_settings"],
+        "temperature": 1.05,
+    }
+    assert (
+        services.engine.generation_settings_calls[-1]
+        == candidate["generation_settings"]
+    )
 
 
 def test_historical_dsp_candidates_are_hidden_and_raw_audio_is_served(
@@ -492,3 +755,29 @@ def _create_script(client: TestClient, name: str, text: str) -> dict:
     )
     assert response.status_code == 201
     return response.json()["script"]
+
+
+def _multi_model_settings(settings_factory):
+    settings = settings_factory()
+    settings.profiles_path.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "id": "primary_model",
+                        "label": "Primary",
+                        "generation_parameters": ["temperature", "speed_factor"],
+                        "clone_overrides": {"temperature": 0.7, "speed_factor": 1.0},
+                    },
+                    {
+                        "id": "secondary_model",
+                        "label": "Secondary",
+                        "generation_parameters": ["temperature", "top_k"],
+                        "clone_overrides": {"temperature": 0.95, "top_k": 42},
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return settings

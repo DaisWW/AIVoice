@@ -1,6 +1,6 @@
 # Voice Lab
 
-Voice Lab 是公司局域网使用的 GPT-SoVITS V2 声音克隆工具。它只负责根据真人声音模板生成角色台词原音，不做降噪、变调、共振峰、EQ、压缩、混响、响度统一或其他后期处理。
+Voice Lab 是公司局域网使用的多模型声音克隆工具。它只负责根据真人声音模板生成角色台词原音，不做降噪、变调、共振峰、EQ、压缩、混响、响度统一或其他后期处理。
 
 浏览器无需账号密码。首次访问会分配匿名 ID，普通用户只看到自己的生成记录；服务器本机管理员可查看全部任务。所有 GPU 推理进入同一个队列，避免多人同时生成导致显存溢出。
 
@@ -47,17 +47,17 @@ Windows 防火墙只需为 TCP `18082` 放行 `LocalSubnet`。生产环境保持
 .\docker_voice_lab.bat build
 ```
 
-容器会继续挂载 `docker-data`、`input`、`output` 和本机 GPT-SoVITS 模型，不会把已有数据打进镜像。详细说明见 [docker/README.md](docker/README.md)。
+容器会继续挂载 `docker-data`、`input`、`output` 和本机模型目录，不会把已有数据或模型打进镜像。详细说明见 [docker/README.md](docker/README.md)。
 
 ## 工作流程
 
 ```mermaid
 flowchart LR
     A[选择或上传台本] --> B[选择声音库和参考语气]
-    B --> C[选择 GPT-SoVITS 推理档位]
+    B --> C[选择主模型与可选对比模型]
     C --> D[进入单 GPU 队列]
     D --> E[准备 3-10 秒参考 WAV]
-    E --> F[GPT-SoVITS V2 克隆]
+    E --> F[声音克隆模型原音生成]
     F --> G[每句生成 2 或 3 个原音候选]
     G --> H[试听 / 单句重做 / 采用]
     H --> I[单段下载 / 全部下载 / 正式导出]
@@ -65,13 +65,14 @@ flowchart LR
 
 参考录音在送入模型前会做必要的格式准备：解码、转单声道、重采样、裁剪首尾静音和防止削波。这些操作只作用于模型输入，不会对生成结果做声音后期。
 
-生成结果由 GPT-SoVITS 直接写为 16-bit PCM WAV。新任务中的 `audio_path` 与 `raw_audio_path` 指向同一个文件，不会额外复制所谓“成品”。
+生成结果由所选模型直接写为 16-bit PCM WAV。新任务中的 `audio_path` 与 `raw_audio_path` 指向同一个文件，不会额外复制所谓“成品”。
 
 ## Web 功能
 
 - 新建任务可选择已有台本或上传 `.txt`、`.md`、`.csv`、`.docx`。
 - 声音库支持 WAV、MP3、M4A、AAC、FLAC、OGG、OPUS，可上传多条真人录音并按参考语气分组。
-- 每句生成 2 或 3 个候选；候选可试听、下载、采用，也可修改台词、发音、尾音方向和 GPT 推理参数后重做。
+- 新建任务提供小白/高级参数模式；可同时选择最多 4 个模型，按相同台本、声音库和候选种子创建对比任务。
+- 每句生成 2 或 3 个候选；候选可试听、下载、采用，也可修改台词、发音、尾音方向和模型推理参数后重做。
 - 页面任意时刻只播放一段音频，新播放会自动暂停上一段。
 - “全部下载”下载当前任务每段的默认克隆音频；“正式导出”下载每段已采用候选及 `UnityAudioManifest.json`。
 - 普通用户只能查看自己的任务和编辑自己创建的声音库；管理员页面可查看所有用户任务。
@@ -121,14 +122,24 @@ text,pronunciation
 
 上传文件会统一保存为单声道、48 kHz、16-bit PCM WAV，原始文件名仍会显示在声音库中。单条录音最长 120 秒，超长素材应先拆分；实际模板仍建议每条 3-15 秒。
 
-## 模型档位
+## 模型与 A/B 对比
 
-`web/config/profiles.json` 当前提供两个 GPT-SoVITS V2 推理档位：
+`web/config/profiles.json` 注册了以下工作流：
 
-- `稳定`：较低随机性，节奏和咬字更稳。
-- `表现`：较高随机性，语气变化更明显。
+- GPT-SoVITS V2 / V2ProPlus：提供稳定与表现预设，支持完整生成参数。
+- CosyVoice3 0.5B：可选模型，适合拼音、音素与虫语台本，当前暴露语速。
+- Qwen3-TTS 0.6B / 1.7B Base：可选声音克隆模型，支持随机性、候选范围和重复抑制。
+- IndexTTS 2.5：仅展示评估状态，确认许可和完成接入前不可选择。
+- Seed-VC：属于真人表演音频转音色，不进入当前台本 TTS 队列。
 
-它们使用同一套 GPT-SoVITS V2 权重，只是 `top_k`、`top_p`、`temperature` 和 `repetition_penalty` 不同。单句重做还可调整这些参数及 `speed_factor`；这些都是模型推理参数，不是音频后期参数。
+未安装的模型会显示原因并禁用，不会创建无法执行的任务。安装可选模型权重：
+
+```powershell
+.\code\download_optional_models.ps1 -Model qwen
+.\code\download_optional_models.ps1 -Model cosy
+```
+
+多模型对比只让主模型使用页面参数，其他模型使用各自预设，避免把不兼容参数强行套用。填写基准种子可复现结果；留空时，多模型任务也会自动共享同一组随机种子。所有模型仍在同一个 GPU 队列中串行执行，切换模型时释放上一模型显存。
 
 ## 目录
 
@@ -138,12 +149,13 @@ C:\Workspace\Git\voice
 │  ├─ gpt_sovits_audio.py       音频解码、重采样和参考音构建
 │  ├─ gpt_sovits_clone.py       GPT-SoVITS 模型加载、推理和原音输出
 │  ├─ gpt_sovits_config.json    模型与参考音配置
-│  └─ download_gpt_sovits_models.ps1
+│  ├─ download_gpt_sovits_models.ps1
+│  └─ download_optional_models.ps1
 ├─ voice_core/                  发音解析与标记规则
 ├─ web/
-│  ├─ app/                      FastAPI、队列、持久化和引擎适配
+│  ├─ app/                      FastAPI、队列、持久化和多模型引擎适配
 │  ├─ static/                   Web 页面
-│  ├─ config/profiles.json      GPT 推理档位
+│  ├─ config/profiles.json      模型注册、预设和参数能力
 │  └─ data/                     SQLite、上传、任务和导出
 ├─ docker/                      Docker 构建、部署与数据准备
 ├─ input/                       旧输入，仅用于幂等登记

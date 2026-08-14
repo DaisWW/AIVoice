@@ -31,17 +31,32 @@ __all__ = [
 ]
 
 
-def model_paths(root: Path) -> dict[str, Path]:
+_MODEL_WEIGHTS = {
+    "v2": (
+        Path("gsv-v2final-pretrained")
+        / "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+        Path("gsv-v2final-pretrained") / "s2G2333k.pth",
+    ),
+    "v2ProPlus": (
+        Path("s1v3.ckpt"),
+        Path("v2Pro") / "s2Gv2ProPlus.pth",
+    ),
+}
+
+
+def model_paths(root: Path, version: str = "v2") -> dict[str, Path]:
+    try:
+        t2s_relative, vits_relative = _MODEL_WEIGHTS[version]
+    except KeyError as error:
+        raise ValueError(f"不支持的 GPT-SoVITS 版本: {version}") from error
     gpt_root = root / "tools" / "GPT-SoVITS"
     pretrained = gpt_root / "GPT_SoVITS" / "pretrained_models"
     return {
         "gpt_root": gpt_root,
         "bert": pretrained / "chinese-roberta-wwm-ext-large",
         "hubert": pretrained / "chinese-hubert-base",
-        "t2s": pretrained
-        / "gsv-v2final-pretrained"
-        / "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
-        "vits": pretrained / "gsv-v2final-pretrained" / "s2G2333k.pth",
+        "t2s": pretrained / t2s_relative,
+        "vits": pretrained / vits_relative,
         "langdetect": pretrained / "fast_langdetect" / "lid.176.bin",
         "g2pw": gpt_root / "GPT_SoVITS" / "text" / "G2PWModel",
     }
@@ -51,10 +66,10 @@ def missing_models(paths: dict[str, Path]) -> list[Path]:
     required = [
         paths["bert"] / "config.json",
         paths["bert"] / "tokenizer.json",
-        paths["bert"] / "pytorch_model.bin",
+        paths["bert"] / "model.safetensors",
         paths["hubert"] / "config.json",
         paths["hubert"] / "preprocessor_config.json",
-        paths["hubert"] / "pytorch_model.bin",
+        paths["hubert"] / "model.safetensors",
         paths["t2s"],
         paths["vits"],
         paths["langdetect"],
@@ -66,7 +81,8 @@ def missing_models(paths: dict[str, Path]) -> list[Path]:
 
 
 def create_tts(root: Path, settings: dict[str, Any]) -> Any:
-    paths = model_paths(root)
+    version = str(settings.get("version") or "v2")
+    paths = model_paths(root, version)
     missing = missing_models(paths)
     if missing:
         formatted = "\n".join(f"- {path}" for path in missing)
@@ -85,7 +101,7 @@ def create_tts(root: Path, settings: dict[str, Any]) -> Any:
             "custom": {
                 "device": settings.get("device", "cuda"),
                 "is_half": bool(settings.get("is_half", True)),
-                "version": "v2",
+                "version": version,
                 "t2s_weights_path": str(paths["t2s"]),
                 "vits_weights_path": str(paths["vits"]),
                 "bert_base_path": str(paths["bert"]),

@@ -33,11 +33,11 @@ if not exist "%ROOT%tools\GPT-SoVITS\GPT_SoVITS\pretrained_models\gsv-v2final-pr
   echo [ERROR] GPT-SoVITS 模型不完整，请先准备 pretrained_models。
   exit /b 1
 )
-if not exist "%ROOT%tools\GPT-SoVITS\GPT_SoVITS\pretrained_models\chinese-roberta-wwm-ext-large\pytorch_model.bin" (
+if not exist "%ROOT%tools\GPT-SoVITS\GPT_SoVITS\pretrained_models\chinese-roberta-wwm-ext-large\model.safetensors" (
   echo [ERROR] chinese-roberta 模型不完整，请先准备 pretrained_models。
   exit /b 1
 )
-if not exist "%ROOT%tools\GPT-SoVITS\GPT_SoVITS\pretrained_models\chinese-hubert-base\pytorch_model.bin" (
+if not exist "%ROOT%tools\GPT-SoVITS\GPT_SoVITS\pretrained_models\chinese-hubert-base\model.safetensors" (
   echo [ERROR] chinese-hubert 模型不完整，请先准备 pretrained_models。
   exit /b 1
 )

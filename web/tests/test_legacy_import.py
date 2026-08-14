@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+from app.api.payloads import JobPresenter
 from app.database import Database
 from app.legacy_import import LegacyImporter, legacy_id
+from app.profiles import Profiles
 
 from conftest import make_wav_bytes
 
@@ -43,6 +46,13 @@ def test_legacy_import_is_idempotent_and_preserves_display_text(
     job = database.jobs.get(legacy_id("legacy-job", "demo"))
     assert job is not None
     assert job["status"] == "completed"
+    presenter = JobPresenter(
+        SimpleNamespace(
+            database=database,
+            profiles=Profiles.load(settings.profiles_path),
+        )
+    )
+    assert presenter.payload(job)["output_type"] == "gpt_sovits_raw"
     item = database.jobs.items(str(job["id"]))[0]
     assert item["text"] == "正常台词"
     assert item["pronunciation"] == "mo-la"

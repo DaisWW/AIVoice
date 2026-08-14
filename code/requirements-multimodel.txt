@@ -1,0 +1,13 @@
+# Qwen3-TTS 0.6B / 1.7B Base
+accelerate==1.12.0
+einops>=0.8.0
+sox==1.5.0
+
+# CosyVoice3 0.5B
+conformer==0.3.2
+diffusers==0.29.0
+HyperPyYAML==1.2.3
+inflect==7.3.1
+modelscope==1.20.0
+omegaconf==2.3.0
+openai-whisper==20231117

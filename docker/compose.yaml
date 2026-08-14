@@ -31,6 +31,9 @@ services:
       - ${VOICE_LAB_OUTPUT_DIR:-./output}:/app/output:ro
       - ./tools/GPT-SoVITS/GPT_SoVITS/pretrained_models:/app/tools/GPT-SoVITS/GPT_SoVITS/pretrained_models:ro
       - ./tools/GPT-SoVITS/GPT_SoVITS/text/G2PWModel:/app/tools/GPT-SoVITS/GPT_SoVITS/text/G2PWModel:ro
+      - ./tools/CosyVoice:/app/tools/CosyVoice:ro
+      - ./tools/Qwen3-TTS:/app/tools/Qwen3-TTS:ro
+      - ./tools/models:/app/tools/models:ro
     healthcheck:
       test:
         - CMD

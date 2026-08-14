@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $codeRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $codeRoot
+$pythonPath = Join-Path $projectRoot '.venv-gpt-sovits\Scripts\python.exe'
 $modelRoot = Join-Path $projectRoot 'tools\GPT-SoVITS\GPT_SoVITS'
 $g2pwTarget = Join-Path $modelRoot 'text\G2PWModel'
 $modelScopeBase = 'https://www.modelscope.cn/models/XXXXRT/GPT-SoVITS-Pretrained/resolve/master'
@@ -21,6 +22,8 @@ $files = @(
     @{ Relative = 'pretrained_models/fast_langdetect/lid.176.ftz'; Bytes = 938013 },
     @{ Relative = 'pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt'; Bytes = 155315150 },
     @{ Relative = 'pretrained_models/gsv-v2final-pretrained/s2G2333k.pth'; Bytes = 106035259 },
+    @{ Relative = 'pretrained_models/s1v3.ckpt'; Bytes = 155284856 },
+    @{ Relative = 'pretrained_models/v2Pro/s2Gv2ProPlus.pth'; Bytes = 200125741 },
     @{ Relative = 'G2PWModel.zip'; Bytes = 588856634 }
 )
 
@@ -130,4 +133,12 @@ if (-not $existingOnnx) {
     Remove-Item -LiteralPath $resolvedZip -Force
 }
 
-Write-Host "GPT-SoVITS v2 最小推理模型已准备完成: $modelRoot"
+if (-not (Test-Path -LiteralPath $pythonPath)) {
+    throw "找不到 Python 环境，无法转换安全权重: $pythonPath"
+}
+& $pythonPath (Join-Path $codeRoot 'convert_gpt_sovits_transformers.py') --root $projectRoot
+if ($LASTEXITCODE -ne 0) {
+    throw 'GPT-SoVITS Transformers safetensors 转换失败'
+}
+
+Write-Host "GPT-SoVITS V2/V2ProPlus 推理模型已准备完成: $modelRoot"

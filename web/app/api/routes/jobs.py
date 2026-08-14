@@ -5,8 +5,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from ...domain import ScriptItem
-from ...reference_emotions import validate_emotion
 from ..access import owned_job
 from ..candidate_operations import (
     accept_candidate,
@@ -15,9 +13,9 @@ from ..candidate_operations import (
 )
 from ..dependencies import ClientId, ServicesDep
 from ..downloads import JobDownloadService
+from ..job_creation import JobCreationService
 from ..payloads import JobPresenter
 from ..schemas import CandidateAccept, CandidateRegenerate, JobRename
-from ..uploads import ScriptStorage
 
 
 router = APIRouter(prefix="/api/jobs")
@@ -35,39 +33,23 @@ async def create_job(
     name: Annotated[str, Form()] = "",
     candidate_count: Annotated[int, Form()] = 2,
     reference_emotion: Annotated[str, Form()] = "all",
+    generation_settings: Annotated[str, Form()] = "",
+    base_seed: Annotated[int | None, Form()] = None,
+    model_ids: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
-    try:
-        reference_emotion = validate_emotion(reference_emotion, allow_all=True)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    _validate_job(
-        services,
-        voice_id,
-        model_id,
-        name,
-        candidate_count,
-        reference_emotion,
-    )
-    selected_script_id, items = await _resolve_script(
-        services, client_id, script_id, script
-    )
-    job_id = services.database.jobs.create(
-        client_id,
-        selected_script_id,
-        voice_id,
-        model_id,
-        items,
+    jobs = await JobCreationService(services, client_id).create(
+        voice_id=voice_id,
+        model_id=model_id,
+        model_ids_json=model_ids,
+        script_id=script_id,
+        script=script,
+        name=name,
         candidate_count=candidate_count,
         reference_emotion=reference_emotion,
+        generation_settings_json=generation_settings,
+        base_seed=base_seed,
     )
-    if name.strip():
-        services.database.jobs.rename(job_id, name.strip(), client_id)
-    job = services.database.jobs.get(job_id)
-    if not job:  # pragma: no cover
-        raise HTTPException(status_code=500, detail="任务创建后未找到")
-    payload = JobPresenter(services).payload(job)
-    services.job_queue.submit(job_id)
-    return {"job": payload}
+    return {"job": jobs[0], "jobs": jobs}
 
 
 @router.get("")
@@ -196,50 +178,6 @@ def export_accepted(
     job = owned_job(services, job_id, client_id)
     name = JobPresenter(services).payload(job)["name"]
     return JobDownloadService(services).accepted_archive_response(job, str(name))
-
-
-def _validate_job(
-    services: ServicesDep,
-    voice_id: str,
-    model_id: str,
-    name: str,
-    candidate_count: int,
-    reference_emotion: str,
-) -> None:
-    if not services.database.voices.get(voice_id):
-        raise HTTPException(status_code=404, detail="找不到所选声音库")
-    if not services.database.voices.list_files(voice_id):
-        raise HTTPException(status_code=422, detail="所选声音库没有启用的录音")
-    if len(name.strip()) > 80:
-        raise HTTPException(status_code=422, detail="任务名称不能超过 80 个字符")
-    if candidate_count not in {2, 3}:
-        raise HTTPException(status_code=422, detail="每句候选数量只能选择 2 或 3")
-    if reference_emotion != "all":
-        files = services.database.voices.list_files(voice_id)
-        if not any(item.get("emotion_tag") == reference_emotion for item in files):
-            raise HTTPException(
-                status_code=422,
-                detail="所选声音库没有启用该语气分组的录音",
-            )
-    try:
-        services.profiles.model(model_id)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-
-
-async def _resolve_script(
-    services: ServicesDep,
-    client_id: str,
-    script_id: str,
-    upload: UploadFile | None,
-) -> tuple[str, list[ScriptItem]]:
-    storage = ScriptStorage(services)
-    if upload and upload.filename:
-        return await storage.store(upload, client_id)
-    if script_id.strip():
-        script, items = storage.read(script_id.strip())
-        return str(script["id"]), items
-    raise HTTPException(status_code=422, detail="请选择已有台本，或上传一份新台本")
 
 
 def _job_name(value: str) -> str:

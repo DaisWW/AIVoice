@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
 from pathlib import Path
@@ -8,6 +9,17 @@ from typing import Any
 from ...domain import ScriptItem
 from ..common import utc_now
 from ..connection import SQLiteConnection
+
+
+def _candidate_seed(
+    base_seed: int | None,
+    item_index: int,
+    ordinal: int,
+    candidate_count: int,
+) -> int:
+    if base_seed is None:
+        return secrets.randbelow(2_147_483_647) + 1
+    return base_seed + item_index * candidate_count + ordinal - 1
 
 
 class JobRepository:
@@ -23,10 +35,13 @@ class JobRepository:
         items: list[ScriptItem],
         candidate_count: int = 2,
         reference_emotion: str = "all",
+        generation_settings: dict[str, float | int] | None = None,
+        base_seed: int | None = None,
     ) -> str:
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = utc_now()
         item_rows = [self._item_row(job_id, item) for item in items]
+        settings_json = json.dumps(generation_settings or {}, separators=(",", ":"))
         with self._database.write() as connection:
             self._insert_job(
                 connection,
@@ -40,31 +55,56 @@ class JobRepository:
                 len(items),
                 timestamp,
             )
-            connection.executemany(
-                """
-                INSERT INTO job_items(
-                    id, job_id, sequence, source_line, text, pronunciation, generated_text,
-                    direction, emphasis, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
-                """,
+            self._insert_items(connection, item_rows)
+            self._insert_candidates(
+                connection,
                 item_rows,
-            )
-            connection.executemany(
-                """
-                INSERT INTO job_item_candidates(
-                    id, job_item_id, source_candidate_id, origin_type, origin_id,
-                    kind, name, mode, ordinal, seed, text, pronunciation,
-                    generated_text, direction, emphasis, settings_json,
-                    generation_settings_json, status, submitted_at
-                ) VALUES (?, ?, NULL, ?, ?, 'gpt', ?, 'initial', ?, ?, ?, ?, ?, ?, ?, ?, '{}', 'queued', ?)
-                """,
-                self._candidate_rows(
-                    item_rows,
-                    candidate_count,
-                    timestamp,
-                ),
+                candidate_count,
+                timestamp,
+                settings_json,
+                base_seed,
             )
         return job_id
+
+    @staticmethod
+    def _insert_items(connection: Any, rows: list[tuple[Any, ...]]) -> None:
+        connection.executemany(
+            """
+            INSERT INTO job_items(
+                id, job_id, sequence, source_line, text, pronunciation, generated_text,
+                direction, emphasis, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
+            """,
+            rows,
+        )
+
+    @classmethod
+    def _insert_candidates(
+        cls,
+        connection: Any,
+        item_rows: list[tuple[Any, ...]],
+        candidate_count: int,
+        timestamp: str,
+        settings_json: str,
+        base_seed: int | None,
+    ) -> None:
+        connection.executemany(
+            """
+            INSERT INTO job_item_candidates(
+                id, job_item_id, source_candidate_id, origin_type, origin_id,
+                kind, name, mode, ordinal, seed, text, pronunciation,
+                generated_text, direction, emphasis, settings_json,
+                generation_settings_json, status, submitted_at
+            ) VALUES (?, ?, NULL, ?, ?, 'gpt', ?, 'initial', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+            """,
+            cls._candidate_rows(
+                item_rows,
+                candidate_count,
+                timestamp,
+                settings_json,
+                base_seed,
+            ),
+        )
 
     @staticmethod
     def _insert_job(
@@ -121,9 +161,11 @@ class JobRepository:
         item_rows: list[tuple[Any, ...]],
         candidate_count: int,
         timestamp: str,
+        generation_settings_json: str,
+        base_seed: int | None,
     ) -> list[tuple[Any, ...]]:
         rows: list[tuple[Any, ...]] = []
-        for item_row in item_rows:
+        for item_index, item_row in enumerate(item_rows):
             item_id = str(item_row[0])
             for ordinal in range(1, candidate_count + 1):
                 candidate_id = f"candidate-{uuid.uuid4().hex[:14]}"
@@ -137,13 +179,16 @@ class JobRepository:
                         origin_id,
                         f"候选 {ordinal}",
                         ordinal,
-                        secrets.randbelow(2_147_483_647) + 1,
+                        _candidate_seed(
+                            base_seed, item_index, ordinal, candidate_count
+                        ),
                         item_row[4],
                         item_row[5],
                         item_row[6],
                         item_row[7],
                         item_row[8],
                         "{}",
+                        generation_settings_json,
                         timestamp,
                     )
                 )

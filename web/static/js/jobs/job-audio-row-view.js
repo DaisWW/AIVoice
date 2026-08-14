@@ -7,6 +7,13 @@ const CANDIDATE_STATUS = {
   queued: "排队",
 };
 
+const BACKEND_LABELS = {
+  "gpt-sovits-v2": "GPT-SoVITS 原音",
+  "gpt-sovits-v2ProPlus": "GPT-SoVITS V2ProPlus 原音",
+  "cosyvoice3": "CosyVoice3 原音",
+  "qwen3-tts": "Qwen3-TTS 原音",
+};
+
 export class JobAudioRowView {
   #candidateSelections = new Map();
 
@@ -47,6 +54,7 @@ export class JobAudioRowView {
       item.displayDuration,
       item.activeCandidate?.status,
       item.activeCandidate?.error,
+      item.activeCandidate?.processing_backend,
       item.status,
       item.error,
     ]);
@@ -63,6 +71,8 @@ export class JobAudioRowView {
         candidate.status,
         candidate.accepted,
         candidate.audio_url,
+        candidate.seed,
+        candidate.generation_settings,
       ]) || [],
     ]);
   }
@@ -75,8 +85,9 @@ export class JobAudioRowView {
     const download = item.displayDownloadUrl
       ? `<a href="${escapeHtml(item.displayDownloadUrl)}" download>下载</a>`
       : "";
+    const backend = item.activeCandidate?.processing_backend || item.processing_backend;
     return `
-      <div class="audio-head"><span>${duration} · GPT-SoVITS 原音</span>${download}</div>
+      <div class="audio-head"><span>${duration} · ${escapeHtml(BACKEND_LABELS[backend] || backend || "克隆原音")}</span>${download}</div>
       <audio controls preload="none" data-lazy-audio src="${escapeHtml(item.displayAudioUrl)}"></audio>
     `;
   }
@@ -114,6 +125,7 @@ export class JobAudioRowView {
     return `
       <div class="candidate-panel">
         <div class="candidate-chips">${chips || empty}</div>
+        ${this.#candidateSettings(item.activeCandidate)}
         ${this.#candidateActions(item)}
       </div>
     `;
@@ -144,10 +156,26 @@ export class JobAudioRowView {
     return `
       <div class="candidate-actions">
         <button type="button" class="row-action" data-candidate-action="regenerate"
-          data-item-id="${itemId}" data-candidate-id="${candidateId}">重做</button>
+          data-item-id="${itemId}" data-candidate-id="${candidateId}">参数重做</button>
         ${accept}
       </div>
     `;
+  }
+
+  #candidateSettings(candidate) {
+    if (!candidate) return "";
+    const settings = candidate.generation_settings || {};
+    const values = [
+      ["变化", settings.temperature],
+      ["语速", settings.speed_factor],
+      ["K", settings.top_k],
+      ["P", settings.top_p],
+      ["重复", settings.repetition_penalty],
+      ["Seed", candidate.seed],
+    ].filter(([, value]) => value !== undefined && value !== null);
+    if (!values.length) return "";
+    const summary = values.map(([label, value]) => `${label} ${value}`).join(" · ");
+    return `<div class="candidate-parameters"><span>实际生效参数</span><code>${escapeHtml(summary)}</code></div>`;
   }
 
   #emptyAudioMarkup(item) {

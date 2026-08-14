@@ -4,17 +4,18 @@ ARG TORCH_VERSION=2.5.1
 ARG TORCH_CUDA_INDEX=cu121
 
 LABEL org.opencontainers.image.title="Voice Lab"
-LABEL org.opencontainers.image.description="LAN voice generation and post-processing workspace"
+LABEL org.opencontainers.image.description="LAN multi-model voice cloning workspace"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app:/app/code:/app/tools/GPT-SoVITS \
+    PYTHONPATH=/app:/app/code:/app/tools/GPT-SoVITS:/app/tools/CosyVoice:/app/tools/CosyVoice/third_party/Matcha-TTS:/app/tools/Qwen3-TTS \
     HF_HOME=/app/web/data/cache/huggingface
 
 WORKDIR /app
 
 COPY code/requirements-gpt-sovits.txt /tmp/requirements-gpt-sovits.txt
+COPY code/requirements-multimodel.txt /tmp/requirements-multimodel.txt
 COPY web/requirements-web.txt /tmp/requirements-web.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -24,8 +25,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -m pip install --no-deps \
         --index-url "https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}" \
         "torchaudio==${TORCH_VERSION}+${TORCH_CUDA_INDEX}" \
-    && python -m pip install -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-web.txt \
-    && python -c "import jieba_fast, matplotlib, torch, torchaudio; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Runtime imports OK')" \
+    && python -m pip install --no-build-isolation "openai-whisper==20231117" \
+    && python -m pip install -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-multimodel.txt -r /tmp/requirements-web.txt \
+    && python -c "import accelerate, conformer, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
     && apt-get purge -y --auto-remove build-essential
 
 COPY . /app
@@ -33,8 +35,6 @@ COPY docker/entrypoint.sh /usr/local/bin/voice-lab-entrypoint
 RUN python -m pip uninstall -y praat-parselmouth pyloudnorm \
     && chmod 755 /usr/local/bin/voice-lab-entrypoint \
     && python -m compileall -q /app/code /app/voice_core /app/web/app
-
-LABEL org.opencontainers.image.description="LAN GPT-SoVITS voice cloning workspace"
 
 EXPOSE 18082
 
