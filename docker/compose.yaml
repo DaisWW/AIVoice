@@ -1,0 +1,43 @@
+services:
+  voice-lab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        BASE_IMAGE: ${VOICE_LAB_BASE_IMAGE:-docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime}
+        TORCH_VERSION: ${VOICE_LAB_TORCH_VERSION:-2.5.1}
+        TORCH_CUDA_INDEX: ${VOICE_LAB_TORCH_CUDA_INDEX:-cu121}
+        HTTP_PROXY: ${VOICE_LAB_BUILD_PROXY:-}
+        HTTPS_PROXY: ${VOICE_LAB_BUILD_PROXY:-}
+        http_proxy: ${VOICE_LAB_BUILD_PROXY:-}
+        https_proxy: ${VOICE_LAB_BUILD_PROXY:-}
+    image: ${VOICE_LAB_IMAGE:-voice-lab:local}
+    container_name: voice-lab
+    restart: unless-stopped
+    init: true
+    shm_size: "8gb"
+    gpus: all
+    environment:
+      PYTHONUNBUFFERED: "1"
+      VOICE_LAB_HOST: "0.0.0.0"
+      VOICE_LAB_PORT: "18082"
+      VOICE_LAB_ADMIN_TOKEN: ${VOICE_LAB_ADMIN_TOKEN:-}
+      VOICE_LAB_SEED_LEGACY: ${VOICE_LAB_SEED_LEGACY:-0}
+    ports:
+      - "${VOICE_LAB_PORT:-18082}:18082"
+    volumes:
+      - ${VOICE_LAB_DATA_DIR:-./docker-data}:/app/web/data
+      - ${VOICE_LAB_INPUT_DIR:-./input}:/app/input:ro
+      - ${VOICE_LAB_OUTPUT_DIR:-./output}:/app/output:ro
+      - ./tools/GPT-SoVITS/GPT_SoVITS/pretrained_models:/app/tools/GPT-SoVITS/GPT_SoVITS/pretrained_models:ro
+      - ./tools/GPT-SoVITS/GPT_SoVITS/text/G2PWModel:/app/tools/GPT-SoVITS/GPT_SoVITS/text/G2PWModel:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/health', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 5

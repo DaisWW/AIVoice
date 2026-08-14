@@ -1,0 +1,165 @@
+:root {
+  --bg: #111216;
+  --surface: #181a20;
+  --surface-raised: #1d2027;
+  --surface-soft: #1b1d23;
+  --surface-hover: #23262e;
+  --ink: #f2f1ee;
+  --ink-soft: #cbcbd0;
+  --muted: #9298a4;
+  --faint: #626977;
+  --line: #292d36;
+  --line-strong: #3a404c;
+  --accent: #9da8e5;
+  --accent-dark: #c2c8f0;
+  --accent-action: #6572ad;
+  --accent-action-hover: #7481bc;
+  --accent-soft: #292e49;
+  --warm: #dda866;
+  --warm-soft: #3a2d21;
+  --cool: #78b4c0;
+  --cool-soft: #20343b;
+  --danger: #e0878f;
+  --danger-soft: #3b2429;
+  --shadow: 0 22px 64px rgba(0, 0, 0, .5);
+  --radius: 6px;
+  --topbar-height: 68px;
+  color-scheme: dark;
+  color: var(--ink);
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  overflow: hidden;
+  font-size: 14px;
+}
+
+* {
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  background-clip: padding-box;
+}
+
+::selection {
+  background: rgba(157, 168, 229, .3);
+  color: var(--ink);
+}
+
+.app-loading .app-shell {
+  opacity: 0;
+}
+
+.app-shell {
+  opacity: 1;
+  transition: opacity .18s ease;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button,
+a,
+select,
+input[type="checkbox"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  outline-offset: 2px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: .56;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+input,
+select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 82px;
+  padding: 10px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(157, 168, 229, .15);
+  outline: none;
+}
+
+input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.app-shell {
+  height: 100dvh;
+  min-height: 580px;
+  overflow: hidden;
+}

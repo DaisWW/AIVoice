@@ -1,0 +1,87 @@
+# Voice Lab Docker 部署
+
+## 运行范围
+
+容器只运行 GPT-SoVITS V2 声音克隆，不包含降噪、变调、EQ、压缩、混响、响度统一或其他后期处理。生成结果直接保存为 GPT-SoVITS 原音。
+
+## 首次准备（只做一次）
+
+先停止正在运行的本地 Voice Lab，再在工程根目录执行：
+
+```powershell
+cd C:\Workspace\Git\voice
+.\.venv-gpt-sovits\Scripts\python.exe docker\prepare_data.py
+```
+
+脚本会创建 `docker-data`，把现有 `web\data` 复制为独立副本，并把 Windows 绝对路径改成容器路径。原 `web\data` 不会被修改。部署 BAT 不会调用此脚本，也不会自动复制、覆盖或删除数据。
+
+如果确认要重新制作副本，先备份 `docker-data`，再显式执行：
+
+```powershell
+.\.venv-gpt-sovits\Scripts\python.exe docker\prepare_data.py --allow-existing
+```
+
+## 一键部署
+
+双击工程根目录的 `docker_voice_lab.bat`，或执行：
+
+```powershell
+.\docker_voice_lab.bat
+```
+
+首次运行会生成 `docker\voice-lab.env` 中的随机管理员引导密钥，并构建镜像。后续再次运行只执行幂等的 `compose up`，不会迁移数据；代码更新后使用：
+
+```powershell
+.\docker_voice_lab.bat build
+```
+
+常用命令：
+
+```powershell
+.\docker_voice_lab.bat status
+.\docker_voice_lab.bat logs
+.\docker_voice_lab.bat stop
+```
+
+本机管理员 URL 会由 BAT 输出并自动打开；局域网用户使用服务器 IPv4 地址加 `:18082`。Windows 防火墙只建议放行 `LocalSubnet` 的 TCP 18082。
+
+## 镜像与模型
+
+默认基础镜像固定为 CUDA 12.1 / PyTorch 2.5.1 / Torchaudio 2.5.1，并在当前 RTX 4070 环境实测，不使用 `latest`。Docker Hub 不通时可以在 `docker\voice-lab.env` 修改 `VOICE_LAB_BASE_IMAGE` 为可访问的同版本镜像源；替换源时不能改变 PyTorch/CUDA 组合。
+
+依赖下载较慢时，可在同一 env 文件设置构建代理。宿主机代理若为 `127.0.0.1:7897`，容器内要使用：
+
+```text
+VOICE_LAB_BUILD_PROXY=http://host.docker.internal:7897
+```
+
+不需要代理时保持空值。该配置只用于构建镜像，不会写入最终运行环境。
+
+模型不会打进应用层镜像，Compose 以只读方式挂载：
+
+```text
+tools\GPT-SoVITS\GPT_SoVITS\pretrained_models
+tools\GPT-SoVITS\GPT_SoVITS\text\G2PWModel
+```
+
+这样镜像更新不会重复占用约 1.8 GB 模型空间，模型也可以独立备份。
+
+## 数据持久化
+
+```text
+docker-data/  -> /app/web/data   SQLite、上传、克隆任务和导出
+input/        -> /app/input      旧声音库和台本（只读）
+output/       -> /app/output     旧 CLI 结果（只读）
+```
+
+容器内只运行一个 Uvicorn worker 和一个 GPU 队列，避免重复加载模型导致显存耗尽。`docker-data` 是普通目录，停止或重建容器不会删除它。
+
+## 验收
+
+```powershell
+docker compose --project-directory C:\Workspace\Git\voice `
+  --env-file C:\Workspace\Git\voice\docker\voice-lab.env `
+  -f C:\Workspace\Git\voice\docker\compose.yaml ps
+```
+
+状态应为 `healthy`。网页 `/api/health` 应同时显示 `ok: true`、模型缺失列表为空和 GPU 队列存活。正式验收再提交一条短台本生成，确认音频能播放和下载。

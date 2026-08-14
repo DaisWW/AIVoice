@@ -1,0 +1,4 @@
+-r requirements-web.txt
+black>=24,<27
+pytest>=8,<10
+ruff>=0.9,<1

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN" class="app-loading">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#111216">
+  <title>Voice Lab</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      background: #111216;
+      color-scheme: dark;
+    }
+
+    html.app-loading .app-shell {
+      opacity: 0;
+    }
+  </style>
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/shell.css">
+  <link rel="stylesheet" href="/assets/css/jobs.css">
+  <link rel="stylesheet" href="/assets/css/voices.css">
+  <link rel="stylesheet" href="/assets/css/overlays.css">
+  <link rel="stylesheet" href="/assets/css/motion.css">
+  <link rel="stylesheet" href="/assets/css/responsive.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Voice Lab 工作台">
+        <span class="brand-mark">VL</span>
+        <span class="brand-copy">
+          <strong>VOICE LAB</strong>
+          <small>角色声音工作台</small>
+        </span>
+      </a>
+
+      <nav class="topnav" aria-label="主导航">
+        <button id="workspaceNav" class="nav-button active" type="button">工作台</button>
+        <button id="libraryNav" class="nav-button" type="button">声音库</button>
+      </nav>
+
+      <div class="topbar-actions">
+        <a id="adminLink" class="admin-link" href="/admin" hidden>管理员</a>
+        <div class="identity">
+          <span id="identityRole">当前用户</span>
+          <code id="clientId">--</code>
+        </div>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <aside class="task-sidebar" aria-label="生成任务">
+        <div class="sidebar-actions">
+          <button id="openCreate" class="new-job-button" type="button">
+            <span aria-hidden="true">+</span>
+            新建生成
+          </button>
+        </div>
+
+        <div class="sidebar-heading">
+          <div>
+            <span class="section-kicker">GENERATIONS</span>
+            <h1 id="jobListTitle">我的生成记录</h1>
+          </div>
+          <span id="jobCount" class="count-badge">0</span>
+        </div>
+
+        <div class="filter-tabs" role="tablist" aria-label="任务状态筛选">
+          <button class="filter-tab active" type="button" data-filter="all">全部</button>
+          <button class="filter-tab" type="button" data-filter="active">进行中</button>
+          <button class="filter-tab" type="button" data-filter="completed">已完成</button>
+        </div>
+
+        <div id="jobList" class="task-list" aria-live="polite"></div>
+
+        <div class="queue-summary">
+          <span><i id="workerDot"></i>单 GPU 队列</span>
+          <strong id="queueSummary">--</strong>
+        </div>
+      </aside>
+
+      <main class="main-stage">
+        <section id="workspaceView" class="view active" aria-label="任务详情" aria-hidden="false">
+          <article id="jobDetail" class="job-detail">
+            <div class="stage-empty">
+              <span class="empty-number">00</span>
+              <h2>选择一条生成记录</h2>
+              <p>完整台本、发音标记与逐段音频将在这里展示。</p>
+            </div>
+          </article>
+        </section>
+
+        <section id="libraryView" class="view library-view" aria-label="声音库设置" aria-hidden="true">
+          <header class="library-header">
+            <div>
+              <span class="section-kicker">VOICE SOURCES</span>
+              <h2>声音库设置</h2>
+            </div>
+            <button id="createVoice" class="secondary-button" type="button">创建声音库</button>
+          </header>
+
+          <div class="library-workspace">
+            <aside class="voice-browser">
+              <div class="voice-browser-title">
+                <strong>全部声音</strong>
+                <span id="voiceCount">0</span>
+              </div>
+              <div id="voiceList" class="voice-list" aria-live="polite"></div>
+            </aside>
+            <article id="voiceDetail" class="voice-detail">
+              <div class="stage-empty compact">
+                <span class="empty-number">音频</span>
+                <h2>选择一个声音库</h2>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+  <aside id="createDrawer" class="create-drawer" aria-hidden="true" aria-label="新建生成任务">
+    <header class="drawer-header">
+      <div>
+        <span class="section-kicker">NEW GENERATION</span>
+        <h2>新建生成</h2>
+      </div>
+      <button id="closeCreate" class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+    </header>
+
+    <form id="jobForm" class="drawer-form">
+      <div class="form-section">
+        <label class="field-label" for="taskName">任务名称 <small>可选</small></label>
+        <input id="taskName" name="name" type="text" maxlength="80" placeholder="默认使用台本名称">
+      </div>
+
+      <fieldset class="form-section">
+        <legend>台本</legend>
+        <div class="choice-tabs">
+          <button class="choice-tab active" type="button" data-script-mode="existing">选择已有台本</button>
+          <button class="choice-tab" type="button" data-script-mode="upload">上传新台本</button>
+        </div>
+        <div id="existingScriptField" class="script-field active">
+          <label class="field-label" for="scriptSelect">服务器台本</label>
+          <select id="scriptSelect" name="script_id" required></select>
+        </div>
+        <div id="uploadScriptField" class="script-field">
+          <label class="upload-field" for="scriptFile">
+            <span id="scriptFileName">选择台本文件</span>
+            <small>TXT / MD / CSV / DOCX</small>
+          </label>
+          <input id="scriptFile" name="script" type="file" accept=".txt,.md,.csv,.docx">
+          <a class="template-link" href="/assets/templates/script-template.txt" download>下载 TXT 格式模板</a>
+          <a class="template-link" href="/assets/templates/pronunciation-guide.md" download>下载发音标记说明</a>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>声音</legend>
+        <label class="field-label" for="voiceSelect">声音库</label>
+        <select id="voiceSelect" name="voice_id" required></select>
+        <div class="two-columns compact-fields">
+          <div>
+            <label class="field-label" for="referenceEmotionSelect">参考语气</label>
+            <select id="referenceEmotionSelect" name="reference_emotion"></select>
+          </div>
+          <div>
+            <label class="field-label" for="candidateCount">每句候选</label>
+            <select id="candidateCount" name="candidate_count">
+              <option value="2" selected>2 个</option>
+              <option value="3">3 个</option>
+            </select>
+          </div>
+        </div>
+        <button id="drawerLibraryLink" class="text-button" type="button">管理声音库</button>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <label class="field-label" for="modelSelect">声音克隆模型</label>
+        <select id="modelSelect" name="model_id" required></select>
+        <small id="modelDescription" class="field-note"></small>
+        <p class="clone-output-note">直接输出 GPT-SoVITS 原音，不进行降噪、变调、EQ、压缩、混响或响度处理。</p>
+      </fieldset>
+
+      <div class="drawer-spacer"></div>
+      <div class="submit-summary">
+        <span>任务将进入单 GPU 队列</span>
+        <strong id="estimatedSubmit">等待时间将在提交后计算</strong>
+      </div>
+      <button id="submitJob" class="submit-button" type="submit">
+        <span>加入生成队列</span>
+      </button>
+    </form>
+  </aside>
+
+  <dialog id="renameDialog" class="modal">
+    <form id="renameForm" method="dialog">
+      <header>
+        <div>
+          <span class="section-kicker">RENAME</span>
+          <h2>重命名任务</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="renameDialog" title="关闭" aria-label="关闭">×</button>
+      </header>
+      <label class="field-label" for="renameInput">任务名称</label>
+      <input id="renameInput" name="name" type="text" maxlength="80" required>
+      <div class="modal-actions">
+        <button class="quiet-button" type="button" data-close-dialog="renameDialog">取消</button>
+        <button class="primary-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="voiceDialog" class="modal voice-modal">
+    <form id="voiceCreateForm" method="dialog">
+      <header>
+        <div>
+          <span class="section-kicker">NEW VOICE SOURCE</span>
+          <h2>创建声音库</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="voiceDialog" title="关闭" aria-label="关闭">×</button>
+      </header>
+      <label class="field-label" for="voiceName">声音库名称</label>
+      <input id="voiceName" name="name" type="text" maxlength="80" required>
+      <label class="field-label" for="voiceNotes">备注</label>
+      <textarea id="voiceNotes" name="notes" rows="3" maxlength="500" placeholder="录音者、音色或录制环境"></textarea>
+      <label class="upload-field" for="voiceFiles">
+        <span id="voiceFileName">选择真人录音</span>
+        <small>WAV / MP3 / M4A 等，可多选</small>
+      </label>
+      <input id="voiceFiles" name="files" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" multiple required>
+      <div class="modal-actions">
+        <button class="quiet-button" type="button" data-close-dialog="voiceDialog">取消</button>
+        <button id="submitVoice" class="primary-button" type="submit">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="candidateRegenerateDialog" class="modal candidate-modal">
+    <form id="candidateRegenerateForm" method="dialog">
+      <header>
+        <div>
+          <span class="section-kicker">NEW TAKE</span>
+          <h2>单句重做</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="candidateRegenerateDialog" title="关闭" aria-label="关闭">×</button>
+      </header>
+      <div class="candidate-source-line"><span>参考候选</span><strong id="candidateSource">当前采用候选</strong></div>
+      <div class="candidate-edit-grid">
+        <label class="wide" for="candidateText">
+          <span class="field-label">正常台词</span>
+          <textarea id="candidateText" rows="2" maxlength="1000" required></textarea>
+        </label>
+        <label class="wide" for="candidatePronunciation">
+          <span class="field-label">发音标记</span>
+          <textarea id="candidatePronunciation" rows="2" maxlength="1000" required></textarea>
+        </label>
+        <label for="candidateDirection">
+          <span class="field-label">尾音方向</span>
+          <select id="candidateDirection">
+            <option value="auto">跟随发音标记</option>
+            <option value="flat">平稳</option>
+            <option value="rise">上扬</option>
+            <option value="fall">下沉</option>
+          </select>
+        </label>
+        <label for="candidateName">
+          <span class="field-label">候选名称</span>
+          <input id="candidateName" type="text" maxlength="80">
+        </label>
+      </div>
+      <section class="generation-take-controls">
+        <label for="candidateTemperature"><span>表现变化</span><output id="candidateTemperatureValue">0.8</output><input id="candidateTemperature" type="range" min="0.1" max="1.5" step="0.05"></label>
+        <label for="candidateSpeed"><span>生成语速</span><output id="candidateSpeedValue">1.0</output><input id="candidateSpeed" type="range" min="0.65" max="1.5" step="0.01"></label>
+      </section>
+      <details class="candidate-advanced">
+        <summary>高级生成参数</summary>
+        <div class="candidate-edit-grid advanced-generation-grid">
+          <label for="candidateTopK"><span class="field-label">候选词范围</span><input id="candidateTopK" type="range" min="1" max="100" step="1"><output id="candidateTopKValue">15</output></label>
+          <label for="candidateTopP"><span class="field-label">累计概率范围</span><input id="candidateTopP" type="range" min="0.1" max="1" step="0.01"><output id="candidateTopPValue">0.9</output></label>
+          <label for="candidatePenalty"><span class="field-label">重复抑制</span><input id="candidatePenalty" type="range" min="1" max="2" step="0.01"><output id="candidatePenaltyValue">1.25</output></label>
+          <label for="candidateSeed"><span class="field-label">随机种子</span><input id="candidateSeed" type="number" min="0" max="2147483647" placeholder="自动随机"></label>
+        </div>
+      </details>
+      <div class="modal-actions">
+        <button class="quiet-button" type="button" data-close-dialog="candidateRegenerateDialog">取消</button>
+        <button class="primary-button" type="submit">加入 GPT 队列</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

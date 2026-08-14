@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from app.script_parser import (
+    ScriptFormatError,
+    analyze_script_pronunciation,
+    parse_content,
+    parse_guide,
+)
+
+
+def test_parse_supported_text_and_csv_formats() -> None:
+    text_items = parse_content(
+        "台词甲 | mo-la？↗\n台词乙\tGU-la。↘\nmo……la……".encode("utf-8"),
+        ".txt",
+    )
+    csv_items = parse_content(
+        "text,pronunciation\n台词甲,mo-la\n".encode("utf-8"),
+        ".csv",
+    )
+
+    assert [item.text for item in text_items[:2]] == ["台词甲", "台词乙"]
+    assert text_items[0].direction == "rise"
+    assert text_items[1].emphasis == ("gu",)
+    assert text_items[2].text == "摸……啦……"
+    assert csv_items[0].generated_text == "摸啦。"
+
+
+@pytest.mark.parametrize(
+    ("content", "suffix", "message"),
+    [
+        (b"text", ".exe", "仅支持"),
+        (b"xx-unknown", ".txt", "没有拟声汉字映射"),
+        (b"\xff\xfe\x00", ".txt", "UTF-8"),
+        (b"not a docx", ".docx", "DOCX"),
+    ],
+)
+def test_reject_invalid_scripts(content: bytes, suffix: str, message: str) -> None:
+    with pytest.raises(ScriptFormatError, match=message):
+        parse_content(content, suffix)
+
+
+def test_parse_legacy_guide_groups_multiline_text(tmp_path: Path) -> None:
+    guide = tmp_path / "guide.md"
+    guide.write_text(
+        "## 愚公\n\n【1 发音】mo-la\n第一行\n第二行\n\n表演：平静\n\n【静默】\n不生成\n",
+        encoding="utf-8",
+    )
+
+    sections = parse_guide(guide)
+
+    assert list(sections) == ["愚公"]
+    assert sections["愚公"][0].text == "第一行\n第二行"
+    assert sections["愚公"][0].pronunciation == "mo-la"
+
+
+@pytest.mark.parametrize(
+    ("pronunciation", "expected"),
+    [
+        ("shu—la", (1, 0)),
+        ("shu——la", (2, 0)),
+        ("shu–la", (1, 0)),
+        ("shu―la", (1, 0)),
+        ("shu－la", (1, 0)),
+        ("嗯——……ha", (2, 0)),
+    ],
+)
+def test_long_dashes_encode_hold_units(
+    pronunciation: str, expected: tuple[int, ...]
+) -> None:
+    item = parse_content(pronunciation.encode("utf-8"), ".txt")[0]
+
+    assert item.hold_units == expected
+    assert not any(dash in item.generated_text for dash in "—–―－")
+
+
+def test_prosody_indices_include_direct_chinese_syllables() -> None:
+    analysis = analyze_script_pronunciation("嗯——……GU-la")
+
+    assert analysis.emphasis_indices == (1,)
+    assert analysis.hold_units == (2, 0, 0)
+
+
+@pytest.mark.parametrize("pronunciation", ["—mo", "mo———————"])
+def test_invalid_hold_marks_are_rejected(pronunciation: str) -> None:
+    with pytest.raises(ScriptFormatError, match="延音"):
+        parse_content(pronunciation.encode("utf-8"), ".txt")

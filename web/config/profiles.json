@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "id": "gpt_sovits_v2_stable",
+      "label": "GPT-SoVITS V2 稳定",
+      "description": "较稳的节奏和随机性",
+      "clone_overrides": {
+        "top_k": 15,
+        "top_p": 0.88,
+        "temperature": 0.72,
+        "repetition_penalty": 1.28
+      }
+    },
+    {
+      "id": "gpt_sovits_v2_expressive",
+      "label": "GPT-SoVITS V2 表现",
+      "description": "保留更多语气和发音变化",
+      "clone_overrides": {
+        "top_k": 20,
+        "top_p": 0.93,
+        "temperature": 0.86,
+        "repetition_penalty": 1.18
+      }
+    }
+  ]
+}
