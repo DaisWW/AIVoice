@@ -10,4 +10,6 @@ HyperPyYAML==1.2.3
 inflect==7.3.1
 modelscope==1.20.0
 omegaconf==2.3.0
-openai-whisper==20231117
+# Whisper is installed without dependencies in Docker to preserve the verified Torch build.
+more-itertools
+tiktoken

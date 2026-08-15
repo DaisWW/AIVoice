@@ -20,13 +20,14 @@ COPY web/requirements-web.txt /tmp/requirements-web.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends build-essential sox \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-deps \
         --index-url "https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}" \
         "torchaudio==${TORCH_VERSION}+${TORCH_CUDA_INDEX}" \
-    && python -m pip install --no-build-isolation "openai-whisper==20231117" \
+    && python -m pip install --no-build-isolation --no-deps "openai-whisper==20250625" \
     && python -m pip install -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-multimodel.txt -r /tmp/requirements-web.txt \
+    && sox --version \
     && python -c "import accelerate, conformer, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
     && apt-get purge -y --auto-remove build-essential
 
