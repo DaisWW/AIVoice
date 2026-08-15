@@ -34,6 +34,20 @@ def test_model_paths_select_v2_pro_plus_weights(tmp_path: Path) -> None:
 
     assert paths["t2s"].name == "s1v3.ckpt"
     assert paths["vits"].parts[-2:] == ("v2Pro", "s2Gv2ProPlus.pth")
+    assert paths["sv"].parts[-2:] == (
+        "sv",
+        "pretrained_eres2netv2w24s4ep4.ckpt",
+    )
+
+
+def test_model_check_requires_v2_pro_plus_speaker_verification_weights(
+    tmp_path: Path,
+) -> None:
+    paths = model_paths(tmp_path, "v2ProPlus")
+
+    missing = missing_models(paths)
+
+    assert paths["sv"] in missing
 
 
 def test_model_paths_reject_unknown_version(tmp_path: Path) -> None:

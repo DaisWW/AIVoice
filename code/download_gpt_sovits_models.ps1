@@ -24,6 +24,7 @@ $files = @(
     @{ Relative = 'pretrained_models/gsv-v2final-pretrained/s2G2333k.pth'; Bytes = 106035259 },
     @{ Relative = 'pretrained_models/s1v3.ckpt'; Bytes = 155284856 },
     @{ Relative = 'pretrained_models/v2Pro/s2Gv2ProPlus.pth'; Bytes = 200125741 },
+    @{ Relative = 'pretrained_models/sv/pretrained_eres2netv2w24s4ep4.ckpt'; Bytes = 107528697 },
     @{ Relative = 'G2PWModel.zip'; Bytes = 588856634 }
 )
 

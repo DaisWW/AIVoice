@@ -51,7 +51,7 @@ def model_paths(root: Path, version: str = "v2") -> dict[str, Path]:
         raise ValueError(f"不支持的 GPT-SoVITS 版本: {version}") from error
     gpt_root = root / "tools" / "GPT-SoVITS"
     pretrained = gpt_root / "GPT_SoVITS" / "pretrained_models"
-    return {
+    paths = {
         "gpt_root": gpt_root,
         "bert": pretrained / "chinese-roberta-wwm-ext-large",
         "hubert": pretrained / "chinese-hubert-base",
@@ -60,6 +60,9 @@ def model_paths(root: Path, version: str = "v2") -> dict[str, Path]:
         "langdetect": pretrained / "fast_langdetect" / "lid.176.bin",
         "g2pw": gpt_root / "GPT_SoVITS" / "text" / "G2PWModel",
     }
+    if version == "v2ProPlus":
+        paths["sv"] = pretrained / "sv" / "pretrained_eres2netv2w24s4ep4.ckpt"
+    return paths
 
 
 def missing_models(paths: dict[str, Path]) -> list[Path]:
@@ -74,6 +77,8 @@ def missing_models(paths: dict[str, Path]) -> list[Path]:
         paths["vits"],
         paths["langdetect"],
     ]
+    if "sv" in paths:
+        required.append(paths["sv"])
     missing = [path for path in required if not path.is_file()]
     if not paths["g2pw"].is_dir() or not any(paths["g2pw"].rglob("*.onnx")):
         missing.append(paths["g2pw"])
