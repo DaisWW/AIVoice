@@ -8,6 +8,7 @@ const TITLES = {
   users: ["IDENTITIES", "账户管理"],
   projects: ["WORKSPACES", "全部项目"],
   jobs: ["GENERATION QUEUE", "生成任务"],
+  assets: ["ASSET REGISTRY", "资产数据"],
   logs: ["AUDIT TRAIL", "审计日志"],
   providers: ["MODEL SERVICES", "模型与三方服务"],
 };
@@ -34,7 +35,14 @@ class AdminApp {
     users: [],
     projects: [],
     jobs: [],
+    logs: [],
+    assets: { voices: [], scripts: [] },
+    assetsLoaded: false,
+    userFilter: { search: "", status: "all" },
+    projectFilter: { search: "" },
     jobFilter: { search: "", status: "all", projectId: "" },
+    assetFilter: { search: "", type: "all", projectId: "all" },
+    logFilter: { search: "", result: "all" },
   };
   #auth = new AuthController(this.#api, "adminShell", (user) => this.#boot(user));
   #providers = new ProviderController({ state: this.#state, api: this.#api, shell: this.#shell });
@@ -63,6 +71,18 @@ class AdminApp {
     $("#userCreateForm").addEventListener("submit", (event) => this.#createUser(event));
     $("#resetPasswordForm").addEventListener("submit", (event) => this.#resetPassword(event));
     $("#adminUserTable").addEventListener("click", (event) => this.#userAction(event));
+    $("#adminUserSearch").addEventListener("input", (event) => {
+      this.#state.userFilter.search = event.currentTarget.value;
+      this.#renderUsers(this.#state.users);
+    });
+    $("#adminUserStatus").addEventListener("change", (event) => {
+      this.#state.userFilter.status = event.currentTarget.value;
+      this.#renderUsers(this.#state.users);
+    });
+    $("#adminProjectSearch").addEventListener("input", (event) => {
+      this.#state.projectFilter.search = event.currentTarget.value;
+      this.#renderProjects(this.#state.projects);
+    });
     $("#adminJobSearch").addEventListener("input", (event) => {
       this.#state.jobFilter.search = event.currentTarget.value;
       this.#state.jobFilter.projectId = "";
@@ -74,8 +94,29 @@ class AdminApp {
       this.#renderJobs();
     });
     $("#adminJobTable").addEventListener("click", (event) => this.#jobAction(event));
-    $("#adminProjectTable").addEventListener("click", (event) => this.#jobAction(event));
+    $("#adminProjectTable").addEventListener("click", (event) => this.#projectAction(event));
     $("#adminJobDetail").addEventListener("click", (event) => this.#jobAction(event));
+    $("#adminAssetSearch").addEventListener("input", (event) => {
+      this.#state.assetFilter.search = event.currentTarget.value;
+      this.#renderAssets();
+    });
+    $("#adminAssetType").addEventListener("change", (event) => {
+      this.#state.assetFilter.type = event.currentTarget.value;
+      this.#renderAssets();
+    });
+    $("#adminAssetProject").addEventListener("change", (event) => {
+      this.#state.assetFilter.projectId = event.currentTarget.value;
+      this.#renderAssets();
+    });
+    $("#adminLogSearch").addEventListener("input", (event) => {
+      this.#state.logFilter.search = event.currentTarget.value;
+      this.#renderLogs(this.#state.logs);
+    });
+    $("#adminLogResult").addEventListener("change", (event) => {
+      this.#state.logFilter.result = event.currentTarget.value;
+      this.#renderLogs(this.#state.logs);
+    });
+    $("#adminProjectDetail").addEventListener("click", (event) => this.#projectAction(event));
     this.#providers.bind();
   }
 
@@ -118,10 +159,13 @@ class AdminApp {
       this.#state.users = users.users;
       this.#state.projects = projects.projects;
       this.#state.jobs = jobs.jobs;
+      this.#state.logs = logs.logs;
       this.#renderUsers(this.#state.users);
       this.#renderProjects(this.#state.projects);
       this.#renderJobs();
-      this.#renderLogs(logs.logs);
+      this.#renderLogs(this.#state.logs);
+      this.#renderAssetProjectOptions();
+      if (this.#state.assetsLoaded) void this.#loadAssets();
       this.#providers.renderLocalModels();
       await this.#providers.ensureLoaded();
     } catch (error) {
@@ -141,6 +185,21 @@ class AdminApp {
       panel.hidden = panel.dataset.adminPanel !== name;
       panel.classList.toggle("active", panel.dataset.adminPanel === name);
     });
+    if (name === "assets" && this.#state.isAdmin && !this.#state.assetsLoaded) {
+      void this.#loadAssets();
+    }
+  }
+
+  async #loadAssets() {
+    $("#adminAssetTable").innerHTML = '<p class="muted-empty">正在读取资产数据…</p>';
+    try {
+      this.#state.assets = await this.#api.get("/api/admin/assets?limit=500");
+      this.#state.assetsLoaded = true;
+      this.#renderAssets();
+    } catch (error) {
+      $("#adminAssetTable").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+      this.#shell.toast(error.message, true);
+    }
   }
 
   #renderOverview(payload) {
@@ -175,34 +234,120 @@ class AdminApp {
       ? models.map((model) => `<div class="runtime-row"><span class="runtime-dot ${model.available ? "ok" : "off"}"></span><div><strong>${escapeHtml(model.label || model.id || "模型")}</strong><small>${model.available ? "可用" : escapeHtml(model.reason || "未安装")}</small></div><em>${model.loaded ? "已加载" : "待机"}</em></div>`).join("")
       : '<p class="muted-empty">暂无模型状态</p>';
     $("#adminAuditPreview").innerHTML = payload.recent_audit.slice(0, 6).map(auditRow).join("") || '<p class="muted-empty">暂无操作记录</p>';
+    this.#renderInsights(payload.insights || {}, payload.queue || {});
+  }
+
+  #renderInsights(insights, queue) {
+    const activity = insights.activity || [];
+    const maxTotal = Math.max(1, ...activity.map((item) => Number(item.total || 0)));
+    $("#adminActivityChart").innerHTML = activity.length
+      ? activity.map((item) => {
+        const total = Number(item.total || 0);
+        const completed = Number(item.completed || 0);
+        const failed = Number(item.failed || 0);
+        const height = Math.max(6, Math.round((total / maxTotal) * 100));
+        return `<div class="activity-column" title="${escapeHtml(item.day)} · ${total} 个任务"><div class="activity-bar" style="--bar-height:${height}%"><i style="--failed-height:${total ? Math.round((failed / total) * 100) : 0}%"></i></div><strong>${total}</strong><small>${escapeHtml(item.day.slice(5))}</small><em>${completed} 成功 · ${failed} 失败</em></div>`;
+      }).join("")
+      : '<p class="muted-empty">近期开启后会显示趋势</p>';
+    const recentTotal = activity.reduce((sum, item) => sum + Number(item.total || 0), 0);
+    const recentFailed = activity.reduce((sum, item) => sum + Number(item.failed || 0), 0);
+    $("#adminActivitySummary").textContent = `${recentTotal} 个任务 · ${recentFailed} 个失败`;
+
+    const active = Number(queue.running || 0) + Number(queue.queued || 0);
+    const worker = queue.worker_alive ? "在线" : "离线";
+    $("#adminHealthSummary").innerHTML = `
+      <div><span class="health-dot ${queue.worker_alive ? "ok" : "bad"}"></span><strong>队列 Worker</strong><b>${worker}</b></div>
+      <div><span class="health-dot ${active ? "busy" : "ok"}"></span><strong>待处理任务</strong><b>${active}</b></div>
+      <div><span class="health-dot ok"></span><strong>活跃会话</strong><b>${Number(insights.active_sessions || 0)}</b></div>
+      <small>最近任务 ${formatDate(insights.last_job_at)} · 最近操作 ${formatDate(insights.last_audit_at)}</small>
+    `;
+    const failures = insights.failure_reasons || [];
+    $("#adminFailureReasons").innerHTML = failures.length
+      ? `<h3>失败原因</h3>${failures.map((item) => `<div class="failure-row"><span>${escapeHtml(item.reason)}</span><strong>${item.count}</strong></div>`).join("")}`
+      : '<p class="muted-empty">暂无失败任务</p>';
+    $("#adminTopUsers").innerHTML = rankingRows(insights.top_users, (item) => `${item.jobs} 个任务 · ${item.completed} 成功 · ${item.failed} 失败`);
+    $("#adminTopProjects").innerHTML = rankingRows(insights.top_projects, (item) => `${item.jobs} 个任务 · ${item.completed} 成功 · ${item.failed} 失败`);
   }
 
   #renderUsers(users) {
+    const search = this.#state.userFilter.search.trim().toLowerCase();
+    const status = this.#state.userFilter.status;
+    const filtered = users.filter((user) => {
+      if (status !== "all" && user.status !== status) return false;
+      if (!search) return true;
+      return `${user.display_name} ${user.username}`.toLowerCase().includes(search);
+    });
+    $("#adminUserSummary").textContent = `${filtered.length} / ${users.length} 个账户`;
     $("#adminUserTable").innerHTML = table(
-      ["账户", "角色", "项目", "状态", "最近登录", "操作"],
-      users.map((user) => [
+      ["账户", "角色", "项目 / 任务", "资产", "状态", "最近登录 / 活动", "操作"],
+      filtered.map((user) => [
         `<div class="table-identity"><span class="member-avatar">${escapeHtml(user.display_name.slice(0, 1))}</span><span><strong>${escapeHtml(user.display_name)}</strong><small>@${escapeHtml(user.username)}</small></span></div>`,
         user.role === "system_admin" ? "系统管理员" : "项目成员",
-        `${user.project_count} 个项目`,
+        `${user.project_count} 个项目<small>${user.job_count || 0} 个任务</small>`,
+        `${user.voice_count || 0} 声音库<small>${user.script_count || 0} 份台本</small>`,
         `<span class="admin-status ${user.status}">${user.status === "active" ? "启用" : "停用"}</span>`,
-        formatDate(user.last_login_at),
+        `${formatDate(user.last_login_at)}<small>活动 ${formatDate(user.last_activity_at)}</small>`,
         `<button class="table-action" data-user-action="reset" data-user-id="${escapeHtml(user.id)}" data-user-name="${escapeHtml(user.display_name)}">重置密码</button>${user.role !== "system_admin" ? `<button class="table-action" data-user-action="status" data-user-id="${escapeHtml(user.id)}" data-status="${user.status === "active" ? "disabled" : "active"}">${user.status === "active" ? "停用" : "启用"}</button>` : ""}`,
       ]),
     );
   }
 
   #renderProjects(projects) {
+    const search = this.#state.projectFilter.search.trim().toLowerCase();
+    const filtered = projects.filter((project) => {
+      if (!search) return true;
+      return `${project.name} ${project.owner_name} ${project.owner_username || ""}`.toLowerCase().includes(search);
+    });
+    $("#adminProjectSummary").textContent = `${filtered.length} / ${projects.length} 个项目`;
     $("#adminProjectTable").innerHTML = table(
-      ["项目", "负责人", "成员", "声音库", "台本", "任务", "创建时间", "操作"],
-      projects.map((project) => [
+      ["项目", "负责人", "成员", "声音库", "台本", "任务", "最近任务", "操作"],
+      filtered.map((project) => [
         `<strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.description || "暂无说明")}</small>`,
         escapeHtml(project.owner_name),
-        project.member_count,
+        `${project.member_count}<small>${project.active_member_count || 0} 个启用</small>`,
         project.voice_count,
         project.script_count,
-        project.job_count,
-        formatDate(project.created_at),
-        `<button class="table-action" type="button" data-project-jobs="${escapeHtml(project.id)}">查看任务</button>`,
+        `${project.job_count}<small>${project.pending_invitation_count || 0} 个待邀请</small>`,
+        formatDate(project.last_job_at),
+        `<button class="table-action" type="button" data-project-detail="${escapeHtml(project.id)}">查看详情</button><button class="table-action" type="button" data-project-jobs="${escapeHtml(project.id)}">任务</button>`,
+      ]),
+    );
+  }
+
+  #renderAssetProjectOptions() {
+    const select = $("#adminAssetProject");
+    const current = this.#state.assetFilter.projectId;
+    select.innerHTML = '<option value="all">全部项目</option>' + this.#state.projects
+      .map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`)
+      .join("");
+    select.value = this.#state.projects.some((project) => project.id === current) ? current : "all";
+  }
+
+  #renderAssets() {
+    const search = this.#state.assetFilter.search.trim().toLowerCase();
+    const type = this.#state.assetFilter.type;
+    const projectId = this.#state.assetFilter.projectId;
+    const voices = (this.#state.assets.voices || []).map((item) => ({ ...item, assetType: "voice", typeLabel: "声音库" }));
+    const scripts = (this.#state.assets.scripts || []).map((item) => ({ ...item, assetType: "script", typeLabel: "台本" }));
+    const filtered = [...voices, ...scripts].filter((item) => {
+      if (type !== "all" && item.assetType !== type) return false;
+      if (projectId !== "all" && item.project_id !== projectId) return false;
+      if (!search) return true;
+      return `${item.name} ${item.original_name || ""} ${item.owner_name} ${item.project_name}`.toLowerCase().includes(search);
+    });
+    $("#adminAssetSummary").textContent = `${filtered.length} / ${voices.length + scripts.length} 项资产`;
+    $("#adminAssetTable").innerHTML = table(
+      ["类型", "资产", "项目", "负责人", "规模", "来源", "创建时间"],
+      filtered.map((item) => [
+        `<span class="asset-kind ${item.assetType}">${item.typeLabel}</span>`,
+        `<strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.original_name || item.id)}</small>`,
+        escapeHtml(item.project_name || "未分配项目"),
+        escapeHtml(item.owner_name || "—"),
+        item.assetType === "voice"
+          ? `${item.file_count} 段录音<small>${formatBytes(item.size_bytes)} · ${item.enabled_file_count} 启用</small>`
+          : `${item.item_count} 段台词<small>${escapeHtml(item.source_kind || "文本")}</small>`,
+        escapeHtml(item.source_kind || "—"),
+        formatDate(item.created_at),
       ]),
     );
   }
@@ -263,23 +408,79 @@ class AdminApp {
   }
 
   #renderLogs(logs) {
+    const search = this.#state.logFilter.search.trim().toLowerCase();
+    const result = this.#state.logFilter.result;
+    const filtered = logs.filter((log) => {
+      if (result === "success" && !log.success) return false;
+      if (result === "failed" && log.success) return false;
+      if (!search) return true;
+      return `${log.actor_name || "系统"} ${log.action} ${log.target_type} ${log.target_id} ${log.project_id || ""}`.toLowerCase().includes(search);
+    });
+    $("#adminLogSummary").textContent = `${filtered.length} / ${logs.length} 条记录`;
     $("#adminLogTable").innerHTML = table(
       ["时间", "操作者", "动作", "对象", "项目", "来源", "结果"],
-      logs.map((log) => [
+      filtered.map((log) => [
         formatDate(log.created_at),
         escapeHtml(log.actor_name || "系统"),
         escapeHtml(log.action),
         `${escapeHtml(log.target_type)} ${escapeHtml(log.target_id)}`,
         escapeHtml(log.project_id || "—"),
         escapeHtml(log.ip_address || "—"),
-        `<span class="admin-status ${log.success ? "active" : "disabled"}">${log.success ? "成功" : "失败"}</span>`,
+        `<span class="admin-status ${log.success ? "active" : "disabled"}" title="${escapeHtml(JSON.stringify(log.details || {}))}">${log.success ? "成功" : "失败"}</span>`,
       ]),
     );
+  }
+
+  #projectAction(event) {
+    const detailButton = event.target.closest("[data-project-detail]");
+    if (detailButton) {
+      void this.#openProjectDetail(detailButton.dataset.projectDetail);
+      return;
+    }
+    this.#jobAction(event);
+  }
+
+  async #openProjectDetail(projectId) {
+    const dialog = $("#projectDetailDialog");
+    const detail = $("#adminProjectDetail");
+    $("#adminProjectDetailTitle").textContent = "读取项目…";
+    detail.innerHTML = '<p class="muted-empty">正在读取项目详情…</p>';
+    if (!dialog.open) dialog.showModal();
+    try {
+      const payload = await this.#api.get(`/api/admin/projects/${encodeURIComponent(projectId)}`);
+      this.#renderProjectDetail(payload);
+    } catch (error) {
+      detail.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+      this.#shell.toast(error.message, true);
+    }
+  }
+
+  #renderProjectDetail(payload) {
+    const project = payload.project;
+    $("#adminProjectDetailTitle").textContent = project.name;
+    const members = payload.members || [];
+    const voices = payload.voices || [];
+    const scripts = payload.scripts || [];
+    const jobs = payload.recent_jobs || [];
+    $("#adminProjectDetail").innerHTML = `
+      <div class="admin-project-summary">
+        <div><span>负责人</span><strong>${escapeHtml(project.owner_name)}</strong></div>
+        <div><span>成员</span><strong>${project.member_count} 人 · ${project.active_member_count || 0} 启用</strong></div>
+        <div><span>资产</span><strong>${voices.length} 声音库 · ${scripts.length} 份台本</strong></div>
+        <div><span>任务</span><strong>${project.job_count} 个 · 最近 ${formatDate(project.last_job_at)}</strong></div>
+      </div>
+      <div class="project-detail-grid">
+        <section><header><h3>项目成员</h3><span>${members.length}</span></header><div class="project-member-list">${members.length ? members.map((member) => `<div><span class="member-avatar">${escapeHtml(member.display_name.slice(0, 1))}</span><strong>${escapeHtml(member.display_name)}</strong><small>${member.role === "owner" ? "负责人" : "成员"} · ${member.status === "active" ? "启用" : "停用"}</small></div>`).join("") : '<p class="muted-empty">暂无成员</p>'}</div></section>
+        <section><header><h3>最近任务</h3><button type="button" data-project-jobs="${escapeHtml(project.id)}">查看全部</button></header><div class="project-job-list">${jobs.length ? jobs.slice(0, 6).map((job) => `<div><strong>${escapeHtml(job.name)}</strong><small>${statusLabel(job.status)} · ${formatDate(job.submitted_at)}</small></div>`).join("") : '<p class="muted-empty">暂无任务</p>'}</div></section>
+      </div>
+      <div class="project-asset-summary"><span>声音库 ${voices.length}</span><span>录音 ${voices.reduce((sum, voice) => sum + Number(voice.file_count || 0), 0)}</span><span>台本 ${scripts.length}</span><span>台词 ${scripts.reduce((sum, script) => sum + Number(script.item_count || 0), 0)}</span></div>
+    `;
   }
 
   #jobAction(event) {
     const projectButton = event.target.closest("[data-project-jobs]");
     if (projectButton) {
+      if ($("#projectDetailDialog").open) $("#projectDetailDialog").close();
       this.#state.jobFilter = {
         search: "",
         status: "all",
@@ -442,6 +643,17 @@ function table(headers, rows) {
 
 function auditRow(item) {
   return `<div class="audit-row"><span class="audit-dot ${item.success ? "ok" : "bad"}"></span><div><strong>${escapeHtml(item.actor_name || "系统")} · ${escapeHtml(item.action)}</strong><small>${formatDate(item.created_at)} · ${escapeHtml(item.ip_address || "本机")}</small></div></div>`;
+}
+
+function rankingRows(items = [], detail) {
+  if (!items.length) return '<p class="muted-empty">暂无数据</p>';
+  const max = Math.max(1, ...items.map((item) => Number(item.jobs || 0)));
+  return items
+    .map(
+      (item) =>
+        `<div class="ranking-row"><div><strong>${escapeHtml(item.name || "未命名")}</strong><small>${escapeHtml(detail(item))}</small></div><span style="--rank-width:${Math.round((Number(item.jobs || 0) / max) * 100)}%"><i></i><b>${item.jobs}</b></span></div>`,
+    )
+    .join("");
 }
 
 function formatDate(value) {

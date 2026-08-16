@@ -130,7 +130,8 @@ class VoiceRepository:
             row = connection.execute(
                 """
                 SELECT v.*, COUNT(vf.id) AS file_count,
-                       SUM(CASE WHEN vf.enabled=1 THEN 1 ELSE 0 END) AS enabled_file_count
+                       SUM(CASE WHEN vf.enabled=1 THEN 1 ELSE 0 END) AS enabled_file_count,
+                       COALESCE(SUM(vf.size_bytes), 0) AS size_bytes
                 FROM voices v LEFT JOIN voice_files vf ON vf.voice_id=v.id
                 WHERE v.id=? GROUP BY v.id
                 """,
@@ -153,7 +154,8 @@ class VoiceRepository:
             rows = connection.execute(
                 f"""
                 SELECT v.*, COUNT(vf.id) AS file_count,
-                       SUM(CASE WHEN vf.enabled=1 THEN 1 ELSE 0 END) AS enabled_file_count
+                       SUM(CASE WHEN vf.enabled=1 THEN 1 ELSE 0 END) AS enabled_file_count,
+                       COALESCE(SUM(vf.size_bytes), 0) AS size_bytes
                 FROM voices v LEFT JOIN voice_files vf ON vf.voice_id=v.id
                 {where}
                 GROUP BY v.id ORDER BY v.created_at DESC

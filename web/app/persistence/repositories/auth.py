@@ -63,6 +63,14 @@ class AuthRepository:
                 SELECT u.*,
                        (SELECT COUNT(*) FROM project_members pm WHERE pm.user_id=u.id)
                            AS project_count
+                       ,(SELECT COUNT(*) FROM jobs j
+                         WHERE j.client_id=u.id OR j.created_by=u.id) AS job_count
+                       ,(SELECT COUNT(*) FROM voices v WHERE v.owner_id=u.id)
+                           AS voice_count
+                       ,(SELECT COUNT(*) FROM scripts s WHERE s.owner_id=u.id)
+                           AS script_count
+                       ,(SELECT MAX(a.created_at) FROM audit_logs a
+                         WHERE a.actor_user_id=u.id) AS last_activity_at
                 FROM users u WHERE {where}
                 """,
                 parameters,
@@ -76,6 +84,14 @@ class AuthRepository:
                 SELECT u.*,
                        (SELECT COUNT(*) FROM project_members pm WHERE pm.user_id=u.id)
                            AS project_count
+                       ,(SELECT COUNT(*) FROM jobs j
+                         WHERE j.client_id=u.id OR j.created_by=u.id) AS job_count
+                       ,(SELECT COUNT(*) FROM voices v WHERE v.owner_id=u.id)
+                           AS voice_count
+                       ,(SELECT COUNT(*) FROM scripts s WHERE s.owner_id=u.id)
+                           AS script_count
+                       ,(SELECT MAX(a.created_at) FROM audit_logs a
+                         WHERE a.actor_user_id=u.id) AS last_activity_at
                 FROM users u
                 ORDER BY CASE u.role WHEN 'system_admin' THEN 0 ELSE 1 END,
                          u.status, u.display_name COLLATE NOCASE

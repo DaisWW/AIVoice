@@ -106,12 +106,21 @@ class ProjectRepository:
                 SELECT p.*, u.display_name AS owner_name, u.username AS owner_username,
                        (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id=p.id)
                            AS member_count,
+                       (SELECT COUNT(*) FROM project_members pm
+                        JOIN users pu ON pu.id=pm.user_id
+                        WHERE pm.project_id=p.id AND pu.status='active')
+                           AS active_member_count,
                        (SELECT COUNT(*) FROM voices v WHERE v.project_id=p.id)
                            AS voice_count,
                        (SELECT COUNT(*) FROM scripts s WHERE s.project_id=p.id)
                            AS script_count,
                        (SELECT COUNT(*) FROM jobs j WHERE j.project_id=p.id)
                            AS job_count
+                       ,(SELECT MAX(j.submitted_at) FROM jobs j
+                         WHERE j.project_id=p.id) AS last_job_at
+                       ,(SELECT COUNT(*) FROM project_invitations pi
+                         WHERE pi.project_id=p.id AND pi.status='pending')
+                           AS pending_invitation_count
                 FROM projects p
                 JOIN users u ON u.id=p.owner_id
                 {clause}

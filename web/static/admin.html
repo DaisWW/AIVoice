@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.2">
   <link rel="stylesheet" href="/assets/css/settings.css">
   <link rel="stylesheet" href="/assets/css/overlays.css">
-  <link rel="stylesheet" href="/assets/css/admin.css?v=20260816.1">
+  <link rel="stylesheet" href="/assets/css/admin.css?v=20260816.2">
 </head>
 <body class="admin-page">
   <section id="authView" class="auth-view" aria-label="管理员登录">
@@ -45,8 +45,9 @@
         <button type="button" data-admin-view="users"><i>02</i><span>账户管理</span></button>
         <button type="button" data-admin-view="projects"><i>03</i><span>项目总览</span></button>
         <button type="button" data-admin-view="jobs"><i>04</i><span>生成任务</span></button>
-        <button type="button" data-admin-view="logs"><i>05</i><span>审计日志</span></button>
-        <button type="button" data-admin-view="providers"><i>06</i><span>模型服务</span></button>
+        <button type="button" data-admin-view="assets"><i>05</i><span>资产数据</span></button>
+        <button type="button" data-admin-view="logs"><i>06</i><span>审计日志</span></button>
+        <button type="button" data-admin-view="providers"><i>07</i><span>模型服务</span></button>
       </nav>
       <div class="admin-sidebar-foot">
         <a href="/">← 返回项目工作台</a>
@@ -80,6 +81,12 @@
           <div><span>已完成</span><strong id="metricCompleted">—</strong><small>成功任务</small></div>
           <div><span>失败任务</span><strong id="metricFailed">—</strong><small>需要关注</small></div>
         </div>
+        <div class="admin-insight-grid">
+          <section class="admin-card insight-activity-card"><header><div><span class="section-kicker">OPERATIONS</span><h2>近 14 天生成趋势</h2></div><span id="adminActivitySummary" class="insight-summary">—</span></header><div id="adminActivityChart" class="activity-chart"></div></section>
+          <section class="admin-card insight-attention-card"><header><div><span class="section-kicker">ATTENTION</span><h2>异常与运行健康</h2></div></header><div id="adminHealthSummary" class="health-summary"></div><div id="adminFailureReasons" class="failure-list"></div></section>
+          <section class="admin-card insight-ranking-card"><header><div><span class="section-kicker">RANKING</span><h2>活跃账户</h2></div><button type="button" data-jump-view="users">账户管理</button></header><div id="adminTopUsers" class="ranking-list"></div></section>
+          <section class="admin-card insight-ranking-card"><header><div><span class="section-kicker">WORKSPACES</span><h2>项目负载</h2></div><button type="button" data-jump-view="projects">项目总览</button></header><div id="adminTopProjects" class="ranking-list"></div></section>
+        </div>
         <div class="admin-overview-grid">
           <section class="admin-card recent-jobs-card"><header><div><span class="section-kicker">RECENT ACTIVITY</span><h2>最近生成任务</h2></div><button type="button" data-jump-view="jobs">查看全部</button></header><div id="adminRecentJobs" class="admin-table-wrap"></div></section>
           <section class="admin-card runtime-card"><header><div><span class="section-kicker">RUNTIME</span><h2>推理与模型</h2></div></header><div id="adminRuntime" class="runtime-list"></div></section>
@@ -89,11 +96,20 @@
 
       <section class="admin-view" data-admin-panel="users" hidden>
         <div class="admin-section-head"><div><span class="section-kicker">IDENTITIES</span><h2>账户管理</h2><p>账户只由管理员创建，临时密码要求首次登录后修改。</p></div><button id="openUserDialog" class="primary-button" type="button">创建账户</button></div>
+        <div class="admin-filter-toolbar">
+          <label><span>搜索账户</span><input id="adminUserSearch" type="search" placeholder="显示名或用户名"></label>
+          <label><span>状态</span><select id="adminUserStatus"><option value="all">全部状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label>
+          <span id="adminUserSummary" class="admin-toolbar-summary">读取中…</span>
+        </div>
         <section class="admin-card"><div id="adminUserTable" class="admin-table-wrap"></div></section>
       </section>
 
       <section class="admin-view" data-admin-panel="projects" hidden>
         <div class="admin-section-head"><div><span class="section-kicker">WORKSPACES</span><h2>全部项目</h2><p>管理员无需加入项目，也能查看成员规模与资产状态。</p></div></div>
+        <div class="admin-filter-toolbar">
+          <label><span>搜索项目</span><input id="adminProjectSearch" type="search" placeholder="项目名称或负责人"></label>
+          <span id="adminProjectSummary" class="admin-toolbar-summary">读取中…</span>
+        </div>
         <section class="admin-card"><div id="adminProjectTable" class="admin-table-wrap"></div></section>
       </section>
 
@@ -107,8 +123,24 @@
         <section class="admin-card"><div id="adminJobTable" class="admin-table-wrap"></div></section>
       </section>
 
+      <section class="admin-view" data-admin-panel="assets" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">ASSET REGISTRY</span><h2>资产数据</h2><p>统一查看声音库、录音文件和台本，不暴露服务器路径。</p></div></div>
+        <div class="admin-filter-toolbar">
+          <label><span>搜索资产</span><input id="adminAssetSearch" type="search" placeholder="名称、负责人或项目"></label>
+          <label><span>项目</span><select id="adminAssetProject"><option value="all">全部项目</option></select></label>
+          <label><span>类型</span><select id="adminAssetType"><option value="all">全部资产</option><option value="voice">声音库</option><option value="script">台本</option></select></label>
+          <span id="adminAssetSummary" class="admin-toolbar-summary">读取中…</span>
+        </div>
+        <section class="admin-card"><div id="adminAssetTable" class="admin-table-wrap"><p class="muted-empty">选择资产数据后读取…</p></div></section>
+      </section>
+
       <section class="admin-view" data-admin-panel="logs" hidden>
         <div class="admin-section-head"><div><span class="section-kicker">AUDIT TRAIL</span><h2>审计日志</h2><p>记录登录、账户、项目和成员等关键操作，不保存密码或密钥。</p></div></div>
+        <div class="admin-filter-toolbar">
+          <label><span>搜索日志</span><input id="adminLogSearch" type="search" placeholder="动作、操作者或对象"></label>
+          <label><span>结果</span><select id="adminLogResult"><option value="all">全部结果</option><option value="success">成功</option><option value="failed">失败</option></select></label>
+          <span id="adminLogSummary" class="admin-toolbar-summary">读取中…</span>
+        </div>
         <section class="admin-card"><div id="adminLogTable" class="admin-table-wrap"></div></section>
       </section>
 
@@ -186,6 +218,13 @@
     </form>
   </dialog>
 
+  <dialog id="projectDetailDialog" class="modal admin-project-modal">
+    <form method="dialog" id="projectDetailForm">
+      <header><div><span class="section-kicker">PROJECT DETAIL</span><h2 id="adminProjectDetailTitle">项目详情</h2></div><button class="icon-button" type="submit" aria-label="关闭项目详情">×</button></header>
+      <div id="adminProjectDetail" class="admin-project-detail"></div>
+    </form>
+  </dialog>
+
   <dialog id="passwordDialog" class="modal password-modal">
     <form id="passwordForm" method="dialog">
       <header><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div></header>
@@ -196,6 +235,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/admin.js?v=20260816.2"></script>
+  <script type="module" src="/assets/js/admin.js?v=20260816.3"></script>
 </body>
 </html>

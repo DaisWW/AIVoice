@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any
 
@@ -122,3 +123,126 @@ class MonitoringRepository:
                 key: int(connection.execute(query).fetchone()[0])
                 for key, query in queries.items()
             }
+
+    def admin_insights(self, days: int = 14) -> dict[str, Any]:
+        """Return small, read-only aggregates used by the admin control room."""
+        window = max(2, min(days, 31))
+        cutoff = (datetime.now(UTC) - timedelta(days=window - 1)).isoformat(
+            timespec="microseconds"
+        )
+        now = datetime.now(UTC).isoformat(timespec="microseconds")
+        with self._database.read() as connection:
+            activity_rows = connection.execute(
+                """
+                SELECT substr(submitted_at, 1, 10) AS day,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+                FROM jobs
+                WHERE submitted_at >= ?
+                GROUP BY day
+                ORDER BY day
+                """,
+                (cutoff,),
+            ).fetchall()
+            failure_rows = connection.execute(
+                """
+                SELECT COALESCE(NULLIF(TRIM(error), ''), '未提供错误信息') AS reason,
+                       COUNT(*) AS count
+                FROM jobs
+                WHERE status='failed'
+                GROUP BY reason
+                ORDER BY count DESC, reason
+                LIMIT 6
+                """
+            ).fetchall()
+            user_rows = connection.execute(
+                """
+                SELECT j.client_id AS user_id,
+                       COALESCE(NULLIF(u.display_name, ''), j.client_id) AS name,
+                       COUNT(*) AS jobs,
+                       SUM(CASE WHEN j.status='completed' THEN 1 ELSE 0 END) AS completed,
+                       SUM(CASE WHEN j.status='failed' THEN 1 ELSE 0 END) AS failed
+                FROM jobs j
+                LEFT JOIN users u ON u.id=j.client_id
+                GROUP BY j.client_id, u.display_name
+                ORDER BY jobs DESC, name COLLATE NOCASE
+                LIMIT 6
+                """
+            ).fetchall()
+            project_rows = connection.execute(
+                """
+                SELECT j.project_id AS project_id,
+                       COALESCE(NULLIF(p.name, ''), NULLIF(j.project_id, ''), '未分配项目') AS name,
+                       COUNT(*) AS jobs,
+                       SUM(CASE WHEN j.status='completed' THEN 1 ELSE 0 END) AS completed,
+                       SUM(CASE WHEN j.status='failed' THEN 1 ELSE 0 END) AS failed
+                FROM jobs j
+                LEFT JOIN projects p ON p.id=j.project_id
+                GROUP BY j.project_id, p.name
+                ORDER BY jobs DESC, name COLLATE NOCASE
+                LIMIT 6
+                """
+            ).fetchall()
+            active_sessions = connection.execute(
+                "SELECT COUNT(*) FROM sessions WHERE expires_at > ?", (now,)
+            ).fetchone()[0]
+            last_job_at = connection.execute(
+                "SELECT MAX(submitted_at) FROM jobs"
+            ).fetchone()[0]
+            last_audit_at = connection.execute(
+                "SELECT MAX(created_at) FROM audit_logs"
+            ).fetchone()[0]
+        activity_by_day = {str(row["day"]): dict(row) for row in activity_rows}
+        today = datetime.now(UTC).date()
+        return {
+            "window_days": window,
+            "activity": [
+                {
+                    "day": (today - timedelta(days=offset)).isoformat(),
+                    "total": int(
+                        activity_by_day.get(
+                            (today - timedelta(days=offset)).isoformat(), {}
+                        ).get("total", 0)
+                    ),
+                    "completed": int(
+                        activity_by_day.get(
+                            (today - timedelta(days=offset)).isoformat(), {}
+                        ).get("completed", 0)
+                    ),
+                    "failed": int(
+                        activity_by_day.get(
+                            (today - timedelta(days=offset)).isoformat(), {}
+                        ).get("failed", 0)
+                    ),
+                }
+                for offset in range(window - 1, -1, -1)
+            ],
+            "failure_reasons": [
+                {"reason": str(row["reason"]), "count": int(row["count"])}
+                for row in failure_rows
+            ],
+            "top_users": [
+                {
+                    "user_id": str(row["user_id"]),
+                    "name": str(row["name"]),
+                    "jobs": int(row["jobs"] or 0),
+                    "completed": int(row["completed"] or 0),
+                    "failed": int(row["failed"] or 0),
+                }
+                for row in user_rows
+            ],
+            "top_projects": [
+                {
+                    "project_id": str(row["project_id"] or ""),
+                    "name": str(row["name"]),
+                    "jobs": int(row["jobs"] or 0),
+                    "completed": int(row["completed"] or 0),
+                    "failed": int(row["failed"] or 0),
+                }
+                for row in project_rows
+            ],
+            "active_sessions": int(active_sessions or 0),
+            "last_job_at": str(last_job_at) if last_job_at else None,
+            "last_audit_at": str(last_audit_at) if last_audit_at else None,
+        }

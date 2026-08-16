@@ -47,6 +47,7 @@ def _voice_summary(voice: dict[str, Any], can_edit: bool) -> dict[str, Any]:
         "notes": voice["notes"],
         "file_count": int(voice.get("file_count") or 0),
         "enabled_file_count": int(voice.get("enabled_file_count") or 0),
+        "size_bytes": int(voice.get("size_bytes") or 0),
         "created_at": voice["created_at"],
         "can_edit": can_edit,
     }

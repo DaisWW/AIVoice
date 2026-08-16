@@ -233,6 +233,38 @@ def test_system_admin_workspace_uses_project_membership(
         assert owned["can_manage"] is True
 
 
+def test_admin_control_room_exposes_insights_assets_and_project_detail(
+    settings_factory,
+) -> None:
+    application = create_app(
+        settings_factory(), engine_factory=FakeEngine, seed_legacy=False
+    )
+    with TestClient(application) as admin:
+        services = application.state.services
+        login_as_admin(admin, services)
+        overview = admin.get("/api/admin/overview")
+        assert overview.status_code == 200
+        insights = overview.json()["insights"]
+        assert {"activity", "failure_reasons", "top_users", "top_projects"} <= set(
+            insights
+        )
+        project = _create_project(admin, "运营数据项目")
+        uploaded = admin.post(
+            "/api/scripts",
+            data={"project_id": project["id"]},
+            files={"file": ("lines.txt", "共享台词 | mo-la\n", "text/plain")},
+        )
+        assert uploaded.status_code == 201
+
+        assets = admin.get("/api/admin/assets")
+        assert assets.status_code == 200
+        assert assets.json()["scripts"][0]["project_name"] == "运营数据项目"
+        detail = admin.get(f"/api/admin/projects/{project['id']}")
+        assert detail.status_code == 200
+        assert detail.json()["project"]["script_count"] == 1
+        assert detail.json()["members"][0]["role"] == "owner"
+
+
 def _login(client: TestClient, username: str, password: str):
     return client.post(
         "/api/auth/login", json={"username": username, "password": password}
