@@ -31,7 +31,7 @@ Windows 防火墙只需为 TCP `18082` 放行 `LocalSubnet`。生产环境保持
 
 首次启动会创建用户名 `admin` 的系统管理员。未设置环境变量时，初始密码写入 `web/data/bootstrap-admin.txt`；也可在首次启动前设置 `VOICE_LAB_ADMIN_PASSWORD`，兼容的 `VOICE_LAB_ADMIN_TOKEN` 会作为后备初始密码。已有数据库中的管理员密码不会因环境变量变化而被重置。
 
-登录 <http://127.0.0.1:18082/admin> 后，可创建成员账户和项目，并在“模型服务”中配置 ElevenLabs。API Key 只保存在忽略版本控制的 `web/data/provider-settings.json`，管理接口也只返回是否已配置，不返回密钥原文。
+登录 <http://127.0.0.1:18082/admin> 后，可创建成员账户和项目，并在“模型服务”中配置 ElevenLabs 或 MiniMax。API Key 只保存在忽略版本控制的 `web/data/provider-settings.json`，管理接口也只返回是否已配置，不返回密钥原文。
 
 ## Docker
 
@@ -140,6 +140,7 @@ text,pronunciation
 - CosyVoice3 0.5B：可选模型，适合拼音、音素与虫语台本，当前暴露语速。
 - Qwen3-TTS 0.6B / 1.7B Base：可选声音克隆模型，支持随机性、候选范围和重复抑制。
 - ElevenLabs 小样本克隆：管理员配置 API 后，首次使用会注册启用的参考样本并缓存云端 `voice_id`，后续批量候选复用该音色并输出 WAV。
+- MiniMax 小样本克隆：管理员配置 API 后，首次使用会把启用样本按顺序合并为 10 秒至 5 分钟的 WAV，注册云端 `voice_id` 并在批量候选中复用；raw/IPA 台本会按 MiniMax 的括号音素格式发送。
 - IndexTTS 2.5：仅展示评估状态，确认许可和完成接入前不可选择。
 - Seed-VC：属于真人表演音频转音色，不进入当前台本 TTS 队列。
 
