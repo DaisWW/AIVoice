@@ -105,6 +105,53 @@
   color: #f7f4ee;
 }
 
+.user-auth-view {
+  --auth-paper: #121512;
+  --auth-ink: #f3f0e8;
+  --auth-muted: #a2a8a1;
+  --auth-line: #353b36;
+  --auth-accent: #c88b63;
+  --danger: #ee7b7f;
+}
+
+.user-auth-view .user-auth-story {
+  padding: 0;
+  background-color: #11130f;
+  background-image: url("../assets/auth-voice-studio-bg.jpg");
+  background-position: 46% center;
+  background-size: cover;
+}
+
+.user-auth-view .login-card input {
+  border-color: var(--auth-line);
+  background: #1b201c;
+  color: var(--auth-ink);
+}
+
+.user-auth-view .login-card input::placeholder {
+  color: #7e867e;
+}
+
+.user-auth-view .login-card input:focus {
+  border-color: var(--auth-accent);
+  box-shadow: 0 0 0 3px rgba(200, 139, 99, .14);
+}
+
+.user-auth-view .auth-submit {
+  border-color: var(--auth-accent);
+  background: var(--auth-accent);
+  color: #171a17;
+}
+
+.user-auth-view .auth-submit:hover {
+  border-color: #d69a72;
+  background: #d69a72;
+}
+
+.user-auth-view .login-card > small {
+  color: #7e867e;
+}
+
 .admin-auth-story {
   background: #29241f;
 }
