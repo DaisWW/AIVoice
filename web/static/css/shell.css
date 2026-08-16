@@ -524,31 +524,35 @@
 }
 
 .project-switcher {
-  display: grid;
-  align-content: center;
-  gap: 3px;
+  display: flex;
   min-width: 0;
+  align-items: center;
   padding: 0 16px;
   border-left: 1px solid rgba(255, 255, 255, .06);
 }
 
-.project-switcher > span {
-  color: var(--faint);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+.project-switcher select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .025);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
 }
 
-.project-switcher select {
-  min-height: 27px;
-  padding: 0 26px 0 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 650;
-  box-shadow: none;
+.project-switcher select:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, .04);
+}
+
+.project-switcher select:focus {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 3px rgba(157, 168, 229, .08);
 }
 
 .topnav {
