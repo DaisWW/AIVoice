@@ -7,6 +7,7 @@ const TITLES = {
   overview: ["SYSTEM OVERVIEW", "系统概览"],
   users: ["IDENTITIES", "账户管理"],
   projects: ["WORKSPACES", "全部项目"],
+  jobs: ["GENERATION QUEUE", "生成任务"],
   logs: ["AUDIT TRAIL", "审计日志"],
   providers: ["MODEL SERVICES", "模型与三方服务"],
 };
@@ -27,7 +28,14 @@ class AdminShell {
 class AdminApp {
   #api = new ApiClient();
   #shell = new AdminShell();
-  #state = { isAdmin: false, config: { models: [] } };
+  #state = {
+    isAdmin: false,
+    config: { models: [] },
+    users: [],
+    projects: [],
+    jobs: [],
+    jobFilter: { search: "", status: "all", projectId: "" },
+  };
   #auth = new AuthController(this.#api, "adminShell", (user) => this.#boot(user));
   #providers = new ProviderController({ state: this.#state, api: this.#api, shell: this.#shell });
   #resetUserId = null;
@@ -55,6 +63,19 @@ class AdminApp {
     $("#userCreateForm").addEventListener("submit", (event) => this.#createUser(event));
     $("#resetPasswordForm").addEventListener("submit", (event) => this.#resetPassword(event));
     $("#adminUserTable").addEventListener("click", (event) => this.#userAction(event));
+    $("#adminJobSearch").addEventListener("input", (event) => {
+      this.#state.jobFilter.search = event.currentTarget.value;
+      this.#state.jobFilter.projectId = "";
+      this.#renderJobs();
+    });
+    $("#adminJobStatus").addEventListener("change", (event) => {
+      this.#state.jobFilter.status = event.currentTarget.value;
+      this.#state.jobFilter.projectId = "";
+      this.#renderJobs();
+    });
+    $("#adminJobTable").addEventListener("click", (event) => this.#jobAction(event));
+    $("#adminProjectTable").addEventListener("click", (event) => this.#jobAction(event));
+    $("#adminJobDetail").addEventListener("click", (event) => this.#jobAction(event));
     this.#providers.bind();
   }
 
@@ -86,15 +107,20 @@ class AdminApp {
         return null;
       });
     try {
-      const [users, projects, logs, config] = await Promise.all([
+      const [users, projects, jobs, logs, config] = await Promise.all([
         this.#api.get("/api/admin/users"),
         this.#api.get("/api/admin/projects"),
+        this.#api.get("/api/admin/jobs?limit=100"),
         this.#api.get("/api/admin/audit-logs?limit=300"),
         this.#api.get("/api/config"),
       ]);
       this.#state.config = config;
-      this.#renderUsers(users.users);
-      this.#renderProjects(projects.projects);
+      this.#state.users = users.users;
+      this.#state.projects = projects.projects;
+      this.#state.jobs = jobs.jobs;
+      this.#renderUsers(this.#state.users);
+      this.#renderProjects(this.#state.projects);
+      this.#renderJobs();
       this.#renderLogs(logs.logs);
       this.#providers.renderLocalModels();
       await this.#providers.ensureLoaded();
@@ -125,6 +151,10 @@ class AdminApp {
     $("#metricMemberships").textContent = `${counts.memberships} 条成员关系`;
     $("#metricJobs").textContent = counts.jobs;
     $("#metricQueue").textContent = `${Number(counts.running || 0) + Number(counts.queued || 0)} 个处理中`;
+    $("#metricVoices").textContent = counts.voices ?? "—";
+    $("#metricScripts").textContent = counts.scripts ?? "—";
+    $("#metricCompleted").textContent = counts.completed ?? "—";
+    $("#metricFailed").textContent = counts.failed ?? "—";
     $("#metricStorage").textContent = formatBytes(payload.storage.data_bytes);
     $("#metricDisk").textContent = `${formatBytes(payload.storage.disk_free_bytes)} 可用`;
     const active = Number(payload.queue.running || 0) + Number(payload.queue.queued || 0);
@@ -163,7 +193,7 @@ class AdminApp {
 
   #renderProjects(projects) {
     $("#adminProjectTable").innerHTML = table(
-      ["项目", "负责人", "成员", "声音库", "台本", "任务", "创建时间"],
+      ["项目", "负责人", "成员", "声音库", "台本", "任务", "创建时间", "操作"],
       projects.map((project) => [
         `<strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.description || "暂无说明")}</small>`,
         escapeHtml(project.owner_name),
@@ -172,8 +202,64 @@ class AdminApp {
         project.script_count,
         project.job_count,
         formatDate(project.created_at),
+        `<button class="table-action" type="button" data-project-jobs="${escapeHtml(project.id)}">查看任务</button>`,
       ]),
     );
+  }
+
+  #renderJobs() {
+    const search = this.#state.jobFilter.search.trim().toLowerCase();
+    const status = this.#state.jobFilter.status;
+    const projectId = this.#state.jobFilter.projectId;
+    const filtered = this.#state.jobs.filter((job) => {
+      if (status !== "all" && job.status !== status) return false;
+      if (projectId && job.project_id !== projectId) return false;
+      if (!search) return true;
+      const haystack = [
+        job.name,
+        job.id,
+        job.client_id,
+        this.#userLabel(job.client_id),
+        job.project_id,
+        this.#projectLabel(job.project_id),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+    $("#adminJobSummary").textContent = `${filtered.length} / ${this.#state.jobs.length} 条任务`;
+    $("#adminJobTable").innerHTML = table(
+      ["任务", "提交用户", "项目", "模型", "进度", "状态", "提交时间", "操作"],
+      filtered.map((job) => [
+        `<strong>${escapeHtml(job.name)}</strong><small>${escapeHtml(job.id)}</small>`,
+        `<strong>${escapeHtml(this.#userLabel(job.client_id))}</strong><small>${escapeHtml(job.client_id)}</small>`,
+        escapeHtml(this.#projectLabel(job.project_id)),
+        escapeHtml(this.#modelLabel(job.model_id)),
+        `<strong>${job.completed_items}/${job.total_items} 段</strong><small>${job.progress}%</small>`,
+        `<span class="admin-status ${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>`,
+        formatDate(job.submitted_at),
+        `<button class="table-action" type="button" data-job-action="detail" data-job-id="${escapeHtml(job.id)}">查看详情</button>`,
+      ]),
+    );
+  }
+
+  #userLabel(userId) {
+    const user = this.#state.users.find((item) => String(item.id) === String(userId));
+    return user ? `${user.display_name} @${user.username}` : userId || "—";
+  }
+
+  #projectLabel(projectId) {
+    const project = this.#state.projects.find(
+      (item) => String(item.id) === String(projectId),
+    );
+    return project ? project.name : projectId || "—";
+  }
+
+  #modelLabel(modelId) {
+    const model = (this.#state.config.models || []).find(
+      (item) => String(item.id) === String(modelId),
+    );
+    return model?.label || modelId || "—";
   }
 
   #renderLogs(logs) {
@@ -189,6 +275,103 @@ class AdminApp {
         `<span class="admin-status ${log.success ? "active" : "disabled"}">${log.success ? "成功" : "失败"}</span>`,
       ]),
     );
+  }
+
+  #jobAction(event) {
+    const projectButton = event.target.closest("[data-project-jobs]");
+    if (projectButton) {
+      this.#state.jobFilter = {
+        search: "",
+        status: "all",
+        projectId: projectButton.dataset.projectJobs,
+      };
+      $("#adminJobSearch").value = "";
+      $("#adminJobStatus").value = "all";
+      this.#showView("jobs");
+      this.#renderJobs();
+      return;
+    }
+    const button = event.target.closest("[data-job-action]");
+    if (!button) return;
+    if (button.dataset.jobAction === "detail") {
+      void this.#openJobDetail(button.dataset.jobId);
+    }
+    if (button.dataset.jobAction === "rename-save") {
+      void this.#renameJob(button);
+    }
+  }
+
+  async #openJobDetail(jobId) {
+    const dialog = $("#jobDetailDialog");
+    const detail = $("#adminJobDetail");
+    $("#adminJobDetailTitle").textContent = "读取任务…";
+    detail.innerHTML = '<p class="muted-empty">正在读取任务详情…</p>';
+    if (!dialog.open) dialog.showModal();
+    try {
+      const payload = await this.#api.get(`/api/admin/jobs/${encodeURIComponent(jobId)}`);
+      this.#renderJobDetail(payload.job);
+    } catch (error) {
+      detail.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+      this.#shell.toast(error.message, true);
+    }
+  }
+
+  #renderJobDetail(job) {
+    $("#adminJobDetailTitle").textContent = job.name;
+    const links = [
+      job.download_url ? `<a href="${escapeHtml(job.download_url)}" download>全部下载</a>` : "",
+      job.can_export ? `<a href="${escapeHtml(job.export_url)}" download>正式导出</a>` : "",
+    ].filter(Boolean).join("");
+    const items = (job.items || []).map((item) => [
+      `<strong>#${item.sequence}</strong><small>${escapeHtml(item.text)}</small>`,
+      `<span class="admin-status ${escapeHtml(item.status)}">${escapeHtml(statusLabel(item.status))}</span>${item.error ? `<small>${escapeHtml(item.error)}</small>` : ""}`,
+      `${(item.candidates || []).length} 个候选`,
+      item.audio_url
+        ? `<audio controls preload="none" src="${escapeHtml(item.audio_url)}"></audio><a class="table-action" href="${escapeHtml(item.download_url || item.audio_url)}" download>下载</a>`
+        : "暂无音频",
+    ]);
+    $("#adminJobDetail").innerHTML = `
+      <div class="admin-job-summary">
+        <div><span>提交用户</span><strong>${escapeHtml(this.#userLabel(job.client_id))}</strong></div>
+        <div><span>项目</span><strong>${escapeHtml(this.#projectLabel(job.project_id))}</strong></div>
+        <div><span>声音 / 模型</span><strong>${escapeHtml(job.voice_name)} · ${escapeHtml(this.#modelLabel(job.model_id))}</strong></div>
+        <div><span>进度</span><strong>${job.completed_items}/${job.total_items} 段 · ${job.progress}%</strong></div>
+      </div>
+      <div class="admin-job-actions">
+        <label class="admin-job-rename"><span>任务名称</span><input id="adminJobRenameInput" value="${escapeHtml(job.name)}" maxlength="80"></label>
+        <button type="button" data-job-action="rename-save" data-job-id="${escapeHtml(job.id)}">保存名称</button>
+        ${links}
+      </div>
+      ${job.error ? `<pre class="admin-job-error">${escapeHtml(job.error)}</pre>` : ""}
+      <div class="admin-job-items">${table(["序号 / 台本", "状态", "候选", "音频"], items)}</div>
+    `;
+  }
+
+  async #renameJob(button) {
+    const input = $("#adminJobRenameInput");
+    const name = input.value.trim();
+    if (!name) {
+      this.#shell.toast("任务名称不能为空", true);
+      return;
+    }
+    button.disabled = true;
+    try {
+      const payload = await this.#api.patch(
+        `/api/admin/jobs/${encodeURIComponent(button.dataset.jobId)}`,
+        { name },
+      );
+      const index = this.#state.jobs.findIndex(
+        (job) => String(job.id) === String(button.dataset.jobId),
+      );
+      if (index >= 0) this.#state.jobs[index] = { ...this.#state.jobs[index], ...payload.job };
+      this.#renderJobs();
+      this.#renderJobDetail(payload.job);
+      this.#shell.toast("任务名称已更新");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async #createUser(event) {

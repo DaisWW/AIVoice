@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.2">
   <link rel="stylesheet" href="/assets/css/settings.css">
   <link rel="stylesheet" href="/assets/css/overlays.css">
-  <link rel="stylesheet" href="/assets/css/admin.css?v=20260815.2">
+  <link rel="stylesheet" href="/assets/css/admin.css?v=20260816.1">
 </head>
 <body class="admin-page">
   <section id="authView" class="auth-view" aria-label="管理员登录">
@@ -44,8 +44,9 @@
         <button class="active" type="button" data-admin-view="overview"><i>01</i><span>系统概览</span></button>
         <button type="button" data-admin-view="users"><i>02</i><span>账户管理</span></button>
         <button type="button" data-admin-view="projects"><i>03</i><span>项目总览</span></button>
-        <button type="button" data-admin-view="logs"><i>04</i><span>审计日志</span></button>
-        <button type="button" data-admin-view="providers"><i>05</i><span>模型服务</span></button>
+        <button type="button" data-admin-view="jobs"><i>04</i><span>生成任务</span></button>
+        <button type="button" data-admin-view="logs"><i>05</i><span>审计日志</span></button>
+        <button type="button" data-admin-view="providers"><i>06</i><span>模型服务</span></button>
       </nav>
       <div class="admin-sidebar-foot">
         <a href="/">← 返回项目工作台</a>
@@ -73,8 +74,14 @@
           <article class="admin-metric"><span>生成任务</span><strong id="metricJobs">—</strong><small id="metricQueue">— 个处理中</small></article>
           <article class="admin-metric"><span>数据占用</span><strong id="metricStorage">—</strong><small id="metricDisk">— 可用</small></article>
         </div>
+        <div class="admin-metric-strip" aria-label="资源与结果统计">
+          <div><span>声音库</span><strong id="metricVoices">—</strong><small>参考音频</small></div>
+          <div><span>台本</span><strong id="metricScripts">—</strong><small>项目资产</small></div>
+          <div><span>已完成</span><strong id="metricCompleted">—</strong><small>成功任务</small></div>
+          <div><span>失败任务</span><strong id="metricFailed">—</strong><small>需要关注</small></div>
+        </div>
         <div class="admin-overview-grid">
-          <section class="admin-card recent-jobs-card"><header><div><span class="section-kicker">RECENT ACTIVITY</span><h2>最近生成任务</h2></div></header><div id="adminRecentJobs" class="admin-table-wrap"></div></section>
+          <section class="admin-card recent-jobs-card"><header><div><span class="section-kicker">RECENT ACTIVITY</span><h2>最近生成任务</h2></div><button type="button" data-jump-view="jobs">查看全部</button></header><div id="adminRecentJobs" class="admin-table-wrap"></div></section>
           <section class="admin-card runtime-card"><header><div><span class="section-kicker">RUNTIME</span><h2>推理与模型</h2></div></header><div id="adminRuntime" class="runtime-list"></div></section>
           <section class="admin-card audit-preview"><header><div><span class="section-kicker">AUDIT TRAIL</span><h2>最近操作</h2></div><button type="button" data-jump-view="logs">查看全部</button></header><div id="adminAuditPreview" class="audit-stream"></div></section>
         </div>
@@ -88,6 +95,16 @@
       <section class="admin-view" data-admin-panel="projects" hidden>
         <div class="admin-section-head"><div><span class="section-kicker">WORKSPACES</span><h2>全部项目</h2><p>管理员无需加入项目，也能查看成员规模与资产状态。</p></div></div>
         <section class="admin-card"><div id="adminProjectTable" class="admin-table-wrap"></div></section>
+      </section>
+
+      <section class="admin-view" data-admin-panel="jobs" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">GENERATION QUEUE</span><h2>生成任务</h2><p>查看所有成员提交的任务、进度、失败原因和可下载产物。</p></div></div>
+        <div class="admin-job-toolbar">
+          <label><span>搜索任务</span><input id="adminJobSearch" type="search" placeholder="任务名、提交人或项目"></label>
+          <label><span>状态</span><select id="adminJobStatus"><option value="all">全部状态</option><option value="queued">排队中</option><option value="running">生成中</option><option value="completed">已完成</option><option value="failed">失败</option></select></label>
+          <span id="adminJobSummary" class="admin-toolbar-summary">读取中…</span>
+        </div>
+        <section class="admin-card"><div id="adminJobTable" class="admin-table-wrap"></div></section>
       </section>
 
       <section class="admin-view" data-admin-panel="logs" hidden>
@@ -162,6 +179,13 @@
     </form>
   </dialog>
 
+  <dialog id="jobDetailDialog" class="modal admin-job-modal">
+    <form method="dialog" id="jobDetailForm">
+      <header><div><span class="section-kicker">TASK DETAIL</span><h2 id="adminJobDetailTitle">生成任务</h2></div><button class="icon-button" type="submit" aria-label="关闭任务详情">×</button></header>
+      <div id="adminJobDetail" class="admin-job-detail"></div>
+    </form>
+  </dialog>
+
   <dialog id="passwordDialog" class="modal password-modal">
     <form id="passwordForm" method="dialog">
       <header><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div></header>
@@ -172,6 +196,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/admin.js?v=20260816.1"></script>
+  <script type="module" src="/assets/js/admin.js?v=20260816.2"></script>
 </body>
 </html>

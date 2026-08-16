@@ -114,6 +114,8 @@ class MonitoringRepository:
             "candidate_queued": "SELECT COUNT(*) FROM job_item_candidates WHERE origin_type='manual' AND kind='gpt' AND status='queued'",
             "candidate_running": "SELECT COUNT(*) FROM job_item_candidates WHERE origin_type='manual' AND kind='gpt' AND status='running'",
             "jobs": "SELECT COUNT(*) FROM jobs",
+            "completed": "SELECT COUNT(*) FROM jobs WHERE status='completed'",
+            "failed": "SELECT COUNT(*) FROM jobs WHERE status='failed'",
         }
         with self._database.read() as connection:
             return {

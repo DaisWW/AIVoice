@@ -246,6 +246,37 @@
   letter-spacing: -.045em;
 }
 
+.admin-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.admin-metric-strip > div {
+  display: grid;
+  min-height: 82px;
+  align-content: center;
+  gap: 5px;
+  padding: 14px 18px;
+  background: rgba(17, 21, 29, .82);
+}
+
+.admin-metric-strip span,
+.admin-metric-strip small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.admin-metric-strip strong {
+  font-size: 22px;
+  font-weight: 650;
+}
+
 .admin-overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(300px, .55fr);
@@ -374,6 +405,163 @@
   color: var(--muted);
   font-size: 11px;
   line-height: 1.6;
+}
+
+.admin-job-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-job-toolbar label {
+  display: grid;
+  min-width: 180px;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.admin-job-toolbar input,
+.admin-job-toolbar select {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.admin-toolbar-summary {
+  margin-left: auto;
+  padding-bottom: 10px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.admin-job-modal {
+  width: min(980px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+}
+
+.admin-job-modal form {
+  max-height: calc(100dvh - 30px);
+  overflow-y: auto;
+}
+
+.admin-job-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-job-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.admin-job-summary > div {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  background: var(--surface-soft);
+}
+
+.admin-job-summary span {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.admin-job-summary strong,
+.admin-job-summary code {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-job-actions a,
+.admin-job-actions button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+  text-decoration: none;
+}
+
+.admin-job-actions a:hover,
+.admin-job-actions button:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.admin-job-rename {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  margin-right: auto;
+}
+
+.admin-job-rename span {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.admin-job-rename input {
+  min-height: 30px;
+  width: min(300px, 38vw);
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.admin-job-error {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(248, 126, 126, .22);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.admin-job-items {
+  max-height: 380px;
+  overflow: auto;
+}
+
+.admin-job-items audio {
+  width: 180px;
+  height: 28px;
+}
+
+.admin-job-items .table-action {
+  display: inline-block;
+  text-decoration: none;
 }
 
 .admin-table-wrap {
@@ -575,6 +763,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .admin-job-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .recent-jobs-card {
     grid-row: auto;
   }
@@ -599,6 +791,33 @@
     display: block;
     height: auto;
     min-height: 100dvh;
+  }
+
+  .admin-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-job-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-job-toolbar label {
+    min-width: 0;
+  }
+
+  .admin-toolbar-summary {
+    margin-left: 0;
+    padding-bottom: 0;
+  }
+
+  .admin-job-rename {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .admin-job-rename input {
+    width: 100%;
   }
 
   .admin-sidebar {
