@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,8 @@ from ..schemas import PasswordReset, UserCreate, UserStatusUpdate
 
 
 router = APIRouter(prefix="/api/admin")
+_STORAGE_CACHE: dict[str, tuple[float, int]] = {}
+_STORAGE_CACHE_TTL = 15.0
 
 
 @router.get("/overview")
@@ -221,13 +225,29 @@ def audit_logs(_: AdminUser, services: ServicesDep, limit: int = 200) -> dict[st
 
 
 def _directory_size(root: Path) -> int:
+    key = str(root)
+    now = time.monotonic()
+    cached = _STORAGE_CACHE.get(key)
+    if cached and now - cached[0] < _STORAGE_CACHE_TTL:
+        return cached[1]
     total = 0
-    for path in root.rglob("*"):
+    pending = [root]
+    while pending:
+        directory = pending.pop()
         try:
-            if path.is_file():
-                total += path.stat().st_size
+            entries = os.scandir(directory)
         except OSError:
             continue
+        with entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    continue
+    _STORAGE_CACHE[key] = (now, total)
     return total
 
 
