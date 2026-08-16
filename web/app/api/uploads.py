@@ -31,13 +31,13 @@ class ScriptStorage:
         return script, self._parse(path)
 
     async def store(
-        self, upload: UploadFile, client_id: str
+        self, upload: UploadFile, owner_id: str, project_id: str
     ) -> tuple[str, list[ScriptItem]]:
         self._validate_extension(upload.filename or "")
         try:
             path, original_name, _ = await save_upload(
                 upload,
-                self._services.settings.script_upload_root / client_id,
+                self._services.settings.script_upload_root / project_id,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -47,9 +47,10 @@ class ScriptStorage:
                 Path(original_name).stem,
                 original_name,
                 path,
-                client_id,
+                owner_id,
                 "upload",
                 items,
+                project_id=project_id,
             )
             return script_id, items
         except Exception:
@@ -76,7 +77,9 @@ class VoiceFileStorage:
         self._services = services
         self._normalizer = AudioNormalizer()
 
-    async def store(self, voice_id: str, files: list[UploadFile]) -> None:
+    async def store(
+        self, voice_id: str, files: list[UploadFile], project_id: str = ""
+    ) -> None:
         self._validate_files(files)
         saved_paths: list[Path] = []
         rows: list[tuple[str, Path, int, dict]] = []
@@ -84,7 +87,7 @@ class VoiceFileStorage:
             for upload in files:
                 source, original_name, _ = await save_upload(
                     upload,
-                    self._services.settings.voice_upload_root / voice_id,
+                    self._services.settings.voice_upload_root / project_id / voice_id,
                 )
                 saved_paths.append(source)
                 normalized = await run_in_threadpool(

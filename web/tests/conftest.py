@@ -49,7 +49,13 @@ def make_encoded_audio_bytes(container_format: str, codec: str) -> bytes:
 
 
 class FakeEngine:
-    def __init__(self, settings: Settings, profiles: object) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        profiles: object,
+        provider_config: object | None = None,
+    ) -> None:
+        del provider_config
         self.settings = settings
         self.generate_calls = 0
         self.generation_settings_calls: list[dict[str, float | int]] = []
@@ -112,6 +118,9 @@ def settings_factory(tmp_path: Path):
         (settings.static_root / "index.html").write_text(
             "<!doctype html><title>test</title>", encoding="utf-8"
         )
+        (settings.static_root / "admin.html").write_text(
+            "<!doctype html><title>admin test</title>", encoding="utf-8"
+        )
         settings.profiles_path.write_text(
             json.dumps(
                 {
@@ -141,7 +150,20 @@ def app_client(settings_factory):
     settings = settings_factory()
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
     with TestClient(application) as client:
+        login_as_admin(client, application.state.services)
         yield client, application.state.services
+
+
+def login_as_admin(client: TestClient, services: object) -> dict[str, object]:
+    password = services.auth.bootstrap_password
+    if not password:
+        raise AssertionError("fresh test application did not expose bootstrap password")
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()["user"]
 
 
 def wait_for_job(

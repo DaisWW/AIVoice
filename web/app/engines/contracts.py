@@ -11,6 +11,9 @@ class ReferenceAudio:
     prompt_text: str
     prompt_lang: str
     duration_seconds: float
+    voice_id: str = ""
+    voice_name: str = ""
+    source_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)

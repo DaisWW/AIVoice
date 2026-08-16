@@ -4,11 +4,14 @@ from pathlib import Path
 
 from .connection import SQLiteConnection
 from .repositories import (
+    AuditRepository,
+    AuthRepository,
     CandidateRepository,
     ClientRepository,
     JobRepository,
     LegacyRepository,
     MonitoringRepository,
+    ProjectRepository,
     ScriptRepository,
     VoiceRepository,
 )
@@ -22,6 +25,9 @@ class Database:
         connection = SQLiteConnection(path)
         self.path = path
         self.clients = ClientRepository(connection)
+        self.auth = AuthRepository(connection)
+        self.projects = ProjectRepository(connection)
+        self.audit = AuditRepository(connection)
         self.voices = VoiceRepository(connection)
         self.scripts = ScriptRepository(connection)
         self.jobs = JobRepository(connection)

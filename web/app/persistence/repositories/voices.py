@@ -21,15 +21,21 @@ class VoiceRepository:
         notes: str,
         source_kind: str = "upload",
         voice_id: str | None = None,
+        project_id: str = "",
     ) -> str:
         voice_id = voice_id or f"voice-{uuid.uuid4().hex[:12]}"
         with self._database.write() as connection:
             connection.execute(
-                "INSERT INTO voices(id, name, owner_id, source_kind, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO voices(
+                    id, name, owner_id, project_id, source_kind, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     voice_id,
                     name.strip(),
                     owner_id,
+                    project_id,
                     source_kind,
                     notes.strip(),
                     utc_now(),
@@ -46,6 +52,7 @@ class VoiceRepository:
         enabled: bool = True,
         file_id: str | None = None,
         emotion_tag: str = "neutral",
+        reference_text: str = "",
         quality: dict[str, Any] | None = None,
     ) -> str:
         file_id = file_id or f"voice-file-{uuid.uuid4().hex[:12]}"
@@ -54,8 +61,8 @@ class VoiceRepository:
                 """
                 INSERT INTO voice_files(
                     id, voice_id, original_name, source_path, size_bytes,
-                    enabled, emotion_tag, quality_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    enabled, emotion_tag, reference_text, quality_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     file_id,
@@ -65,6 +72,7 @@ class VoiceRepository:
                     size_bytes,
                     int(enabled),
                     emotion_tag,
+                    reference_text.strip(),
                     json.dumps(
                         quality or {}, ensure_ascii=False, separators=(",", ":")
                     ),
@@ -138,15 +146,19 @@ class VoiceRepository:
             )
         return cursor.rowcount == 1
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        where = "WHERE v.project_id=?" if project_id is not None else ""
+        parameters = (project_id,) if project_id is not None else ()
         with self._database.read() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT v.*, COUNT(vf.id) AS file_count,
                        SUM(CASE WHEN vf.enabled=1 THEN 1 ELSE 0 END) AS enabled_file_count
                 FROM voices v LEFT JOIN voice_files vf ON vf.voice_id=v.id
+                {where}
                 GROUP BY v.id ORDER BY v.created_at DESC
-                """
+                """,
+                parameters,
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -179,6 +191,7 @@ class VoiceRepository:
         *,
         enabled: bool | None = None,
         emotion_tag: str | None = None,
+        reference_text: str | None = None,
     ) -> bool:
         """Apply all recording metadata changes in one transaction."""
         with self._database.write() as connection:
@@ -192,10 +205,17 @@ class VoiceRepository:
             connection.execute(
                 """
                 UPDATE voice_files
-                SET enabled=COALESCE(?, enabled), emotion_tag=COALESCE(?, emotion_tag)
+                SET enabled=COALESCE(?, enabled),
+                    emotion_tag=COALESCE(?, emotion_tag),
+                    reference_text=COALESCE(?, reference_text)
                 WHERE id=?
                 """,
-                (int(enabled) if enabled is not None else None, emotion_tag, file_id),
+                (
+                    int(enabled) if enabled is not None else None,
+                    emotion_tag,
+                    reference_text,
+                    file_id,
+                ),
             )
         return True
 

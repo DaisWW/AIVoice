@@ -68,6 +68,10 @@ class Settings:
     def profiles_path(self) -> Path:
         return self.config_root / "profiles.json"
 
+    @property
+    def provider_config_path(self) -> Path:
+        return self.data_root / "provider-settings.json"
+
     def ensure_directories(self) -> None:
         for path in (
             self.data_root,

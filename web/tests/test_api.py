@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import re
 import sqlite3
 import wave
 import zipfile
@@ -14,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from conftest import (
     FakeEngine,
+    login_as_admin,
     make_encoded_audio_bytes,
     make_wav_bytes,
     wait_for_candidate,
@@ -30,14 +30,15 @@ def test_app_factory_is_lazy(settings_factory) -> None:
     assert not settings.database_path.exists()
 
 
-def test_identity_rejects_path_cookie(app_client) -> None:
+def test_identity_ignores_legacy_guest_cookie(app_client) -> None:
     client, _ = app_client
     client.cookies.set("voice_lab_client", "../../outside")
 
     response = client.get("/api/identity")
 
     assert response.status_code == 200
-    assert re.fullmatch(r"guest-[0-9a-f]{16}", response.json()["client_id"])
+    assert response.json()["user"]["username"] == "admin"
+    assert response.json()["user"]["role"] == "system_admin"
 
 
 def test_invalid_wav_rolls_back_voice(app_client) -> None:
@@ -334,6 +335,7 @@ def test_create_jobs_compare_models_with_shared_seeds_and_model_defaults(
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
 
     with TestClient(application) as client:
+        login_as_admin(client, application.state.services)
         voice = _create_voice(client, "comparison voice")
         script = _create_script(
             client,
@@ -391,6 +393,7 @@ def test_create_jobs_auto_shares_seed_and_rejects_unavailable_model(
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
 
     with TestClient(application) as client:
+        login_as_admin(client, application.state.services)
         voice = _create_voice(client, "automatic seed voice")
         script = _create_script(client, "automatic-seed.txt", "台词 | mo-la\n")
         response = client.post(
@@ -601,19 +604,22 @@ def test_historical_dsp_candidates_are_hidden_and_raw_audio_is_served(
     assert client.get(detail["items"][0]["audio_url"]).content == raw_bytes
 
 
-def test_jobs_are_private_and_local_admin_can_access_all(
-    settings_factory, monkeypatch
+def test_jobs_are_project_private_and_system_admin_can_access_all(
+    settings_factory,
 ) -> None:
-    monkeypatch.setattr(
-        "app.api.access._local_admin_hosts",
-        lambda: frozenset({"127.0.0.1", "::1", "192.168.87.66"}),
-    )
     settings = settings_factory()
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
 
     with TestClient(application) as owner, TestClient(application) as stranger:
-        owner_id = owner.get("/api/identity").json()["client_id"]
-        assert owner_id != stranger.get("/api/identity").json()["client_id"]
+        services = application.state.services
+        services.auth.create_user("owner", "项目负责人", "owner-password-123")
+        services.auth.create_user("stranger", "其他成员", "stranger-password-123")
+        owner_user = _login_user(owner, "owner", "owner-password-123")
+        _login_user(stranger, "stranger", "stranger-password-123")
+        owner_project = owner.post(
+            "/api/projects", json={"name": "私有项目", "description": ""}
+        ).json()["project"]
+        stranger.post("/api/projects", json={"name": "其他项目", "description": ""})
         voice = _create_voice(owner, "owner voice")
         script = _create_script(owner, "private.txt", "私有任务 | mo-la\n")
         created = owner.post(
@@ -646,70 +652,82 @@ def test_jobs_are_private_and_local_admin_can_access_all(
         )
         renamed = owner.patch(f"/api/jobs/{job['id']}", json={"name": "我的新名称"})
         assert renamed.status_code == 200
+        assert job["project_id"] == owner_project["id"]
 
-        assert stranger.get("/admin").status_code == 403
-        with TestClient(application, client=("127.0.0.1", 50100)) as admin:
+        assert stranger.get("/api/admin/jobs").status_code == 403
+        with TestClient(application) as admin:
+            login_as_admin(admin, services)
             admin_jobs = admin.get("/api/admin/jobs").json()["jobs"]
             assert [row["id"] for row in admin_jobs] == [job["id"]]
             detail = admin.get(f"/api/admin/jobs/{job['id']}").json()["job"]
-            assert detail["client_id"] == owner_id
+            assert detail["client_id"] == owner_user["id"]
             assert admin.get(detail["items"][0]["audio_url"]).status_code == 200
-        with TestClient(application, client=("192.168.87.66", 50101)) as lan_admin:
-            assert lan_admin.get("/api/identity").json()["admin_available"] is True
-        with TestClient(application, client=("192.168.87.67", 50102)) as lan_user:
-            assert lan_user.get("/api/identity").json()["admin_available"] is False
 
 
-def test_docker_admin_bootstrap_token_sets_cookie(
+def test_docker_admin_token_bootstraps_login_password(
     settings_factory, monkeypatch
 ) -> None:
     monkeypatch.setenv("VOICE_LAB_ADMIN_TOKEN", "local-docker-token")
-    monkeypatch.setattr("app.api.access._local_admin_hosts", lambda: frozenset())
     application = create_app(
         settings_factory(), engine_factory=FakeEngine, seed_legacy=False
     )
 
     with TestClient(application, client=("172.20.0.2", 50100)) as client:
-        assert client.get("/admin").status_code == 403
-        assert client.get("/admin?admin_key=wrong").status_code == 403
-        assert client.get("/admin?admin_key=local-docker-token").status_code == 200
-        assert client.get("/api/identity").json()["admin_available"] is True
+        assert client.get("/admin").status_code == 200
+        assert client.get("/api/admin/overview").status_code == 401
+        assert (
+            client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "wrong-password"},
+            ).status_code
+            == 401
+        )
+        user = _login_user(client, "admin", "local-docker-token")
+        assert user["role"] == "system_admin"
+        assert client.get("/api/admin/overview").status_code == 200
 
 
-def test_voice_library_owner_can_edit_but_other_users_cannot(
+def test_voice_library_is_editable_by_project_members(
     settings_factory,
 ) -> None:
     application = create_app(
         settings_factory(), engine_factory=FakeEngine, seed_legacy=False
     )
 
-    with TestClient(application) as owner, TestClient(application) as stranger:
-        owner.get("/api/identity")
-        stranger.get("/api/identity")
+    with TestClient(application) as owner, TestClient(application) as member:
+        services = application.state.services
+        services.auth.create_user("owner", "项目负责人", "owner-password-123")
+        services.auth.create_user("member", "协作成员", "member-password-123")
+        _login_user(owner, "owner", "owner-password-123")
+        _login_user(member, "member", "member-password-123")
+        project = owner.post(
+            "/api/projects", json={"name": "协作项目", "description": ""}
+        ).json()["project"]
+        invited = owner.post(
+            f"/api/projects/{project['id']}/invitations",
+            json={"username": "member"},
+        )
+        assert invited.status_code == 201
+        invitation = member.get("/api/projects").json()["invitations"][0]
+        accepted = member.post(f"/api/invitations/{invitation['id']}/accept")
+        assert accepted.status_code == 200
+
         voice = _create_voice(owner, "source", 2)
         voice_id = voice["id"]
-        stranger_detail = stranger.get(f"/api/voices/{voice_id}").json()["voice"]
-        assert stranger_detail["can_edit"] is False
-        file_id = stranger_detail["files"][0]["id"]
-        assert (
-            stranger.patch(
-                f"/api/voices/{voice_id}", json={"name": "blocked", "notes": ""}
-            ).status_code
-            == 403
+        member_detail = member.get(f"/api/voices/{voice_id}").json()["voice"]
+        assert member_detail["can_edit"] is True
+        file_id = member_detail["files"][0]["id"]
+        disabled = member.patch(
+            f"/api/voices/{voice_id}/files/{file_id}", json={"enabled": False}
         )
-        assert (
-            stranger.patch(
-                f"/api/voices/{voice_id}/files/{file_id}", json={"enabled": False}
-            ).status_code
-            == 403
-        )
+        assert disabled.status_code == 200
 
-        updated = owner.patch(
+        updated = member.patch(
             f"/api/voices/{voice_id}",
             json={"name": "renamed source", "notes": "after"},
         )
         assert updated.status_code == 200
-        appended = owner.post(
+        appended = member.post(
             f"/api/voices/{voice_id}/files",
             files=[("files", ("three.wav", make_wav_bytes(), "audio/wav"))],
         )
@@ -746,6 +764,15 @@ def _create_voice(client: TestClient, name: str, count: int = 1) -> dict:
     )
     assert response.status_code == 201
     return response.json()["voice"]
+
+
+def _login_user(client: TestClient, username: str, password: str) -> dict:
+    response = client.post(
+        "/api/auth/login",
+        json={"username": username, "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()["user"]
 
 
 def _create_script(client: TestClient, name: str, text: str) -> dict:

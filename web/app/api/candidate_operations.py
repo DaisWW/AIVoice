@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from voice_core.pronunciation import is_raw_pronunciation
 
 from ..domain import ScriptItem
 from ..generation_settings import stored_generation_settings
@@ -142,15 +143,16 @@ def _script_item(item: dict[str, Any], request: CandidateRegenerate) -> ScriptIt
         direction=direction,
         emphasis=analysis.emphasis,
         hold_units=analysis.hold_units,
+        raw_mode=analysis.raw_mode,
     )
 
 
 def _directional_text(value: str, direction: str) -> str:
-    text = value.rstrip("。？！")
+    text = value.rstrip("。？！.!?")
     if direction == "rise":
-        return text + "？"
+        return text + ("?" if is_raw_pronunciation(value) else "？")
     if direction == "fall":
-        return text + "。"
+        return text + ("." if is_raw_pronunciation(value) else "。")
     return value
 
 

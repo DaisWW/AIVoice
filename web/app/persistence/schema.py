@@ -12,10 +12,77 @@ CREATE TABLE IF NOT EXISTS clients (
     last_seen_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    status TEXT NOT NULL DEFAULT 'active',
+    must_change_password INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    added_by TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY(project_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS project_invitations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    invited_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    responded_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id TEXT,
+    actor_name TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL DEFAULT '',
+    target_id TEXT NOT NULL DEFAULT '',
+    project_id TEXT,
+    ip_address TEXT NOT NULL DEFAULT '',
+    success INTEGER NOT NULL DEFAULT 1,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS voices (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     owner_id TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',
     source_kind TEXT NOT NULL,
     notes TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
@@ -29,6 +96,7 @@ CREATE TABLE IF NOT EXISTS voice_files (
     size_bytes INTEGER NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     emotion_tag TEXT NOT NULL DEFAULT 'neutral',
+    reference_text TEXT NOT NULL DEFAULT '',
     quality_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
@@ -39,6 +107,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     original_name TEXT NOT NULL,
     source_path TEXT NOT NULL UNIQUE,
     owner_id TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',
     source_kind TEXT NOT NULL,
     default_voice_id TEXT,
     default_effect_id TEXT,
@@ -49,6 +118,8 @@ CREATE TABLE IF NOT EXISTS scripts (
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     client_id TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
     display_name TEXT NOT NULL DEFAULT '',
     script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE RESTRICT,
     voice_id TEXT NOT NULL REFERENCES voices(id) ON DELETE RESTRICT,
@@ -160,6 +231,10 @@ CREATE INDEX IF NOT EXISTS idx_variants_job_submitted ON job_variants(job_id, su
 CREATE INDEX IF NOT EXISTS idx_variants_status_submitted ON job_variants(status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variant_items_variant ON job_variant_items(variant_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_voice_files_voice ON voice_files(voice_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_members_user_project ON project_members(user_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_invitations_user_status ON project_invitations(invited_user_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_logs(project_id, created_at DESC);
 """
 
 
@@ -210,6 +285,34 @@ def initialize_schema(database: SQLiteConnection) -> None:
             "voice_files",
             "quality_json",
             "TEXT NOT NULL DEFAULT '{}'",
+        )
+        _add_column_if_missing(
+            connection,
+            "voice_files",
+            "reference_text",
+            "TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection, "voices", "project_id", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "scripts", "project_id", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "jobs", "project_id", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "jobs", "created_by", "TEXT NOT NULL DEFAULT ''"
+        )
+        connection.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_project_submitted
+                ON jobs(project_id, submitted_at);
+            CREATE INDEX IF NOT EXISTS idx_voices_project_created
+                ON voices(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_scripts_project_created
+                ON scripts(project_id, created_at);
+            """
         )
         _backfill_candidates(connection)
 

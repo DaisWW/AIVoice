@@ -9,7 +9,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Iterator
 
-from voice_core.pronunciation import strip_pronunciation_dashes
+from voice_core.pronunciation import is_raw_pronunciation, strip_pronunciation_dashes
 
 from ..settings import Settings
 from .contracts import GenerationResult, ModelStatus, ReferenceAudio
@@ -54,6 +54,10 @@ class GptSovitsAdapter:
         output_path: Path,
         generation_settings: dict[str, float | int],
     ) -> GenerationResult:
+        if is_raw_pronunciation(str(item.get("pronunciation") or "")):
+            raise RuntimeError(
+                "GPT-SoVITS 当前使用中文文本前端，不能直接合成 raw/IPA 虫语；" "请选择支持原音素的模型，或使用真人表演转音色流程"
+            )
         version = self._version(profile)
         clone = self._load_clone()
         config = copy.deepcopy(self._config["voice_clone"])

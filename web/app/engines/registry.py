@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from ..profiles import Profiles
+from ..provider_config import ProviderConfigStore
 from ..settings import Settings
 from .contracts import GenerationResult, ModelStatus, ReferenceAudio, VoiceAdapter
 from .cosyvoice import CosyVoice3Adapter
+from .elevenlabs import ElevenLabsAdapter
 from .gpt_sovits import GptSovitsAdapter
+from .minimax import MiniMaxAdapter
 from .qwen_tts import Qwen3TtsAdapter
 from .reference_audio import ReferenceAudioBuilder
 
@@ -17,18 +20,32 @@ from .reference_audio import ReferenceAudioBuilder
 class VoiceEngine:
     """Route one GPU queue across lazy, mutually exclusive clone engines."""
 
-    def __init__(self, settings: Settings, profiles: Profiles) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        profiles: Profiles,
+        provider_config: ProviderConfigStore,
+    ) -> None:
         self._profiles = profiles
         config = json.loads(settings.clone_config_path.read_text(encoding="utf-8"))
         adapters: list[VoiceAdapter] = [
             GptSovitsAdapter(settings, config),
             CosyVoice3Adapter(settings),
             Qwen3TtsAdapter(settings),
+            ElevenLabsAdapter(provider_config),
+            MiniMaxAdapter(provider_config),
         ]
         self._adapters = {adapter.engine_id: adapter for adapter in adapters}
         self._references = ReferenceAudioBuilder(settings.root, config)
         self._active: VoiceAdapter | None = None
         self._lock = threading.RLock()
+
+    def test_provider(self, provider_id: str) -> dict[str, Any]:
+        adapter = self._adapters.get(provider_id)
+        tester = getattr(adapter, "test_connection", None)
+        if not callable(tester):
+            raise ValueError(f"未知或不可检测的 provider: {provider_id}")
+        return tester()
 
     @property
     def is_loaded(self) -> bool:

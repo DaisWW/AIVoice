@@ -29,7 +29,16 @@ class ReferenceAudioBuilder:
             float(reference.get("gap_ms", 120)) / 1000.0,
             self._config["trim"],
         )
-        return ReferenceAudio(path, prompt_text, prompt_lang, duration)
+        first = voice_files[0]
+        return ReferenceAudio(
+            path,
+            prompt_text,
+            prompt_lang,
+            duration,
+            str(first.get("voice_id") or ""),
+            str(first.get("voice_name") or ""),
+            tuple(Path(item["source_path"]) for item in voice_files),
+        )
 
     def _audio_module(self) -> Any:
         code_root = str(self._root / "code")

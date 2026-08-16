@@ -29,6 +29,16 @@ def test_parse_supported_text_and_csv_formats() -> None:
     assert csv_items[0].generated_text == "摸啦。"
 
 
+@pytest.mark.parametrize("prefix", ["raw:", "ipa:", "phoneme:"])
+def test_raw_pronunciation_keeps_custom_phonemes(prefix: str) -> None:
+    item = parse_content(f"虫语角色 | {prefix} t͡ʃa-ʀ——ɬa↗".encode("utf-8"), ".txt")[0]
+
+    assert item.raw_mode is True
+    assert item.generated_text == "t͡ʃa ʀ ɬa?"
+    assert item.hold_units == (0, 2, 0)
+    assert item.emphasis == ()
+
+
 @pytest.mark.parametrize(
     ("content", "suffix", "message"),
     [

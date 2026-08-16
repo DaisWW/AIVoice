@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from voice_core.pronunciation import is_raw_pronunciation
+
 from ..generation_settings import stored_generation_settings
 from ..services import ApplicationServices
 
@@ -12,6 +14,7 @@ SCRIPT_FIELDS = (
     "name",
     "original_name",
     "owner_id",
+    "project_id",
     "source_kind",
     "default_voice_id",
     "item_count",
@@ -39,6 +42,7 @@ def _voice_summary(voice: dict[str, Any], can_edit: bool) -> dict[str, Any]:
         "id": voice["id"],
         "name": voice["name"],
         "owner_id": voice["owner_id"],
+        "project_id": voice.get("project_id") or "",
         "source_kind": voice["source_kind"],
         "notes": voice["notes"],
         "file_count": int(voice.get("file_count") or 0),
@@ -55,6 +59,7 @@ def _voice_file_payload(voice: dict[str, Any], item: dict[str, Any]) -> dict[str
         "size_bytes": int(item["size_bytes"]),
         "enabled": bool(item["enabled"]),
         "emotion_tag": item.get("emotion_tag") or "neutral",
+        "reference_text": item.get("reference_text") or "",
         "quality": _json_object(item.get("quality_json")),
         "created_at": item["created_at"],
         "audio_url": f"/api/voices/{voice['id']}/files/{item['id']}/audio",
@@ -80,6 +85,7 @@ def candidate_payload(
         "text": candidate["text"],
         "pronunciation": candidate["pronunciation"],
         "generated_text": candidate["generated_text"],
+        "raw_mode": is_raw_pronunciation(str(candidate.get("pronunciation") or "")),
         "direction": candidate["direction"],
         "emphasis": [
             value for value in str(candidate.get("emphasis") or "").split(",") if value
@@ -179,6 +185,8 @@ class JobPresenter:
             "id": job["id"],
             "name": str(job.get("display_name") or "").strip() or job["script_name"],
             "client_id": job["client_id"],
+            "project_id": job.get("project_id") or "",
+            "created_by": job.get("created_by") or job["client_id"],
             "script_id": job["script_id"],
             "script_name": job["script_name"],
             "voice_id": job["voice_id"],
@@ -240,6 +248,7 @@ class JobPresenter:
             "text": item["text"],
             "pronunciation": item["pronunciation"],
             "generated_text": item["generated_text"],
+            "raw_mode": is_raw_pronunciation(str(item.get("pronunciation") or "")),
             "direction": item["direction"],
             "emphasis": [value for value in item["emphasis"].split(",") if value],
             "status": item["status"],

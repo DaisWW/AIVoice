@@ -20,7 +20,7 @@ class JobPaths:
 
 
 class JobProcessor:
-    """Execute queued GPT work and persist each state transition."""
+    """Execute queued clone work and persist each state transition."""
 
     def __init__(
         self,
@@ -112,8 +112,13 @@ class JobProcessor:
         files = self._database.voices.list_files(str(job["voice_id"]))
         emotion = str(job.get("reference_emotion") or "all")
         if emotion == "all":
-            return files
-        return [item for item in files if item.get("emotion_tag") == emotion]
+            selected = files
+        else:
+            selected = [item for item in files if item.get("emotion_tag") == emotion]
+        return [
+            {**item, "voice_name": str(job.get("voice_name") or "")}
+            for item in selected
+        ]
 
     def _generate_pending_items(
         self,

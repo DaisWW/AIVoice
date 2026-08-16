@@ -14,9 +14,12 @@ from .uploads import ScriptStorage
 
 
 class JobCreationService:
-    def __init__(self, services: ApplicationServices, client_id: str) -> None:
+    def __init__(
+        self, services: ApplicationServices, user_id: str, project_id: str
+    ) -> None:
         self._services = services
-        self._client_id = client_id
+        self._user_id = user_id
+        self._project_id = project_id
 
     async def create(
         self,
@@ -78,7 +81,7 @@ class JobCreationService:
                 else self._services.profiles.generation_settings(model_id)
             )
             job_id = self._services.database.jobs.create(
-                self._client_id,
+                self._user_id,
                 script_id,
                 voice_id,
                 model_id,
@@ -87,11 +90,13 @@ class JobCreationService:
                 reference_emotion=emotion,
                 generation_settings=settings,
                 base_seed=base_seed,
+                project_id=self._project_id,
+                created_by=self._user_id,
             )
             self._services.database.jobs.rename(
                 job_id,
                 self._job_name(base_name, model_id, len(model_ids)),
-                self._client_id,
+                self._user_id,
             )
             job = self._services.database.jobs.get(job_id)
             if not job:  # pragma: no cover
@@ -107,7 +112,8 @@ class JobCreationService:
         candidate_count: int,
         emotion: str,
     ) -> None:
-        if not self._services.database.voices.get(voice_id):
+        voice = self._services.database.voices.get(voice_id)
+        if not voice or str(voice.get("project_id") or "") != self._project_id:
             raise HTTPException(status_code=404, detail="找不到所选声音库")
         files = self._services.database.voices.list_files(voice_id)
         if not files:
@@ -140,9 +146,11 @@ class JobCreationService:
     ) -> tuple[str, list[ScriptItem]]:
         storage = ScriptStorage(self._services)
         if upload and upload.filename:
-            return await storage.store(upload, self._client_id)
+            return await storage.store(upload, self._user_id, self._project_id)
         if script_id.strip():
             script, items = storage.read(script_id.strip())
+            if str(script.get("project_id") or "") != self._project_id:
+                raise HTTPException(status_code=404, detail="台本不属于当前项目")
             return str(script["id"]), items
         raise HTTPException(status_code=422, detail="请选择已有台本，或上传一份新台本")
 

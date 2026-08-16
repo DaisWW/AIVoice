@@ -37,6 +37,8 @@ class JobRepository:
         reference_emotion: str = "all",
         generation_settings: dict[str, float | int] | None = None,
         base_seed: int | None = None,
+        project_id: str = "",
+        created_by: str = "",
     ) -> str:
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = utc_now()
@@ -47,6 +49,8 @@ class JobRepository:
                 connection,
                 job_id,
                 client_id,
+                project_id,
+                created_by or client_id,
                 script_id,
                 voice_id,
                 model_id,
@@ -111,6 +115,8 @@ class JobRepository:
         connection: Any,
         job_id: str,
         client_id: str,
+        project_id: str,
+        created_by: str,
         script_id: str,
         voice_id: str,
         model_id: str,
@@ -122,14 +128,16 @@ class JobRepository:
         connection.execute(
             """
             INSERT INTO jobs(
-                id, client_id, script_id, voice_id, model_id, effect_id,
+                id, client_id, project_id, created_by, script_id, voice_id, model_id, effect_id,
                 effect_settings_json, candidate_count, reference_emotion, status,
                 total_items, completed_items, submitted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?)
             """,
             (
                 job_id,
                 client_id,
+                project_id,
+                created_by,
                 script_id,
                 voice_id,
                 model_id,
@@ -199,6 +207,11 @@ class JobRepository:
 
     def list_for_client(self, client_id: str, limit: int = 100) -> list[dict[str, Any]]:
         return self._list_where("WHERE j.client_id=?", (client_id,), limit)
+
+    def list_for_project(
+        self, project_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        return self._list_where("WHERE j.project_id=?", (project_id,), limit)
 
     def _list_where(
         self, where: str, parameters: tuple[Any, ...], limit: int

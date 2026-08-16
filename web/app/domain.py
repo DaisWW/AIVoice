@@ -14,6 +14,7 @@ class ScriptItem:
     direction: str
     emphasis: tuple[str, ...]
     hold_units: tuple[int, ...] = ()
+    raw_mode: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -26,4 +27,5 @@ class ScriptItem:
             "emphasis": list(self.emphasis),
             "hold_units": list(self.hold_units),
             "syllable_count": len(self.hold_units),
+            "raw_mode": self.raw_mode,
         }

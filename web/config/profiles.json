@@ -79,7 +79,7 @@
     {
       "id": "qwen3_tts_0_6b_base",
       "label": "Qwen3-TTS 0.6B Base",
-      "description": "三秒声音克隆，中文自然度好，适合 12 GB 显存",
+      "description": "三秒声音克隆，适合 12 GB 显存下快速生成与对照",
       "engine": "qwen3_tts",
       "model_path": "tools/models/qwen3_tts_0_6b_base",
       "stage": "优先接入",
@@ -119,6 +119,28 @@
         "top_p": 1.0,
         "repetition_penalty": 1.05
       }
+    },
+    {
+      "id": "elevenlabs_clone",
+      "label": "ElevenLabs 小样本克隆",
+      "description": "管理员配置后，将声音库小样本注册为云端音色并批量生成 WAV",
+      "engine": "elevenlabs",
+      "stage": "三方 API",
+      "license": "商业订阅",
+      "workflow": "text_to_speech",
+      "generation_parameters": [],
+      "clone_overrides": {}
+    },
+    {
+      "id": "minimax_clone",
+      "label": "MiniMax 小样本克隆",
+      "description": "管理员配置后，使用 10 秒以上样本复刻音色并输出 WAV",
+      "engine": "minimax",
+      "stage": "国内三方 API",
+      "license": "商业订阅",
+      "workflow": "text_to_speech",
+      "generation_parameters": [],
+      "clone_overrides": {}
     },
     {
       "id": "indextts_2_5",

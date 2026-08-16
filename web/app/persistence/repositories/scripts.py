@@ -25,15 +25,16 @@ class ScriptRepository:
         default_voice_id: str | None = None,
         default_effect_id: str | None = None,
         script_id: str | None = None,
+        project_id: str = "",
     ) -> str:
         script_id = script_id or f"script-{uuid.uuid4().hex[:12]}"
         with self._database.write() as connection:
             connection.execute(
                 """
                 INSERT INTO scripts(
-                    id, name, original_name, source_path, owner_id, source_kind,
+                    id, name, original_name, source_path, owner_id, project_id, source_kind,
                     default_voice_id, default_effect_id, item_count, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     script_id,
@@ -41,6 +42,7 @@ class ScriptRepository:
                     original_name,
                     str(source_path),
                     owner_id,
+                    project_id,
                     source_kind,
                     default_voice_id,
                     default_effect_id,
@@ -57,9 +59,12 @@ class ScriptRepository:
             ).fetchone()
         return dict(row) if row else None
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        where = "WHERE project_id=?" if project_id is not None else ""
+        parameters = (project_id,) if project_id is not None else ()
         with self._database.read() as connection:
             rows = connection.execute(
-                "SELECT * FROM scripts ORDER BY created_at DESC"
+                f"SELECT * FROM scripts {where} ORDER BY created_at DESC",
+                parameters,
             ).fetchall()
         return [dict(row) for row in rows]

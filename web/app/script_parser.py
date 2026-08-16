@@ -44,6 +44,7 @@ def _item(text: str, pronunciation: str, line_number: int, order: int) -> Script
         direction=analysis.direction,
         emphasis=analysis.emphasis,
         hold_units=analysis.hold_units,
+        raw_mode=analysis.raw_mode,
     )
 
 
