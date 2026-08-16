@@ -99,6 +99,19 @@ class ProjectRepository:
             (user_id,),
         )
 
+    def overview_counts(self) -> dict[str, int]:
+        with self._database.read() as connection:
+            row = connection.execute(
+                """
+                SELECT (SELECT COUNT(*) FROM projects) AS projects,
+                       (SELECT COUNT(*) FROM project_members) AS memberships
+                """
+            ).fetchone()
+        return {
+            "projects": int(row["projects"] or 0),
+            "memberships": int(row["memberships"] or 0),
+        }
+
     def _list(self, clause: str, parameters: tuple[Any, ...]) -> list[dict[str, Any]]:
         with self._database.read() as connection:
             rows = connection.execute(

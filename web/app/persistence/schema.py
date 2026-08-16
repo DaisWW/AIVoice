@@ -231,10 +231,14 @@ CREATE INDEX IF NOT EXISTS idx_variants_job_submitted ON job_variants(job_id, su
 CREATE INDEX IF NOT EXISTS idx_variants_status_submitted ON job_variants(status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variant_items_variant ON job_variant_items(variant_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_voice_files_voice ON voice_files(voice_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_voices_owner_created ON voices(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_scripts_owner_created ON scripts(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_members_user_project ON project_members(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_invitations_user_status ON project_invitations(invited_user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor_created ON audit_logs(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_logs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry ON sessions(user_id, expires_at);
 """
 
 
@@ -308,6 +312,8 @@ def initialize_schema(database: SQLiteConnection) -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_jobs_project_submitted
                 ON jobs(project_id, submitted_at);
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_by_submitted
+                ON jobs(created_by, submitted_at);
             CREATE INDEX IF NOT EXISTS idx_voices_project_created
                 ON voices(project_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_scripts_project_created

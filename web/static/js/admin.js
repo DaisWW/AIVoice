@@ -29,6 +29,8 @@ class AdminShell {
 class AdminApp {
   #api = new ApiClient();
   #shell = new AdminShell();
+  #loadPromise = null;
+  #assetLoadPromise = null;
   #state = {
     isAdmin: false,
     config: { models: [] },
@@ -136,7 +138,15 @@ class AdminApp {
     void this.#loadAll();
   }
 
-  async #loadAll() {
+  #loadAll() {
+    if (this.#loadPromise) return this.#loadPromise;
+    this.#loadPromise = this.#loadAllOnce().finally(() => {
+      this.#loadPromise = null;
+    });
+    return this.#loadPromise;
+  }
+
+  async #loadAllOnce() {
     const overviewPromise = this.#api
       .get("/api/admin/overview")
       .then((overview) => {
@@ -175,6 +185,7 @@ class AdminApp {
   }
 
   #showView(name) {
+    if (!this.#state.isAdmin) return;
     const [kicker, title] = TITLES[name] || TITLES.overview;
     $("#adminViewKicker").textContent = kicker;
     $("#adminViewTitle").textContent = title;
@@ -190,7 +201,15 @@ class AdminApp {
     }
   }
 
-  async #loadAssets() {
+  #loadAssets() {
+    if (this.#assetLoadPromise) return this.#assetLoadPromise;
+    this.#assetLoadPromise = this.#loadAssetsOnce().finally(() => {
+      this.#assetLoadPromise = null;
+    });
+    return this.#assetLoadPromise;
+  }
+
+  async #loadAssetsOnce() {
     $("#adminAssetTable").innerHTML = '<p class="muted-empty">正在读取资产数据…</p>';
     try {
       this.#state.assets = await this.#api.get("/api/admin/assets?limit=500");

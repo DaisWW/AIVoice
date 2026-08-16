@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,25 +17,23 @@ from ..schemas import PasswordReset, UserCreate, UserStatusUpdate
 
 router = APIRouter(prefix="/api/admin")
 _STORAGE_CACHE: dict[str, tuple[float, int]] = {}
+_STORAGE_CACHE_LOCK = Lock()
 _STORAGE_CACHE_TTL = 15.0
+_STORAGE_CACHE_MAX_ENTRIES = 8
 
 
 @router.get("/overview")
-def overview(admin: AdminUser, services: ServicesDep) -> dict[str, Any]:
-    users = services.database.auth.list_users()
-    projects = services.database.projects.list_for_user(
-        str(admin["id"]), include_all=True
-    )
+def overview(_: AdminUser, services: ServicesDep) -> dict[str, Any]:
+    user_counts = services.database.auth.overview_counts()
+    project_counts = services.database.projects.overview_counts()
     jobs = services.database.jobs.list(12)
     usage = shutil.disk_usage(services.settings.data_root)
     insights = services.database.monitoring.admin_insights()
     return {
         "counts": {
             **services.database.monitoring.counts(),
-            "users": len(users),
-            "active_users": sum(user["status"] == "active" for user in users),
-            "projects": len(projects),
-            "memberships": sum(int(project["member_count"]) for project in projects),
+            **user_counts,
+            **project_counts,
         },
         "queue": services.job_queue.status(),
         "engine": services.engine.model_status(),
@@ -65,55 +64,18 @@ def list_assets(
     project_id: str = "",
     limit: int = 300,
 ) -> dict[str, Any]:
-    selected = project_id.strip()
-    bounded_limit = min(max(limit, 1), 500)
+    selected = _project_filter(project_id)
+    bounded_limit = _bounded_limit(limit, 500)
     users = {str(user["id"]): user for user in services.database.auth.list_users()}
     projects = {
         str(project["id"]): project
         for project in services.database.projects.list_for_user("", include_all=True)
     }
-
-    def project_name(value: str) -> str:
-        return str(projects.get(value, {}).get("name") or value or "未分配项目")
-
-    def owner_name(value: str) -> str:
-        owner = users.get(value, {})
-        return str(owner.get("display_name") or owner.get("username") or value)
-
-    voices = services.database.voices.list(selected or None)[:bounded_limit]
-    scripts = services.database.scripts.list(selected or None)[:bounded_limit]
+    voices = services.database.voices.list(selected, limit=bounded_limit)
+    scripts = services.database.scripts.list(selected, limit=bounded_limit)
     return {
-        "voices": [
-            {
-                "id": str(voice["id"]),
-                "name": str(voice["name"]),
-                "project_id": str(voice.get("project_id") or ""),
-                "project_name": project_name(str(voice.get("project_id") or "")),
-                "owner_id": str(voice.get("owner_id") or ""),
-                "owner_name": owner_name(str(voice.get("owner_id") or "")),
-                "file_count": int(voice.get("file_count") or 0),
-                "enabled_file_count": int(voice.get("enabled_file_count") or 0),
-                "size_bytes": int(voice.get("size_bytes") or 0),
-                "source_kind": str(voice.get("source_kind") or ""),
-                "created_at": voice.get("created_at"),
-            }
-            for voice in voices
-        ],
-        "scripts": [
-            {
-                "id": str(script["id"]),
-                "name": str(script["name"]),
-                "original_name": str(script.get("original_name") or ""),
-                "project_id": str(script.get("project_id") or ""),
-                "project_name": project_name(str(script.get("project_id") or "")),
-                "owner_id": str(script.get("owner_id") or ""),
-                "owner_name": owner_name(str(script.get("owner_id") or "")),
-                "item_count": int(script.get("item_count") or 0),
-                "source_kind": str(script.get("source_kind") or ""),
-                "created_at": script.get("created_at"),
-            }
-            for script in scripts
-        ],
+        "voices": [_voice_asset(voice, projects, users) for voice in voices],
+        "scripts": [_script_asset(script, projects, users) for script in scripts],
     }
 
 
@@ -221,15 +183,25 @@ def project_detail(
 
 @router.get("/audit-logs")
 def audit_logs(_: AdminUser, services: ServicesDep, limit: int = 200) -> dict[str, Any]:
-    return {"logs": services.database.audit.list(limit)}
+    return {"logs": services.database.audit.list(_bounded_limit(limit, 1000))}
 
 
 def _directory_size(root: Path) -> int:
-    key = str(root)
-    now = time.monotonic()
-    cached = _STORAGE_CACHE.get(key)
-    if cached and now - cached[0] < _STORAGE_CACHE_TTL:
-        return cached[1]
+    path = Path(root)
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
+    # A single disk walk serves concurrent overview requests and keeps the TTL useful.
+    with _STORAGE_CACHE_LOCK:
+        now = time.monotonic()
+        cached = _STORAGE_CACHE.get(key)
+        if cached and now - cached[0] < _STORAGE_CACHE_TTL:
+            return cached[1]
+        total = _scan_directory(path)
+        _STORAGE_CACHE[key] = (time.monotonic(), total)
+        _trim_storage_cache()
+        return total
+
+
+def _scan_directory(root: Path) -> int:
     total = 0
     pending = [root]
     while pending:
@@ -247,8 +219,74 @@ def _directory_size(root: Path) -> int:
                         total += entry.stat(follow_symlinks=False).st_size
                 except OSError:
                     continue
-    _STORAGE_CACHE[key] = (now, total)
     return total
+
+
+def _trim_storage_cache() -> None:
+    while len(_STORAGE_CACHE) > _STORAGE_CACHE_MAX_ENTRIES:
+        oldest = min(_STORAGE_CACHE, key=lambda key: _STORAGE_CACHE[key][0])
+        del _STORAGE_CACHE[oldest]
+
+
+def _bounded_limit(value: int, maximum: int) -> int:
+    return min(max(int(value), 1), maximum)
+
+
+def _project_filter(value: str) -> str | None:
+    selected = value.strip()
+    return selected if selected and selected.lower() != "all" else None
+
+
+def _project_name(projects: dict[str, dict[str, Any]], project_id: str) -> str:
+    return str(projects.get(project_id, {}).get("name") or project_id or "未分配项目")
+
+
+def _owner_name(users: dict[str, dict[str, Any]], owner_id: str) -> str:
+    owner = users.get(owner_id, {})
+    return str(owner.get("display_name") or owner.get("username") or owner_id)
+
+
+def _voice_asset(
+    voice: dict[str, Any],
+    projects: dict[str, dict[str, Any]],
+    users: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    project_id = str(voice.get("project_id") or "")
+    owner_id = str(voice.get("owner_id") or "")
+    return {
+        "id": str(voice["id"]),
+        "name": str(voice["name"]),
+        "project_id": project_id,
+        "project_name": _project_name(projects, project_id),
+        "owner_id": owner_id,
+        "owner_name": _owner_name(users, owner_id),
+        "file_count": int(voice.get("file_count") or 0),
+        "enabled_file_count": int(voice.get("enabled_file_count") or 0),
+        "size_bytes": int(voice.get("size_bytes") or 0),
+        "source_kind": str(voice.get("source_kind") or ""),
+        "created_at": voice.get("created_at"),
+    }
+
+
+def _script_asset(
+    script: dict[str, Any],
+    projects: dict[str, dict[str, Any]],
+    users: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    project_id = str(script.get("project_id") or "")
+    owner_id = str(script.get("owner_id") or "")
+    return {
+        "id": str(script["id"]),
+        "name": str(script["name"]),
+        "original_name": str(script.get("original_name") or ""),
+        "project_id": project_id,
+        "project_name": _project_name(projects, project_id),
+        "owner_id": owner_id,
+        "owner_name": _owner_name(users, owner_id),
+        "item_count": int(script.get("item_count") or 0),
+        "source_kind": str(script.get("source_kind") or ""),
+        "created_at": script.get("created_at"),
+    }
 
 
 def _admin_user_payload(user: dict[str, Any]) -> dict[str, Any]:

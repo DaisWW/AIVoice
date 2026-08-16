@@ -147,9 +147,14 @@ class VoiceRepository:
             )
         return cursor.rowcount == 1
 
-    def list(self, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         where = "WHERE v.project_id=?" if project_id is not None else ""
         parameters = (project_id,) if project_id is not None else ()
+        limit_clause = " LIMIT ?" if limit is not None else ""
+        if limit is not None:
+            parameters += (limit,)
         with self._database.read() as connection:
             rows = connection.execute(
                 f"""
@@ -158,7 +163,7 @@ class VoiceRepository:
                        COALESCE(SUM(vf.size_bytes), 0) AS size_bytes
                 FROM voices v LEFT JOIN voice_files vf ON vf.voice_id=v.id
                 {where}
-                GROUP BY v.id ORDER BY v.created_at DESC
+                GROUP BY v.id ORDER BY v.created_at DESC{limit_clause}
                 """,
                 parameters,
             ).fetchall()

@@ -15,6 +15,20 @@ class AuthRepository:
         with self._database.read() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM users").fetchone()[0])
 
+    def overview_counts(self) -> dict[str, int]:
+        with self._database.read() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS users,
+                       SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_users
+                FROM users
+                """
+            ).fetchone()
+        return {
+            "users": int(row["users"] or 0),
+            "active_users": int(row["active_users"] or 0),
+        }
+
     def create_user(
         self,
         username: str,
@@ -130,10 +144,11 @@ class AuthRepository:
         return cursor.rowcount == 1
 
     def note_login(self, user_id: str) -> None:
+        timestamp = utc_now()
         with self._database.write() as connection:
             connection.execute(
                 "UPDATE users SET last_login_at=?, updated_at=? WHERE id=?",
-                (utc_now(), utc_now(), user_id),
+                (timestamp, timestamp, user_id),
             )
 
     def create_session(

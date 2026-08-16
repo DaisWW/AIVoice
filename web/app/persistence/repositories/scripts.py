@@ -59,12 +59,17 @@ class ScriptRepository:
             ).fetchone()
         return dict(row) if row else None
 
-    def list(self, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         where = "WHERE project_id=?" if project_id is not None else ""
         parameters = (project_id,) if project_id is not None else ()
+        limit_clause = " LIMIT ?" if limit is not None else ""
+        if limit is not None:
+            parameters += (limit,)
         with self._database.read() as connection:
             rows = connection.execute(
-                f"SELECT * FROM scripts {where} ORDER BY created_at DESC",
+                f"SELECT * FROM scripts {where} ORDER BY created_at DESC{limit_clause}",
                 parameters,
             ).fetchall()
         return [dict(row) for row in rows]
