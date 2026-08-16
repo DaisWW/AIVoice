@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..access import is_system_admin, require_project
+from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
 from ..schemas import InvitationCreate, ProjectCreate, ProjectUpdate
 
@@ -14,9 +14,7 @@ router = APIRouter(prefix="/api")
 
 @router.get("/projects")
 def list_projects(user: CurrentUser, services: ServicesDep) -> dict[str, Any]:
-    projects = services.database.projects.list_for_user(
-        str(user["id"]), include_all=is_system_admin(user)
-    )
+    projects = services.database.projects.list_for_user(str(user["id"]))
     return {
         "projects": [_project_payload(services, project, user) for project in projects],
         "invitations": services.database.projects.invitations_for_user(str(user["id"])),
@@ -191,8 +189,8 @@ def _project_payload(
     role = services.database.projects.role(str(project["id"]), str(user["id"]))
     return {
         **project,
-        "member_role": "system_admin" if is_system_admin(user) else role,
-        "can_manage": is_system_admin(user) or role == "owner",
+        "member_role": role,
+        "can_manage": role == "owner",
     }
 
 

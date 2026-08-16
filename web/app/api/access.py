@@ -10,10 +10,6 @@ from .dependencies import AdminUser, ServicesDep
 AdminAccess = AdminUser
 
 
-def is_system_admin(user: dict[str, Any]) -> bool:
-    return str(user.get("role")) == "system_admin"
-
-
 def resolve_project_id(
     services: ServicesDep,
     user: dict[str, Any],
@@ -21,12 +17,7 @@ def resolve_project_id(
 ) -> str:
     project_id = requested.strip()
     if not project_id:
-        project_id = (
-            services.database.projects.default_for_user(
-                str(user["id"]), include_all=is_system_admin(user)
-            )
-            or ""
-        )
+        project_id = services.database.projects.default_for_user(str(user["id"])) or ""
     require_project(services, user, project_id)
     return project_id
 
@@ -41,8 +32,6 @@ def require_project(
     project = services.database.projects.get(project_id)
     if not project or project["status"] != "active":
         raise HTTPException(status_code=404, detail="找不到项目")
-    if is_system_admin(user):
-        return project
     role = services.database.projects.role(project_id, str(user["id"]))
     if not role:
         raise HTTPException(status_code=404, detail="找不到项目")

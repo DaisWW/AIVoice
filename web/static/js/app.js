@@ -9,7 +9,7 @@ import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
 import { ProjectController } from "./projects/project-controller.js?v=20260815.2";
 import { SystemController } from "./system/system-controller.js";
-import { ShellController } from "./ui/shell-controller.js";
+import { ShellController } from "./ui/shell-controller.js?v=20260816.1";
 import { VoiceController } from "./voices/voice-controller.js";
 import { VoiceDetailView } from "./voices/voice-detail-view.js";
 import { VoiceListView } from "./voices/voice-list-view.js";

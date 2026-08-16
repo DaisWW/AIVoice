@@ -180,7 +180,57 @@ def test_project_invitation_sharing_isolation_and_admin_visibility(
         removed = alice.delete(f"/api/projects/{alpha['id']}/members/{bob_user['id']}")
         assert removed.status_code == 200
         assert bob.get(f"/api/projects/{alpha['id']}").status_code == 404
-        assert admin.get(f"/api/projects/{alpha['id']}").status_code == 200
+        assert admin.get(f"/api/projects/{alpha['id']}").status_code == 404
+
+
+def test_system_admin_workspace_uses_project_membership(
+    settings_factory,
+) -> None:
+    application = create_app(
+        settings_factory(), engine_factory=FakeEngine, seed_legacy=False
+    )
+
+    with TestClient(application) as admin, TestClient(application) as owner:
+        services = application.state.services
+        login_as_admin(admin, services)
+        _create_user(admin, "owner", "项目负责人", "owner-password-123")
+        assert _login(owner, "owner", "owner-password-123").status_code == 200
+
+        project = _create_project(owner, "成员项目")
+        workspace_projects = admin.get("/api/projects").json()["projects"]
+        assert project["id"] not in {item["id"] for item in workspace_projects}
+        assert admin.get(f"/api/projects/{project['id']}").status_code == 404
+
+        admin_projects = admin.get("/api/admin/projects").json()["projects"]
+        assert project["id"] in {item["id"] for item in admin_projects}
+
+        invited = owner.post(
+            f"/api/projects/{project['id']}/invitations",
+            json={"username": "admin"},
+        )
+        assert invited.status_code == 201
+        pending = admin.get("/api/projects").json()["invitations"]
+        invitation = next(
+            item for item in pending if item["project_id"] == project["id"]
+        )
+        assert (
+            admin.post(f"/api/invitations/{invitation['id']}/accept").status_code == 200
+        )
+
+        joined = admin.get(f"/api/projects/{project['id']}").json()["project"]
+        assert joined["member_role"] == "member"
+        assert joined["can_manage"] is False
+        assert (
+            admin.post(
+                f"/api/projects/{project['id']}/invitations",
+                json={"username": "owner"},
+            ).status_code
+            == 403
+        )
+
+        owned = _create_project(admin, "管理员的成员项目")
+        assert owned["member_role"] == "owner"
+        assert owned["can_manage"] is True
 
 
 def _login(client: TestClient, username: str, password: str):
