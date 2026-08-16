@@ -224,9 +224,11 @@ CREATE TABLE IF NOT EXISTS job_variant_items (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status_submitted ON jobs(status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_client_submitted ON jobs(client_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_submitted ON jobs(submitted_at);
 CREATE INDEX IF NOT EXISTS idx_job_items_job ON job_items(job_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON job_item_candidates(job_item_id, ordinal, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON job_item_candidates(kind, status, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_candidates_queue ON job_item_candidates(origin_type, kind, status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variants_job_submitted ON job_variants(job_id, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variants_status_submitted ON job_variants(status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variant_items_variant ON job_variant_items(variant_id, sequence);
@@ -235,10 +237,12 @@ CREATE INDEX IF NOT EXISTS idx_voices_owner_created ON voices(owner_id, created_
 CREATE INDEX IF NOT EXISTS idx_scripts_owner_created ON scripts(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_members_user_project ON project_members(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_invitations_user_status ON project_invitations(invited_user_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_invitations_project_status ON project_invitations(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_actor_created ON audit_logs(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_logs(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry ON sessions(user_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 """
 
 

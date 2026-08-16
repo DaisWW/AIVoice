@@ -614,13 +614,7 @@
   line-height: 1.6;
 }
 
-.admin-job-toolbar {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
+.admin-job-toolbar,
 .admin-filter-toolbar {
   display: flex;
   align-items: flex-end;
@@ -628,25 +622,7 @@
   margin-bottom: 16px;
 }
 
-.admin-filter-toolbar label {
-  display: grid;
-  min-width: 180px;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.admin-filter-toolbar input,
-.admin-filter-toolbar select {
-  min-height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface-soft);
-  color: var(--ink-soft);
-  font-size: 10px;
-}
-
+.admin-filter-toolbar label,
 .admin-job-toolbar label {
   display: grid;
   min-width: 180px;
@@ -655,6 +631,8 @@
   font-size: 9px;
 }
 
+.admin-filter-toolbar input,
+.admin-filter-toolbar select,
 .admin-job-toolbar input,
 .admin-job-toolbar select {
   min-height: 36px;
@@ -683,7 +661,8 @@
   max-height: calc(100dvh - 28px);
 }
 
-.admin-project-modal form {
+.admin-project-modal form,
+.admin-job-modal form {
   max-height: calc(100dvh - 30px);
   overflow-y: auto;
 }
@@ -826,11 +805,6 @@
   border-color: rgba(199, 243, 107, .22);
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-.admin-job-modal form {
-  max-height: calc(100dvh - 30px);
-  overflow-y: auto;
 }
 
 .admin-job-detail {
@@ -1188,20 +1162,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .admin-job-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
+  .admin-job-toolbar,
   .admin-filter-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .admin-filter-toolbar label {
-    min-width: 0;
-  }
-
+  .admin-filter-toolbar label,
   .admin-job-toolbar label {
     min-width: 0;
   }

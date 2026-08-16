@@ -87,6 +87,29 @@ def test_monitoring_counts_are_zero_safe(settings_factory) -> None:
     }
 
 
+def test_admin_query_indexes_are_created(settings_factory) -> None:
+    _, database = _database(settings_factory)
+
+    with database._connection.read() as connection:
+        indexes = {
+            str(row["name"])
+            for table in (
+                "jobs",
+                "job_item_candidates",
+                "sessions",
+                "project_invitations",
+            )
+            for row in connection.execute(f"PRAGMA index_list({table})")
+        }
+
+    assert {
+        "idx_jobs_submitted",
+        "idx_candidates_queue",
+        "idx_sessions_expiry",
+        "idx_invitations_project_status",
+    } <= indexes
+
+
 def test_directory_size_cache_is_thread_safe_and_refreshable(
     tmp_path, monkeypatch
 ) -> None:

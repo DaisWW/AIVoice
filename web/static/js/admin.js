@@ -68,7 +68,7 @@ class AdminApp {
     document.querySelectorAll("[data-admin-close]").forEach((button) => {
       button.addEventListener("click", () => $(`#${button.dataset.adminClose}`).close());
     });
-    $("#adminRefresh").addEventListener("click", () => this.#loadAll());
+    $("#adminRefresh").addEventListener("click", () => this.#loadAll(true));
     $("#openUserDialog").addEventListener("click", () => $("#userDialog").showModal());
     $("#userCreateForm").addEventListener("submit", (event) => this.#createUser(event));
     $("#resetPasswordForm").addEventListener("submit", (event) => this.#resetPassword(event));
@@ -138,8 +138,10 @@ class AdminApp {
     void this.#loadAll();
   }
 
-  #loadAll() {
-    if (this.#loadPromise) return this.#loadPromise;
+  #loadAll(force = false) {
+    if (this.#loadPromise) {
+      return force ? this.#loadPromise.then(() => this.#loadAll()) : this.#loadPromise;
+    }
     this.#loadPromise = this.#loadAllOnce().finally(() => {
       this.#loadPromise = null;
     });
@@ -607,7 +609,7 @@ class AdminApp {
       });
       form.reset();
       $("#userDialog").close();
-      await this.#loadAll();
+      await this.#loadAll(true);
       this.#shell.toast("账户已创建");
     } catch (error) {
       this.#shell.toast(error.message, true);
@@ -630,7 +632,7 @@ class AdminApp {
   async #toggleStatus(button) {
     try {
       await this.#api.patch(`/api/admin/users/${encodeURIComponent(button.dataset.userId)}/status`, { status: button.dataset.status });
-      await this.#loadAll();
+      await this.#loadAll(true);
       this.#shell.toast(button.dataset.status === "active" ? "账户已启用" : "账户已停用");
     } catch (error) {
       this.#shell.toast(error.message, true);
@@ -646,7 +648,7 @@ class AdminApp {
       await this.#api.post(`/api/admin/users/${encodeURIComponent(this.#resetUserId)}/reset-password`, { password: $("#resetPassword").value });
       form.reset();
       $("#resetPasswordDialog").close();
-      await this.#loadAll();
+      await this.#loadAll(true);
       this.#shell.toast("临时密码已重置");
     } catch (error) {
       this.#shell.toast(error.message, true);
