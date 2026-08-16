@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#111216">
-  <title>Voice Lab</title>
+  <meta name="theme-color" content="#0b0d12">
+  <title>Voice Lab · 项目工作台</title>
   <style>
     html,
     body {
       margin: 0;
-      background: #111216;
+      background: #0b0d12;
       color-scheme: dark;
     }
 
@@ -18,36 +18,74 @@
       opacity: 0;
     }
   </style>
-  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/base.css?v=20260815.1">
   <link rel="stylesheet" href="/assets/css/shell.css">
   <link rel="stylesheet" href="/assets/css/jobs.css">
   <link rel="stylesheet" href="/assets/css/voices.css">
+  <link rel="stylesheet" href="/assets/css/collaboration.css">
   <link rel="stylesheet" href="/assets/css/overlays.css">
   <link rel="stylesheet" href="/assets/css/motion.css">
-  <link rel="stylesheet" href="/assets/css/responsive.css">
+  <link rel="stylesheet" href="/assets/css/responsive.css?v=20260815.1">
 </head>
-<body>
-  <div class="app-shell">
+<body class="workspace-page">
+  <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
+    <div class="auth-ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="auth-story">
+      <a class="auth-brand" href="/"><span>VL</span><strong>VOICE LAB</strong></a>
+      <div class="auth-story-copy">
+        <span class="eyebrow">COLLABORATIVE VOICE STUDIO</span>
+        <h1>把每一个角色声音，<br><em>留在同一个项目里。</em></h1>
+        <p>团队共享台本、参考录音与生成结果。模型仍在单 GPU 队列中稳定运行，项目成员始终看到同一份进度。</p>
+      </div>
+      <div class="auth-proof">
+        <span><strong>01</strong>项目隔离</span>
+        <span><strong>02</strong>团队共享</span>
+        <span><strong>03</strong>完整追踪</span>
+      </div>
+    </div>
+    <div class="auth-panel">
+      <form id="loginForm" class="login-card">
+        <span class="eyebrow">WELCOME BACK</span>
+        <h2>登录工作台</h2>
+        <p>使用管理员为你创建的账户。</p>
+        <label for="loginUsername"><span>用户名</span><input id="loginUsername" name="username" autocomplete="username" maxlength="64" required placeholder="your.name"></label>
+        <label for="loginPassword"><span>密码</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="输入密码"></label>
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button class="auth-submit" type="submit"><span>进入 Voice Lab</span><b aria-hidden="true">→</b></button>
+        <small>账户由系统管理员创建 · 不开放公开注册</small>
+      </form>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell" hidden>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Voice Lab 工作台">
-        <span class="brand-mark">VL</span>
+        <span class="brand-mark"><i></i><i></i><i></i></span>
         <span class="brand-copy">
           <strong>VOICE LAB</strong>
-          <small>角色声音工作台</small>
+          <small>团队声音工作台</small>
         </span>
       </a>
 
+      <label class="project-switcher" for="projectSelect">
+        <span>当前项目</span>
+        <select id="projectSelect" aria-label="切换当前项目"></select>
+      </label>
+
       <nav class="topnav" aria-label="主导航">
-        <button id="workspaceNav" class="nav-button active" type="button">工作台</button>
-        <button id="libraryNav" class="nav-button" type="button">声音库</button>
+        <button id="workspaceNav" class="nav-button active" type="button"><span>生成</span></button>
+        <button id="libraryNav" class="nav-button" type="button"><span>声音库</span></button>
+        <button id="projectNav" class="nav-button" type="button"><span>项目</span><em id="invitationBadge" hidden>0</em></button>
       </nav>
 
       <div class="topbar-actions">
-        <a id="adminLink" class="admin-link" href="/admin" hidden>管理员</a>
+        <a id="adminLink" class="admin-link" href="/admin" hidden>管理后台</a>
+        <span id="userAvatar" class="user-avatar">U</span>
         <div class="identity">
           <span id="identityRole">当前用户</span>
           <code id="clientId">--</code>
         </div>
+        <button id="logoutButton" class="logout-button" type="button" title="退出登录" aria-label="退出登录">↗</button>
       </div>
     </header>
 
@@ -118,12 +156,64 @@
             </article>
           </div>
         </section>
+
+        <section id="projectView" class="view project-view" aria-label="项目与成员" aria-hidden="true">
+          <div class="project-page">
+            <header class="project-hero">
+              <div>
+                <span class="section-kicker">SHARED WORKSPACE</span>
+                <h2 id="currentProjectName">项目空间</h2>
+                <p id="currentProjectDescription">团队成员共享这里的台本、声音库与生成结果。</p>
+              </div>
+              <button id="createProject" class="primary-button" type="button">创建新项目</button>
+            </header>
+
+            <div id="emptyProjectState" class="project-onboarding" hidden>
+              <span>你的第一个空间</span>
+              <h3>先创建一个项目，再开始协作。</h3>
+              <p>项目把成员、台本、参考录音和结果放在同一个边界里。</p>
+            </div>
+
+            <div id="projectContent" class="project-content">
+              <section class="project-metrics" aria-label="项目统计">
+                <article><span>成员</span><strong id="projectMemberCount">0</strong><small>共同维护</small></article>
+                <article><span>声音库</span><strong id="projectVoiceCount">0</strong><small>参考录音</small></article>
+                <article><span>台本</span><strong id="projectScriptCount">0</strong><small>项目资产</small></article>
+                <article><span>任务</span><strong id="projectJobCount">0</strong><small>生成记录</small></article>
+              </section>
+
+              <div class="project-columns">
+                <section class="collab-card project-list-card">
+                  <header><div><span class="section-kicker">YOUR PROJECTS</span><h3>我的项目</h3></div></header>
+                  <div id="projectGrid" class="project-grid"></div>
+                </section>
+
+                <section class="collab-card members-card">
+                  <header><div><span class="section-kicker">PEOPLE</span><h3>项目成员</h3></div></header>
+                  <div id="memberList" class="member-list"></div>
+                  <form id="inviteForm" class="invite-form">
+                    <div id="invitePanel">
+                      <label for="inviteUsername">邀请已有账户</label>
+                      <div><input id="inviteUsername" autocomplete="off" placeholder="输入准确用户名" required><button class="primary-button" type="submit">发送邀请</button></div>
+                      <small>账户不存在时，请先联系系统管理员创建。</small>
+                    </div>
+                  </form>
+                </section>
+              </div>
+
+            </div>
+            <section class="collab-card invitation-section">
+              <header><div><span class="section-kicker">INVITATIONS</span><h3>待处理邀请</h3></div></header>
+              <div id="invitationList" class="invitation-list"></div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
   </div>
 
   <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
-  <aside id="createDrawer" class="create-drawer" aria-hidden="true" aria-label="新建生成任务">
+  <aside id="createDrawer" class="create-drawer" hidden aria-hidden="true" aria-label="新建生成任务">
     <header class="drawer-header">
       <div>
         <span class="section-kicker">NEW GENERATION</span>
@@ -313,7 +403,42 @@
     </form>
   </dialog>
 
+  <dialog id="projectDialog" class="modal project-modal">
+    <form id="projectCreateForm" method="dialog">
+      <header>
+        <div><span class="section-kicker">NEW PROJECT</span><h2>创建项目</h2></div>
+        <button class="icon-button" type="button" data-close-dialog="projectDialog" aria-label="关闭">×</button>
+      </header>
+      <label class="field-label" for="projectName">项目名称</label>
+      <input id="projectName" maxlength="80" required placeholder="例如：星港电台 · 第一季">
+      <label class="field-label" for="projectDescription">项目说明</label>
+      <textarea id="projectDescription" maxlength="500" rows="3" placeholder="角色、交付目标或协作说明"></textarea>
+      <div class="modal-actions">
+        <button class="quiet-button" type="button" data-close-dialog="projectDialog">取消</button>
+        <button class="primary-button" type="submit">创建并进入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="passwordDialog" class="modal password-modal">
+    <form id="passwordForm" method="dialog">
+      <header>
+        <div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div>
+        <button class="icon-button" type="button" data-close-dialog="passwordDialog" aria-label="关闭">×</button>
+      </header>
+      <p class="modal-copy">首次登录或管理员重置密码后，请设置仅你自己知道的新密码。</p>
+      <label class="field-label" for="currentPassword">当前密码</label>
+      <input id="currentPassword" type="password" autocomplete="current-password" maxlength="128" required>
+      <label class="field-label" for="newPassword">新密码</label>
+      <input id="newPassword" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+      <p id="passwordMessage" class="form-error"></p>
+      <div class="modal-actions">
+        <button class="primary-button" type="submit">保存新密码</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/app.js"></script>
+  <script type="module" src="/assets/js/app.js?v=20260815.4"></script>
 </body>
 </html>

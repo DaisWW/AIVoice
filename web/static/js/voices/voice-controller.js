@@ -35,7 +35,9 @@ export class VoiceController {
   }
 
   async refresh() {
-    const { voices } = await this.#api.get("/api/voices");
+    const { voices } = await this.#api.get(
+      `/api/voices?project_id=${encodeURIComponent(this.#state.projectId || "")}`,
+    );
     this.#state.voices = voices;
     this.#listView.render();
     this.#onVoicesChanged();
@@ -82,6 +84,9 @@ export class VoiceController {
     }
     if (event.target.matches("[data-file-id]")) this.#toggleFile(event.target);
     if (event.target.matches("[data-file-emotion-id]")) this.#changeEmotion(event.target);
+    if (event.target.matches("[data-file-reference-id]")) {
+      this.#changeReferenceText(event.target);
+    }
   }
 
   #openCreate() {
@@ -221,6 +226,26 @@ export class VoiceController {
     }
   }
 
+  async #changeReferenceText(input) {
+    const fileId = input.dataset.fileReferenceId;
+    const previous = this.#state.voiceDetail?.files.find((item) => item.id === fileId)
+      ?.reference_text || "";
+    input.disabled = true;
+    try {
+      const { voice } = await this.#api.patch(
+        `/api/voices/${encodeURIComponent(this.#state.selectedVoiceId)}/files/${encodeURIComponent(fileId)}`,
+        { reference_text: input.value },
+      );
+      this.#applyFileUpdate(voice, fileId);
+      this.#shell.toast("参考文本已更新");
+    } catch (error) {
+      input.value = previous;
+      this.#shell.toast(error.message, true);
+    } finally {
+      input.disabled = false;
+    }
+  }
+
   #applyFileUpdate(voice, fileId) {
     this.#storeVoice(voice);
     this.#state.voiceDetail = voice;
@@ -237,7 +262,7 @@ export class VoiceController {
     try {
       const { voice } = await this.#api.postForm(
         "/api/voices",
-        new FormData(event.target),
+        this.#formData(event.target),
       );
       event.target.reset();
       $("#voiceFileName").textContent = "选择真人录音";
@@ -251,5 +276,11 @@ export class VoiceController {
       setButtonBusy(button, false);
       button.textContent = "创建";
     }
+  }
+
+  #formData(form) {
+    const data = new FormData(form);
+    data.set("project_id", this.#state.projectId || "");
+    return data;
   }
 }

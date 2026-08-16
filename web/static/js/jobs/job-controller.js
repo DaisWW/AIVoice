@@ -65,7 +65,9 @@ export class JobController {
     if (this.#refreshing || (document.hidden && !forceDetail)) return;
     this.#refreshing = true;
     try {
-      const { jobs } = await this.#api.get(`${this.#state.jobApiBase}?limit=300`);
+      const { jobs } = await this.#api.get(
+        `${this.#state.jobApiBase}?limit=300&project_id=${encodeURIComponent(this.#state.projectId || "")}`,
+      );
       this.#state.jobs = jobs;
       this.#listView.render();
       await this.#syncSelection(forceDetail);

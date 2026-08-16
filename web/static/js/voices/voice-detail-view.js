@@ -63,6 +63,10 @@ export class VoiceDetailView {
       (item) => item.dataset.fileEmotionId === fileId,
     );
     if (emotion) emotion.value = file.emotion_tag;
+    const referenceText = $$("[data-file-reference-id]", this.#root).find(
+      (item) => item.dataset.fileReferenceId === fileId,
+    );
+    if (referenceText) referenceText.value = file.reference_text || "";
     const count = $(".voice-files-toolbar p", this.#root);
     if (count) count.textContent = `${voice.enabled_file_count}/${voice.file_count} 条启用`;
   }
@@ -139,6 +143,12 @@ export class VoiceDetailView {
           <input type="checkbox" data-file-id="${escapeHtml(file.id)}" ${file.enabled ? "checked" : ""} ${editable ? "" : "disabled"}>
           <span></span>
         </label>
+        ${editable ? `
+          <label class="reference-text-field">
+            <span>参考文本 <small>必须与录音逐字一致；虫语或纯拟声无法可靠转写时请留空</small></span>
+            <textarea data-file-reference-id="${escapeHtml(file.id)}" rows="2" maxlength="2000" placeholder="仅填写实际发音，不要按中文猜写">${escapeHtml(file.reference_text || "")}</textarea>
+          </label>
+        ` : file.reference_text ? `<div class="reference-text-readonly"><span>参考文本</span><p>${escapeHtml(file.reference_text)}</p></div>` : ""}
       </div>
     `;
   }

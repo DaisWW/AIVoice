@@ -13,42 +13,42 @@ export class ShellController {
     this.#onViewChange = onViewChange;
     $("#workspaceNav").addEventListener("click", () => this.showView("workspace"));
     $("#libraryNav").addEventListener("click", () => this.showView("library"));
-    $$("[data-close-dialog]").forEach((button) => {
-      button.addEventListener("click", () => $(
-        `#${button.dataset.closeDialog}`,
-      ).close());
+    $("#projectNav").addEventListener("click", () => this.showView("project"));
+    $$('[data-close-dialog]').forEach((button) => {
+      button.addEventListener("click", () => $(`#${button.dataset.closeDialog}`).close());
     });
   }
 
   showView(name) {
-    const changed = this.#state.view !== name;
-    this.#state.setView(name);
-    const workspaceActive = name === "workspace";
-    $(".app-shell").classList.toggle("library-mode", !workspaceActive);
-    this.#toggleView($("#workspaceView"), workspaceActive);
-    this.#toggleView($("#libraryView"), !workspaceActive);
-    this.#toggleNav($("#workspaceNav"), workspaceActive);
-    this.#toggleNav($("#libraryNav"), !workspaceActive);
+    const resolved = ["workspace", "library", "project"].includes(name)
+      ? name
+      : "workspace";
+    const changed = this.#state.view !== resolved;
+    this.#state.setView(resolved);
+    const workspace = resolved === "workspace";
+    const library = resolved === "library";
+    const project = resolved === "project";
+    $(".app-shell").classList.toggle("section-mode", !workspace);
+    this.#toggleView($("#workspaceView"), workspace);
+    this.#toggleView($("#libraryView"), library);
+    this.#toggleView($("#projectView"), project);
+    this.#toggleNav($("#workspaceNav"), workspace);
+    this.#toggleNav($("#libraryNav"), library);
+    this.#toggleNav($("#projectNav"), project);
     if (changed && window.matchMedia("(max-width: 760px)").matches) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
-    this.#onViewChange(name);
+    this.#onViewChange(resolved);
   }
 
-  renderIdentity(identity) {
-    const admin = this.#state.isAdmin;
-    this.#state.clientId = identity.client_id;
-    $("#clientId").textContent = admin ? "全部用户任务" : identity.client_id;
-    $("#identityRole").textContent = admin ? "服务器管理员" : "匿名工作区";
-    $("#jobListTitle").textContent = admin ? "全部生成记录" : "我的生成记录";
-    const link = $("#adminLink");
-    if (admin) {
-      link.hidden = false;
-      link.href = "/";
-      link.textContent = "返回个人视图";
-    } else if (identity.admin_available) {
-      link.hidden = false;
-    }
+  renderIdentity(user) {
+    this.#state.user = user;
+    this.#state.isAdmin = user.role === "system_admin";
+    $("#identityRole").textContent = user.role === "system_admin" ? "系统管理员" : "项目成员";
+    $("#clientId").textContent = user.display_name;
+    $("#userAvatar").textContent = user.display_name.slice(0, 1);
+    $("#jobListTitle").textContent = "项目生成记录";
+    $("#adminLink").hidden = !this.#state.isAdmin;
   }
 
   renderHealth(health) {
@@ -59,8 +59,8 @@ export class ShellController {
   }
 
   renderOffline() {
-    $("#workerDot").classList.remove("online");
-    $("#queueSummary").textContent = "连接断开";
+    $("#workerDot")?.classList.remove("online");
+    if ($("#queueSummary")) $("#queueSummary").textContent = "连接断开";
   }
 
   toast(message, error = false) {

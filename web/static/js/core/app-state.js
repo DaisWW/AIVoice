@@ -2,34 +2,53 @@ const KEYS = {
   view: "voice-lab-view",
   job: "voice-lab-job",
   voice: "voice-lab-voice",
+  project: "voice-lab-project",
 };
 
 export class AppState {
   #storage;
 
-  constructor(location = window.location) {
+  constructor() {
     this.#storage = this.#resolveStorage();
-    this.isAdmin = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
-    this.clientId = "";
+    this.user = null;
+    this.isAdmin = false;
+    this.projects = [];
+    this.invitations = [];
+    this.projectId = this.#read(KEYS.project);
     this.config = { models: [] };
     this.voices = [];
     this.scripts = [];
     this.jobs = [];
     this.filter = "all";
     this.scriptMode = "existing";
-    this.view = this.#read(KEYS.view) === "library" ? "library" : "workspace";
+    const storedView = this.#read(KEYS.view);
+    this.view = ["workspace", "library", "project"].includes(storedView)
+      ? storedView
+      : "workspace";
     this.selectedJobId = this.#read(KEYS.job);
     this.selectedVoiceId = this.#read(KEYS.voice);
     this.voiceDetail = null;
   }
 
   get jobApiBase() {
-    return this.isAdmin ? "/api/admin/jobs" : "/api/jobs";
+    return "/api/jobs";
+  }
+
+  get project() {
+    return this.projects.find((item) => item.id === this.projectId) || null;
   }
 
   setView(view) {
     this.view = view;
     this.#write(KEYS.view, view);
+  }
+
+  selectProject(projectId) {
+    this.projectId = projectId || null;
+    this.#write(KEYS.project, this.projectId);
+    this.selectJob(null);
+    this.selectVoice(null);
+    this.voiceDetail = null;
   }
 
   selectJob(jobId) {

@@ -2,10 +2,12 @@ import { ApiClient } from "./core/api-client.js";
 import { CandidateController } from "./candidates/candidate-controller.js";
 import { AppState } from "./core/app-state.js";
 import { AudioLoader } from "./core/audio-loader.js";
-import { GenerationController } from "./generation/generation-controller.js";
+import { AuthController } from "./auth/auth-controller.js?v=20260815.3";
+import { GenerationController } from "./generation/generation-controller.js?v=20260815.4";
 import { JobController } from "./jobs/job-controller.js";
 import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
+import { ProjectController } from "./projects/project-controller.js?v=20260815.2";
 import { SystemController } from "./system/system-controller.js";
 import { ShellController } from "./ui/shell-controller.js";
 import { VoiceController } from "./voices/voice-controller.js";
@@ -18,6 +20,8 @@ class VoiceLabApp {
   #audioLoader = new AudioLoader();
   #shell = new ShellController(this.#state);
   #system = new SystemController(this.#api, this.#shell);
+  #auth = new AuthController(this.#api, "appShell", (user) => this.#boot(user));
+  #projects;
   #jobs;
   #voices;
   #generation;
@@ -52,65 +56,86 @@ class VoiceLabApp {
       shell: this.#shell,
       jobs: this.#jobs,
     });
+    this.#projects = new ProjectController({
+      state: this.#state,
+      api: this.#api,
+      shell: this.#shell,
+      onProjectChanged: (project) => this.#loadProject(project),
+    });
     this.#jobs.setCandidateController(this.#candidates);
   }
 
   async start() {
     this.#bind();
     this.#generation.setScriptMode("existing");
-    this.#shell.showView(this.#state.view);
-    try {
-      await this.#system.loadIdentity();
-      this.#loadState(await this.#fetchInitialData());
-      this.#render();
-      this.#system.refreshHealth();
-      await this.#jobs.selectInitial();
-      if (this.#state.view === "library") await this.#voices.ensureSelection();
-    } catch (error) {
-      this.#shell.toast(error.message, true);
-      this.#shell.renderOffline();
-    } finally {
-      this.#shell.reveal();
-    }
-    this.#jobs.schedule();
-    this.#system.start();
+    const user = await this.#auth.restore();
+    if (user) await this.#boot(user);
+    this.#shell.reveal();
   }
 
   #bind() {
+    this.#auth.bind();
     this.#shell.bind((view) => {
       if (view === "library") this.#voices.ensureSelection();
     });
+    this.#projects.bind();
     this.#jobs.bind();
     this.#voices.bind();
     this.#generation.bind();
     this.#candidates.bind();
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden) return;
+      if (document.hidden || !this.#state.user) return;
       Promise.all([this.#jobs.onVisible(), this.#system.refreshHealth()]);
     });
   }
 
-  async #fetchInitialData() {
-    return Promise.all([
-      this.#api.get("/api/config"),
-      this.#api.get("/api/voices"),
-      this.#api.get("/api/scripts"),
-      this.#api.get(`${this.#state.jobApiBase}?limit=300`),
-    ]);
+  async #boot(user) {
+    this.#state.user = user;
+    this.#shell.renderIdentity(user);
+    try {
+      const project = await this.#projects.load();
+      if (!project) {
+        this.#shell.showView("project");
+        return;
+      }
+      await this.#loadProject(project);
+      this.#shell.showView(this.#state.view);
+      this.#system.refreshHealth();
+      this.#jobs.schedule();
+      this.#system.start();
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+      this.#shell.renderOffline();
+    }
   }
 
-  #loadState([config, voices, scripts, jobs]) {
+  async #loadProject(project) {
+    if (!project) {
+      this.#state.voices = [];
+      this.#state.scripts = [];
+      this.#state.jobs = [];
+      this.#generation.renderOptions();
+      this.#voices.render();
+      this.#jobs.render();
+      return;
+    }
+    const projectId = encodeURIComponent(project.id);
+    const [config, voices, scripts, jobs] = await Promise.all([
+      this.#api.get("/api/config"),
+      this.#api.get(`/api/voices?project_id=${projectId}`),
+      this.#api.get(`/api/scripts?project_id=${projectId}`),
+      this.#api.get(`/api/jobs?limit=300&project_id=${projectId}`),
+    ]);
     this.#state.config = config;
     this.#state.voices = voices.voices;
     this.#state.scripts = scripts.scripts;
     this.#state.jobs = jobs.jobs;
-  }
-
-  #render() {
     this.#generation.renderOptions();
     this.#generation.applyScriptDefaults();
     this.#voices.render();
     this.#jobs.render();
+    await this.#jobs.selectInitial();
+    if (this.#state.view === "library") await this.#voices.ensureSelection();
   }
 }
 

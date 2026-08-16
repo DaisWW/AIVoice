@@ -1,7 +1,17 @@
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export class ApiClient {
   async request(path, options = {}) {
     const response = await fetch(path, { credentials: "same-origin", ...options });
-    if (!response.ok) throw new Error(await this.#errorMessage(response));
+    if (!response.ok) {
+      throw new ApiError(await this.#errorMessage(response), response.status);
+    }
     return response.json();
   }
 
@@ -29,6 +39,10 @@ export class ApiClient {
       headers: { "Content-Type": "application/json", ...options.headers },
       body: JSON.stringify(body),
     });
+  }
+
+  delete(path, options = {}) {
+    return this.request(path, { ...options, method: "DELETE" });
   }
 
   async #errorMessage(response) {

@@ -113,6 +113,7 @@ export class GenerationController {
   open() {
     const drawer = $("#createDrawer");
     const backdrop = $("#drawerBackdrop");
+    drawer.hidden = false;
     backdrop.hidden = false;
     requestAnimationFrame(() => backdrop.classList.add("visible"));
     drawer.classList.add("open");
@@ -127,12 +128,17 @@ export class GenerationController {
     drawer.setAttribute("aria-hidden", "true");
     backdrop.classList.remove("visible");
     setTimeout(() => {
-      if (!drawer.classList.contains("open")) backdrop.hidden = true;
+      if (!drawer.classList.contains("open")) {
+        drawer.hidden = true;
+        backdrop.hidden = true;
+      }
     }, 220);
   }
 
   async reloadScripts() {
-    const { scripts } = await this.#api.get("/api/scripts");
+    const { scripts } = await this.#api.get(
+      `/api/scripts?project_id=${encodeURIComponent(this.#state.projectId || "")}`,
+    );
     this.#state.scripts = scripts;
     this.renderOptions();
   }
@@ -266,6 +272,7 @@ export class GenerationController {
     data.set("model_ids", JSON.stringify(this.#compareModelIds()));
     data.set("reference_emotion", $("#referenceEmotionSelect").value || "all");
     data.set("candidate_count", $("#candidateCount").value || "2");
+    data.set("project_id", this.#state.projectId || "");
     data.set("generation_settings", JSON.stringify(this.#controls.values()));
     const baseSeed = $("#createBaseSeed").value.trim();
     if (baseSeed) data.set("base_seed", baseSeed);

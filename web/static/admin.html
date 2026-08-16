@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN" class="app-loading">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Voice Lab · 管理后台</title>
+  <style>html,body{margin:0;background:#0b0d12;color-scheme:dark}</style>
+  <link rel="stylesheet" href="/assets/css/base.css?v=20260815.1">
+  <link rel="stylesheet" href="/assets/css/collaboration.css">
+  <link rel="stylesheet" href="/assets/css/settings.css">
+  <link rel="stylesheet" href="/assets/css/overlays.css">
+  <link rel="stylesheet" href="/assets/css/admin.css?v=20260815.2">
+</head>
+<body class="admin-page">
+  <section id="authView" class="auth-view" aria-label="管理员登录">
+    <div class="auth-ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="auth-story admin-auth-story">
+      <a class="auth-brand" href="/"><span>VL</span><strong>VOICE LAB</strong></a>
+      <div class="auth-story-copy">
+        <span class="eyebrow">SYSTEM CONTROL ROOM</span>
+        <h1>清楚知道系统里，<br><em>正在发生什么。</em></h1>
+        <p>账户、项目、推理队列、模型能力与审计事件集中在一个安全的管理界面。</p>
+      </div>
+    </div>
+    <div class="auth-panel">
+      <form id="loginForm" class="login-card">
+        <span class="eyebrow">ADMIN ACCESS</span>
+        <h2>管理员登录</h2>
+        <p>需要系统管理员账户。</p>
+        <label for="loginUsername"><span>用户名</span><input id="loginUsername" autocomplete="username" maxlength="64" required></label>
+        <label for="loginPassword"><span>密码</span><input id="loginPassword" type="password" autocomplete="current-password" maxlength="128" required></label>
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button class="auth-submit" type="submit"><span>进入管理后台</span><b>→</b></button>
+        <a class="auth-back-link" href="/">返回团队工作台</a>
+      </form>
+    </div>
+  </section>
+
+  <div id="adminShell" class="admin-shell" hidden>
+    <aside class="admin-sidebar">
+      <a class="admin-brand" href="/"><span class="brand-mark"><i></i><i></i><i></i></span><div><strong>VOICE LAB</strong><small>CONTROL ROOM</small></div></a>
+      <nav class="admin-nav" aria-label="管理导航">
+        <button class="active" type="button" data-admin-view="overview"><i>01</i><span>系统概览</span></button>
+        <button type="button" data-admin-view="users"><i>02</i><span>账户管理</span></button>
+        <button type="button" data-admin-view="projects"><i>03</i><span>项目总览</span></button>
+        <button type="button" data-admin-view="logs"><i>04</i><span>审计日志</span></button>
+        <button type="button" data-admin-view="providers"><i>05</i><span>模型服务</span></button>
+      </nav>
+      <div class="admin-sidebar-foot">
+        <a href="/">← 返回项目工作台</a>
+        <span><i id="adminWorkerDot"></i><b id="adminQueueState">读取状态…</b></span>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div><span id="adminViewKicker">SYSTEM OVERVIEW</span><h1 id="adminViewTitle">系统概览</h1></div>
+        <div class="admin-actions">
+          <button id="adminRefresh" class="quiet-button" type="button">刷新数据</button>
+          <span id="adminAvatar" class="user-avatar">A</span>
+          <div><strong id="adminName">管理员</strong><small>@<span id="adminUsername">admin</span></small></div>
+          <button id="logoutButton" class="logout-button" type="button" aria-label="退出登录">↗</button>
+        </div>
+      </header>
+
+      <div id="adminDenied" class="admin-denied" hidden><span>403</span><h2>当前账户不是系统管理员</h2><a href="/">返回工作台</a></div>
+
+      <section class="admin-view active" data-admin-panel="overview">
+        <div class="admin-metric-grid">
+          <article class="admin-metric accent"><span>账户</span><strong id="metricUsers">—</strong><small id="metricActiveUsers">— 个启用</small></article>
+          <article class="admin-metric"><span>项目</span><strong id="metricProjects">—</strong><small id="metricMemberships">— 条成员关系</small></article>
+          <article class="admin-metric"><span>生成任务</span><strong id="metricJobs">—</strong><small id="metricQueue">— 个处理中</small></article>
+          <article class="admin-metric"><span>数据占用</span><strong id="metricStorage">—</strong><small id="metricDisk">— 可用</small></article>
+        </div>
+        <div class="admin-overview-grid">
+          <section class="admin-card recent-jobs-card"><header><div><span class="section-kicker">RECENT ACTIVITY</span><h2>最近生成任务</h2></div></header><div id="adminRecentJobs" class="admin-table-wrap"></div></section>
+          <section class="admin-card runtime-card"><header><div><span class="section-kicker">RUNTIME</span><h2>推理与模型</h2></div></header><div id="adminRuntime" class="runtime-list"></div></section>
+          <section class="admin-card audit-preview"><header><div><span class="section-kicker">AUDIT TRAIL</span><h2>最近操作</h2></div><button type="button" data-jump-view="logs">查看全部</button></header><div id="adminAuditPreview" class="audit-stream"></div></section>
+        </div>
+      </section>
+
+      <section class="admin-view" data-admin-panel="users" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">IDENTITIES</span><h2>账户管理</h2><p>账户只由管理员创建，临时密码要求首次登录后修改。</p></div><button id="openUserDialog" class="primary-button" type="button">创建账户</button></div>
+        <section class="admin-card"><div id="adminUserTable" class="admin-table-wrap"></div></section>
+      </section>
+
+      <section class="admin-view" data-admin-panel="projects" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">WORKSPACES</span><h2>全部项目</h2><p>管理员无需加入项目，也能查看成员规模与资产状态。</p></div></div>
+        <section class="admin-card"><div id="adminProjectTable" class="admin-table-wrap"></div></section>
+      </section>
+
+      <section class="admin-view" data-admin-panel="logs" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">AUDIT TRAIL</span><h2>审计日志</h2><p>记录登录、账户、项目和成员等关键操作，不保存密码或密钥。</p></div></div>
+        <section class="admin-card"><div id="adminLogTable" class="admin-table-wrap"></div></section>
+      </section>
+
+      <section class="admin-view" data-admin-panel="providers" hidden>
+        <div class="admin-section-head"><div><span class="section-kicker">MODEL SERVICES</span><h2>模型与三方服务</h2><p>密钥只保存在服务器运行数据目录，普通用户无法读取。</p></div></div>
+        <div class="settings-content admin-settings-content">
+          <form id="elevenLabsSettingsForm" class="settings-card">
+            <header><div><span class="section-kicker">CLOUD CLONE</span><h3>ElevenLabs 小样本克隆</h3></div><span id="elevenLabsStatus" class="provider-status">未配置</span></header>
+            <label class="settings-switch"><input id="elevenLabsEnabled" type="checkbox"><span>允许项目生成任务使用此云模型</span></label>
+            <div class="settings-fields two-column-settings">
+              <label><span>API Key</span><input id="elevenLabsApiKey" type="password" maxlength="500" autocomplete="off"></label>
+              <label><span>API 地址</span><input id="elevenLabsBaseUrl" type="url" required></label>
+              <label><span>TTS 模型 ID</span><input id="elevenLabsModel" maxlength="100" required></label>
+              <label><span>输出格式</span><select id="elevenLabsOutput"><option value="wav_48000">WAV 48 kHz</option><option value="wav_44100">WAV 44.1 kHz</option></select></label>
+              <label><span>请求超时（秒）</span><input id="elevenLabsTimeout" type="number" min="10" max="600" required></label>
+              <label><span>稳定度</span><input id="elevenLabsStability" type="number" min="0" max="1" step="0.01" required></label>
+              <label><span>音色相似度</span><input id="elevenLabsSimilarity" type="number" min="0" max="1" step="0.01" required></label>
+              <label><span>风格强度</span><input id="elevenLabsStyle" type="number" min="0" max="1" step="0.01" required></label>
+            </div>
+            <div class="settings-options"><label><input id="elevenLabsSpeakerBoost" type="checkbox"> speaker boost</label><label><input id="elevenLabsNoiseReduction" type="checkbox"> 注册前降噪</label><label><input id="elevenLabsClearKey" type="checkbox"> 清除 API Key</label></div>
+            <p class="settings-note">首次实际生成会把声音库中当前启用、符合所选语气的参考样本上传到 ElevenLabs，并占用克隆/生成额度；请先取得声音所有者授权。高采样率 WAV 需要账号具备相应付费权益。</p>
+            <p id="elevenLabsEnrollmentSummary" class="settings-note">尚无云端克隆缓存</p>
+            <footer><button id="testElevenLabs" class="quiet-button" type="button">检测连接</button><button id="saveElevenLabs" class="primary-button" type="submit">保存配置</button></footer>
+          </form>
+          <form id="miniMaxSettingsForm" class="settings-card">
+            <header><div><span class="section-kicker">DOMESTIC CLOUD CLONE</span><h3>MiniMax 小样本克隆</h3></div><span id="miniMaxStatus" class="provider-status">未配置</span></header>
+            <label class="settings-switch"><input id="miniMaxEnabled" type="checkbox"><span>允许项目生成任务使用此云模型</span></label>
+            <div class="settings-fields two-column-settings">
+              <label><span>API Key</span><input id="miniMaxApiKey" type="password" maxlength="500" autocomplete="off"></label>
+              <label><span>API 地址</span><input id="miniMaxBaseUrl" type="url" required></label>
+              <label><span>TTS 模型 ID</span><input id="miniMaxModel" maxlength="100" required></label>
+              <label><span>采样率</span><select id="miniMaxSampleRate"><option value="32000">32 kHz</option><option value="44100">44.1 kHz</option><option value="48000">48 kHz</option></select></label>
+              <label><span>请求超时（秒）</span><input id="miniMaxTimeout" type="number" min="10" max="600" required></label>
+              <label><span>语言增强</span><input id="miniMaxLanguageBoost" maxlength="32" required></label>
+              <label><span>语速</span><input id="miniMaxSpeed" type="number" min="0.5" max="2" step="0.01" required></label>
+              <label><span>音量</span><input id="miniMaxVolume" type="number" min="0" max="10" step="0.01" required></label>
+              <label><span>音高</span><input id="miniMaxPitch" type="number" min="-12" max="12" step="1" required></label>
+              <label><span>情绪标签（可选）</span><input id="miniMaxEmotion" maxlength="32"></label>
+            </div>
+            <div class="settings-options"><label><input id="miniMaxNoiseReduction" type="checkbox"> 复刻前降噪</label><label><input id="miniMaxVolumeNormalization" type="checkbox"> 复刻前音量归一</label><label><input id="miniMaxClearKey" type="checkbox"> 清除 API Key</label></div>
+            <p class="settings-note">MiniMax 官方复刻接口要求待克隆音频至少 10 秒、最长 5 分钟、20 MB 以内；系统会按声音库顺序合并启用录音。raw/IPA 台本会用括号包裹音素交给 MiniMax，实际可读性请先做小批量试听。</p>
+            <p id="miniMaxEnrollmentSummary" class="settings-note">尚无云端克隆缓存</p>
+            <footer><button id="testMiniMax" class="quiet-button" type="button">检测连接</button><button id="saveMiniMax" class="primary-button" type="submit">保存配置</button></footer>
+          </form>
+          <section class="settings-card"><header><div><span class="section-kicker">LOCAL MODELS</span><h3>本地克隆能力</h3></div></header><div id="localModelStatus" class="local-model-status"></div></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="userDialog" class="modal admin-modal">
+    <form id="userCreateForm" method="dialog">
+      <header><div><span class="section-kicker">NEW ACCOUNT</span><h2>创建账户</h2></div><button class="icon-button" type="button" data-admin-close="userDialog">×</button></header>
+      <label class="field-label" for="newUsername">用户名</label><input id="newUsername" pattern="[A-Za-z0-9_.-]{3,32}" maxlength="32" required placeholder="name.surname">
+      <label class="field-label" for="newDisplayName">显示名称</label><input id="newDisplayName" maxlength="60" required placeholder="成员姓名">
+      <label class="field-label" for="newUserPassword">临时密码</label><input id="newUserPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <p class="modal-copy">账户首次登录后会被提示修改密码。</p>
+      <div class="modal-actions"><button class="quiet-button" type="button" data-admin-close="userDialog">取消</button><button class="primary-button" type="submit">创建账户</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="resetPasswordDialog" class="modal admin-modal">
+    <form id="resetPasswordForm" method="dialog">
+      <header><div><span class="section-kicker">RESET PASSWORD</span><h2>重置临时密码</h2></div><button class="icon-button" type="button" data-admin-close="resetPasswordDialog">×</button></header>
+      <p id="resetPasswordTarget" class="modal-copy"></p>
+      <label class="field-label" for="resetPassword">新临时密码</label><input id="resetPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <div class="modal-actions"><button class="quiet-button" type="button" data-admin-close="resetPasswordDialog">取消</button><button class="primary-button" type="submit">确认重置</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="passwordDialog" class="modal password-modal">
+    <form id="passwordForm" method="dialog">
+      <header><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div></header>
+      <label class="field-label" for="currentPassword">当前密码</label><input id="currentPassword" type="password" required autocomplete="current-password">
+      <label class="field-label" for="newPassword">新密码</label><input id="newPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <p id="passwordMessage" class="form-error"></p><div class="modal-actions"><button class="primary-button" type="submit">保存新密码</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/assets/js/admin.js?v=20260815"></script>
+</body>
+</html>
