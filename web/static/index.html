@@ -22,26 +22,14 @@
   <link rel="stylesheet" href="/assets/css/shell.css">
   <link rel="stylesheet" href="/assets/css/jobs.css">
   <link rel="stylesheet" href="/assets/css/voices.css">
-  <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.2">
+  <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.3">
   <link rel="stylesheet" href="/assets/css/overlays.css">
   <link rel="stylesheet" href="/assets/css/motion.css">
   <link rel="stylesheet" href="/assets/css/responsive.css?v=20260815.1">
 </head>
 <body class="workspace-page">
-  <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
-    <div class="auth-story">
-      <a class="auth-brand" href="/"><span>VL</span><strong>VOICE LAB</strong></a>
-      <div class="auth-story-copy">
-        <span class="eyebrow">VOICE COLLABORATION</span>
-        <h1>让声音制作<br><em>回到同一个项目。</em></h1>
-        <p>台本、参考录音和生成结果，为每一位项目成员保留同一份上下文。</p>
-      </div>
-      <div class="auth-proof">
-        <span><strong>01</strong>私密项目空间</span>
-        <span><strong>02</strong>实时任务进度</span>
-        <span><strong>03</strong>可追溯的版本</span>
-      </div>
-    </div>
+  <section id="authView" class="auth-view user-auth-view" aria-label="登录 Voice Lab">
+    <div class="auth-story user-auth-story" aria-hidden="true"></div>
     <div class="auth-panel">
       <form id="loginForm" class="login-card">
         <span class="eyebrow">WORKSPACE ACCESS</span>
@@ -429,7 +417,7 @@
       <label class="field-label" for="currentPassword">当前密码</label>
       <input id="currentPassword" type="password" autocomplete="current-password" maxlength="128" required>
       <label class="field-label" for="newPassword">新密码</label>
-      <input id="newPassword" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+      <input id="newPassword" type="password" autocomplete="new-password" maxlength="128" required>
       <p id="passwordMessage" class="form-error"></p>
       <div class="modal-actions">
         <button class="primary-button" type="submit">保存新密码</button>

@@ -153,8 +153,8 @@ class AuthService:
 
 
 def validate_password(value: str) -> None:
-    if len(value) < 10 or len(value) > 128:
-        raise AuthError("密码长度需为 10-128 个字符")
+    if not value or len(value) > 128:
+        raise AuthError("密码不能为空且不能超过 128 个字符")
 
 
 def hash_password(password: str) -> str:

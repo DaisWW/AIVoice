@@ -36,11 +36,17 @@ def test_authentication_session_and_bootstrap_password_lifecycle(
         assert "httponly" in cookie and "samesite=lax" in cookie
         assert client.get("/api/auth/session").json()["user"]["role"] == "system_admin"
 
+        empty_password = client.post(
+            "/api/auth/change-password",
+            json={"current_password": bootstrap_password, "new_password": ""},
+        )
+        assert empty_password.status_code == 422
+
         changed = client.post(
             "/api/auth/change-password",
             json={
                 "current_password": bootstrap_password,
-                "new_password": "new-admin-password-123",
+                "new_password": "123456",
             },
         )
         assert changed.status_code == 200
@@ -49,7 +55,7 @@ def test_authentication_session_and_bootstrap_password_lifecycle(
         assert client.post("/api/auth/logout", json={}).status_code == 200
         assert client.get("/api/auth/session").status_code == 401
         assert _login(client, "admin", bootstrap_password).status_code == 401
-        assert _login(client, "admin", "new-admin-password-123").status_code == 200
+        assert _login(client, "admin", "123456").status_code == 200
 
         actions = {item["action"] for item in services.database.audit.list()}
         assert {
@@ -72,14 +78,12 @@ def test_admin_account_status_revokes_sessions(settings_factory) -> None:
             json={
                 "username": "studio.member",
                 "display_name": "协作成员",
-                "password": "temporary-password-123",
+                "password": "1",
             },
         )
         assert created.status_code == 201
         user = created.json()["user"]
-        assert (
-            _login(member, "studio.member", "temporary-password-123").status_code == 200
-        )
+        assert _login(member, "studio.member", "1").status_code == 200
         assert member.get("/api/admin/overview").status_code == 403
 
         disabled = admin.patch(
@@ -87,22 +91,18 @@ def test_admin_account_status_revokes_sessions(settings_factory) -> None:
         )
         assert disabled.status_code == 200
         assert member.get("/api/auth/session").status_code == 401
-        assert (
-            _login(member, "studio.member", "temporary-password-123").status_code == 401
-        )
+        assert _login(member, "studio.member", "1").status_code == 401
 
         enabled = admin.patch(
             f"/api/admin/users/{user['id']}/status", json={"status": "active"}
         )
         assert enabled.status_code == 200
-        assert (
-            _login(member, "studio.member", "temporary-password-123").status_code == 200
-        )
+        assert _login(member, "studio.member", "1").status_code == 200
         changed = member.post(
             "/api/auth/change-password",
             json={
-                "current_password": "temporary-password-123",
-                "new_password": "member-private-password-456",
+                "current_password": "1",
+                "new_password": "2",
             },
         )
         assert changed.status_code == 200

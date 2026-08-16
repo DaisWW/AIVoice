@@ -147,7 +147,7 @@
       <header><div><span class="section-kicker">NEW ACCOUNT</span><h2>创建账户</h2></div><button class="icon-button" type="button" data-admin-close="userDialog">×</button></header>
       <label class="field-label" for="newUsername">用户名</label><input id="newUsername" pattern="[A-Za-z0-9_.-]{3,32}" maxlength="32" required placeholder="name.surname">
       <label class="field-label" for="newDisplayName">显示名称</label><input id="newDisplayName" maxlength="60" required placeholder="成员姓名">
-      <label class="field-label" for="newUserPassword">临时密码</label><input id="newUserPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <label class="field-label" for="newUserPassword">临时密码</label><input id="newUserPassword" type="password" maxlength="128" required autocomplete="new-password">
       <p class="modal-copy">账户首次登录后会被提示修改密码。</p>
       <div class="modal-actions"><button class="quiet-button" type="button" data-admin-close="userDialog">取消</button><button class="primary-button" type="submit">创建账户</button></div>
     </form>
@@ -157,7 +157,7 @@
     <form id="resetPasswordForm" method="dialog">
       <header><div><span class="section-kicker">RESET PASSWORD</span><h2>重置临时密码</h2></div><button class="icon-button" type="button" data-admin-close="resetPasswordDialog">×</button></header>
       <p id="resetPasswordTarget" class="modal-copy"></p>
-      <label class="field-label" for="resetPassword">新临时密码</label><input id="resetPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <label class="field-label" for="resetPassword">新临时密码</label><input id="resetPassword" type="password" maxlength="128" required autocomplete="new-password">
       <div class="modal-actions"><button class="quiet-button" type="button" data-admin-close="resetPasswordDialog">取消</button><button class="primary-button" type="submit">确认重置</button></div>
     </form>
   </dialog>
@@ -166,7 +166,7 @@
     <form id="passwordForm" method="dialog">
       <header><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div></header>
       <label class="field-label" for="currentPassword">当前密码</label><input id="currentPassword" type="password" required autocomplete="current-password">
-      <label class="field-label" for="newPassword">新密码</label><input id="newPassword" type="password" minlength="10" maxlength="128" required autocomplete="new-password">
+      <label class="field-label" for="newPassword">新密码</label><input id="newPassword" type="password" maxlength="128" required autocomplete="new-password">
       <p id="passwordMessage" class="form-error"></p><div class="modal-actions"><button class="primary-button" type="submit">保存新密码</button></div>
     </form>
   </dialog>
