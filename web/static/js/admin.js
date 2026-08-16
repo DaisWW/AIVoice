@@ -36,7 +36,7 @@ class AdminApp {
     this.#auth.bind();
     this.#bind();
     const user = await this.#auth.restore();
-    if (user) await this.#boot(user);
+    if (user) this.#boot(user);
     requestAnimationFrame(() => document.documentElement.classList.remove("app-loading"));
   }
 
@@ -58,7 +58,7 @@ class AdminApp {
     this.#providers.bind();
   }
 
-  async #boot(user) {
+  #boot(user) {
     this.#state.isAdmin = user.role === "system_admin";
     $("#adminName").textContent = user.display_name;
     $("#adminUsername").textContent = user.username;
@@ -70,21 +70,29 @@ class AdminApp {
       });
       return;
     }
-    await this.#loadAll();
     this.#showView("overview");
+    void this.#loadAll();
   }
 
   async #loadAll() {
+    const overviewPromise = this.#api
+      .get("/api/admin/overview")
+      .then((overview) => {
+        this.#renderOverview(overview);
+        return overview;
+      })
+      .catch((error) => {
+        this.#shell.toast(error.message, true);
+        return null;
+      });
     try {
-      const [overview, users, projects, logs, config] = await Promise.all([
-        this.#api.get("/api/admin/overview"),
+      const [users, projects, logs, config] = await Promise.all([
         this.#api.get("/api/admin/users"),
         this.#api.get("/api/admin/projects"),
         this.#api.get("/api/admin/audit-logs?limit=300"),
         this.#api.get("/api/config"),
       ]);
       this.#state.config = config;
-      this.#renderOverview(overview);
       this.#renderUsers(users.users);
       this.#renderProjects(projects.projects);
       this.#renderLogs(logs.logs);
@@ -93,6 +101,7 @@ class AdminApp {
     } catch (error) {
       this.#shell.toast(error.message, true);
     }
+    await overviewPromise;
   }
 
   #showView(name) {
