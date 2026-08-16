@@ -504,6 +504,12 @@
 .admin-settings-content {
   width: 100%;
   padding: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.admin-settings-content > .settings-card:last-child {
+  grid-column: 1 / -1;
 }
 
 .admin-modal {
@@ -571,6 +577,14 @@
 
   .recent-jobs-card {
     grid-row: auto;
+  }
+
+  .admin-settings-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-settings-content > .settings-card:last-child {
+    grid-column: auto;
   }
 }
 

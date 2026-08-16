@@ -124,16 +124,16 @@
               <label><span>API Key</span><input id="miniMaxApiKey" type="password" maxlength="500" autocomplete="off"></label>
               <label><span>API 地址</span><input id="miniMaxBaseUrl" type="url" required></label>
               <label><span>TTS 模型 ID</span><input id="miniMaxModel" maxlength="100" required></label>
-              <label><span>采样率</span><select id="miniMaxSampleRate"><option value="32000">32 kHz</option><option value="44100">44.1 kHz</option><option value="48000">48 kHz</option></select></label>
+              <label><span>采样率</span><select id="miniMaxSampleRate"><option value="44100">44.1 kHz</option><option value="32000">32 kHz</option><option value="24000">24 kHz</option><option value="22050">22.05 kHz</option><option value="16000">16 kHz</option><option value="8000">8 kHz</option></select></label>
               <label><span>请求超时（秒）</span><input id="miniMaxTimeout" type="number" min="10" max="600" required></label>
               <label><span>语言增强</span><input id="miniMaxLanguageBoost" maxlength="32" required></label>
               <label><span>语速</span><input id="miniMaxSpeed" type="number" min="0.5" max="2" step="0.01" required></label>
-              <label><span>音量</span><input id="miniMaxVolume" type="number" min="0" max="10" step="0.01" required></label>
+              <label><span>音量</span><input id="miniMaxVolume" type="number" min="0.01" max="10" step="0.01" required></label>
               <label><span>音高</span><input id="miniMaxPitch" type="number" min="-12" max="12" step="1" required></label>
               <label><span>情绪标签（可选）</span><input id="miniMaxEmotion" maxlength="32"></label>
             </div>
             <div class="settings-options"><label><input id="miniMaxNoiseReduction" type="checkbox"> 复刻前降噪</label><label><input id="miniMaxVolumeNormalization" type="checkbox"> 复刻前音量归一</label><label><input id="miniMaxClearKey" type="checkbox"> 清除 API Key</label></div>
-            <p class="settings-note">MiniMax 官方复刻接口要求待克隆音频至少 10 秒、最长 5 分钟、20 MB 以内；系统会按声音库顺序合并启用录音。raw/IPA 台本会用括号包裹音素交给 MiniMax，实际可读性请先做小批量试听。</p>
+            <p class="settings-note">MiniMax 官方复刻接口要求待克隆音频至少 10 秒、最长 5 分钟、20 MB 以内；系统会按声音库顺序合并启用录音并保守控制在 19 MiB 内。raw/IPA 台本会用括号包裹音素交给 MiniMax，实际可读性请先做小批量试听；连接检测不代表账号已开通复刻权限，云端音色长期未调用也可能过期。</p>
             <p id="miniMaxEnrollmentSummary" class="settings-note">尚无云端克隆缓存</p>
             <footer><button id="testMiniMax" class="quiet-button" type="button">检测连接</button><button id="saveMiniMax" class="primary-button" type="submit">保存配置</button></footer>
           </form>
