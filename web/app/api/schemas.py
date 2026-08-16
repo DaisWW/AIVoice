@@ -78,11 +78,11 @@ class MiniMaxProviderUpdate(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     tts_model_id: str = Field(min_length=1, max_length=100)
     output_format: Literal["wav"] = "wav"
-    sample_rate: Literal[32000, 44100, 48000] = 32000
+    sample_rate: Literal[8000, 16000, 22050, 24000, 32000, 44100] = 32000
     request_timeout_seconds: int = Field(default=180, ge=10, le=600)
     language_boost: str = Field(default="auto", min_length=1, max_length=32)
     speed: float = Field(default=1, ge=0.5, le=2)
-    volume: float = Field(default=1, ge=0, le=10)
+    volume: float = Field(default=1, gt=0, le=10)
     pitch: int = Field(default=0, ge=-12, le=12)
     emotion: str = Field(default="", max_length=32)
     need_noise_reduction: bool = False

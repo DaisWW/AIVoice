@@ -58,6 +58,28 @@ def _provider_payload(**overrides):
     return payload
 
 
+def _minimax_payload(**overrides):
+    payload = {
+        "enabled": False,
+        "api_key": "minimax-secret-key",
+        "clear_api_key": False,
+        "base_url": "https://api.minimaxi.com",
+        "tts_model_id": "speech-2.8-hd",
+        "output_format": "wav",
+        "sample_rate": 44100,
+        "request_timeout_seconds": 180,
+        "language_boost": "auto",
+        "speed": 1.0,
+        "volume": 1.0,
+        "pitch": 0,
+        "emotion": "",
+        "need_noise_reduction": False,
+        "need_volume_normalization": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_provider_public_payload_masks_secret_and_blank_update_preserves_key(
     settings_factory, monkeypatch
 ) -> None:
@@ -131,6 +153,43 @@ def test_provider_cannot_be_enabled_while_clearing_key(
         stored = application.state.services.provider_config.provider("elevenlabs")
         assert stored["enabled"] is False
         assert stored["api_key"] == ""
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_minimax_provider_masks_key_and_rejects_unsupported_audio_settings(
+    settings_factory, monkeypatch
+) -> None:
+    client, application = _admin_client(settings_factory(), monkeypatch)
+    try:
+        saved = client.patch(
+            "/api/admin/providers/minimax",
+            json=_minimax_payload(),
+        )
+        assert saved.status_code == 200
+        public = saved.json()["providers"]["minimax"]
+        assert "api_key" not in public
+        assert public["api_key_configured"] is True
+        assert public["sample_rate"] == 44100
+        assert (
+            application.state.services.provider_config.provider("minimax")["api_key"]
+            == "minimax-secret-key"
+        )
+
+        assert (
+            client.patch(
+                "/api/admin/providers/minimax",
+                json=_minimax_payload(sample_rate=48000),
+            ).status_code
+            == 422
+        )
+        assert (
+            client.patch(
+                "/api/admin/providers/minimax",
+                json=_minimax_payload(volume=0),
+            ).status_code
+            == 422
+        )
     finally:
         client.__exit__(None, None, None)
 
