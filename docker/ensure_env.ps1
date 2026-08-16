@@ -18,9 +18,9 @@ try {
 finally {
     $random.Dispose()
 }
-$token = [Convert]::ToBase64String($bytes).TrimEnd('=') -replace '\+', '-' -replace '/', '_'
+$password = [Convert]::ToBase64String($bytes).TrimEnd('=') -replace '\+', '-' -replace '/', '_'
 @(
-    "VOICE_LAB_ADMIN_TOKEN=$token"
+    "VOICE_LAB_ADMIN_PASSWORD=$password"
     "VOICE_LAB_IMAGE=voice-lab:local"
     "VOICE_LAB_BASE_IMAGE=docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime"
     "VOICE_LAB_TORCH_VERSION=2.5.1"

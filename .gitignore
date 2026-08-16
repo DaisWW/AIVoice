@@ -230,7 +230,7 @@ output/
 archive/
 我的录音/
 
-# Machine-local deployment configuration (contains the admin token)
+# Machine-local deployment configuration (contains the admin password)
 docker/voice-lab.env
 *.env
 

@@ -7,7 +7,7 @@ web/
 ├─ app/
 │  ├─ api/
 │  │  ├─ routes/                  页面、系统、声音、台本、任务、管理员路由
-│  │  ├─ access.py                匿名用户、本机管理员和资源访问规则
+│  │  ├─ access.py                账户、项目成员和系统管理员访问规则
 │  │  ├─ candidate_operations.py  单句重做、采用和试听
 │  │  ├─ payloads.py              对外 JSON 结构
 │  │  ├─ job_creation.py          单模型与同源多模型任务创建
@@ -17,8 +17,9 @@ web/
 │  ├─ main.py                     FastAPI 应用工厂
 │  ├─ services.py                 生命周期和运行资源
 │  ├─ queue_worker.py             单 GPU 队列、进度和预计等待时间
-│  ├─ engines/                    GPT-SoVITS、CosyVoice3、Qwen3-TTS 适配与注册
+│  ├─ engines/                    本地模型与 ElevenLabs 小样本克隆适配
 │  ├─ engine_adapter.py           多模型引擎兼容入口
+│  ├─ provider_config.py          管理员供应商配置与云端音色映射
 │  ├─ audio_conversion.py         上传录音标准化为 WAV
 │  ├─ audio_quality.py            参考录音质量提示
 │  ├─ legacy_import.py            旧 input/output 幂等登记
@@ -48,3 +49,19 @@ web/
 - 历史 DSP 表和字段仅为已有数据库兼容保留，不提供仓储、队列、路由或前端入口。
 - `LegacyImporter.run()` 可重复执行，不复制或删除旧音频。
 - 前端使用原生 ES Modules，所有模块必须通过 `run_tests.ps1` 的递归语法检查。
+
+## ElevenLabs 小样本克隆
+
+系统管理员可在管理员配置页保存 ElevenLabs API Key、模型、WAV 输出格式和音色参数，并先执行连接检测。密钥保存在忽略版本控制的 `web/data/provider-settings.json`，普通接口与管理员读取接口都只返回“是否已配置”，不会返回密钥原文。
+
+虫语台本支持 `raw:`、`ipa:` 或 `phoneme:` 前缀。前缀后的 IPA、组合音标、喉音和自定义符号不会经过中文音节表映射；普通 `mo-la` 格式仍保持旧行为。GPT-SoVITS 的中文文本前端会明确拒绝 raw 行，避免静默生成错误的中文读法。
+
+选择 `ElevenLabs 小样本克隆` 后，任务首次使用某个声音库时会把当前启用、符合所选参考语气的标准化小样本上传到云端，创建 Instant Voice Clone 并缓存返回的 `voice_id`；同一参考音后续候选和批量任务会复用该音色。本地 GPT/Qwen 仍使用 3-10 秒短参考，云端克隆可利用声音库中的多条样本。参考音、API 账户或降噪设置变化时会重新注册，旧的云端音色需在 ElevenLabs 控制台按项目策略清理。
+
+质量与使用约束：
+
+- 参考录音必须已取得声音所有者的克隆及云端处理授权。
+- 参考文本只有在能与录音逐字对应时才填写；虫语、怪叫或纯拟声无法可靠转写时应留空，不能按中文猜写。
+- 默认输出 `wav_48000`；ElevenLabs 的高采样率 WAV 通常要求相应付费套餐，具体以账号权益为准。
+- 连接检测只验证已保存密钥与 API 可达性；首次实际任务仍会消耗云端克隆/生成额度。
+- 当前接入是克隆 TTS，不是驱动音频到目标音色的 speech-to-speech。需要保留怪叫、气息和表演节奏时，下一条独立流程应接入 Seed-VC 一类声音转换模型。

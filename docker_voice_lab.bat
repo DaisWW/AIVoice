@@ -62,10 +62,10 @@ if errorlevel 1 (
 )
 
 if not exist "%ENV_FILE%" (
-  echo 正在生成本机管理员引导密钥...
+  echo 正在生成系统管理员初始密码...
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%docker\ensure_env.ps1" -Path "%ENV_FILE%"
   if errorlevel 1 (
-    echo [ERROR] 无法生成管理员引导密钥。
+    echo [ERROR] 无法生成管理员初始密码。
     exit /b 1
   )
 )
@@ -88,24 +88,28 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoLogo -NoProfile -Command "$deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:18082/api/health' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
+powershell.exe -NoLogo -NoProfile -Command "$deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:18082/api/healthz' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
 if errorlevel 1 (
   echo [ERROR] 服务未在 90 秒内通过健康检查，最近日志如下:
   docker compose --project-directory "%PROJECT_ROOT%" --env-file "%ENV_FILE%" -f "%COMPOSE%" logs --tail=160 voice-lab
   exit /b 1
 )
 
-for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_TOKEN=" "%ENV_FILE%"') do set "ADMIN_TOKEN=%%B"
+for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_PASSWORD=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
+if not defined ADMIN_PASSWORD for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_TOKEN=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
 echo.
 echo ==================================================
 echo Voice Lab Docker 已就绪
 echo 本机工作台: http://127.0.0.1:18082/
-echo 本机管理员: http://127.0.0.1:18082/admin?admin_key=!ADMIN_TOKEN!
+echo 管理后台:   http://127.0.0.1:18082/admin
+echo 初始用户名: admin
+echo 初始密码:   !ADMIN_PASSWORD!
+echo 注意: 已有数据库若修改过密码，请使用修改后的密码。
 echo 局域网访问: 使用本机 IPv4 地址加 :18082
 echo 查看日志:   docker_voice_lab.bat logs
 echo 停止服务:   docker_voice_lab.bat stop
 echo ==================================================
-if not "%VOICE_LAB_NO_BROWSER%"=="1" start "" "http://127.0.0.1:18082/admin?admin_key=!ADMIN_TOKEN!"
+if not "%VOICE_LAB_NO_BROWSER%"=="1" start "" "http://127.0.0.1:18082/admin"
 exit /b 0
 
 :stop

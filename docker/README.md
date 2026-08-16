@@ -29,7 +29,7 @@ cd C:\Workspace\Git\voice
 .\docker_voice_lab.bat
 ```
 
-首次运行会生成 `docker\voice-lab.env` 中的随机管理员引导密钥，并构建镜像。后续再次运行只执行幂等的 `compose up`，不会迁移数据；代码更新后使用：
+首次运行会生成 `docker\voice-lab.env` 中的随机管理员初始密码，并构建镜像。初始用户名为 `admin`；已有数据库若已经修改密码，env 中的值不会重置账户。后续再次运行只执行幂等的 `compose up`，不会迁移数据；代码更新后使用：
 
 ```powershell
 .\docker_voice_lab.bat build
@@ -43,7 +43,7 @@ cd C:\Workspace\Git\voice
 .\docker_voice_lab.bat stop
 ```
 
-本机管理员 URL 会由 BAT 输出并自动打开；局域网用户使用服务器 IPv4 地址加 `:18082`。Windows 防火墙只建议放行 `LocalSubnet` 的 TCP 18082。
+管理后台 URL、初始用户名和初始密码会由 BAT 输出，浏览器打开后正常登录；管理员再从后台创建局域网成员账户。局域网用户使用服务器 IPv4 地址加 `:18082`。Windows 防火墙只建议放行 `LocalSubnet` 的 TCP 18082。
 
 ## 镜像与模型
 
@@ -87,4 +87,4 @@ docker compose --project-directory C:\Workspace\Git\voice `
   -f C:\Workspace\Git\voice\docker\compose.yaml ps
 ```
 
-状态应为 `healthy`。网页 `/api/health` 应同时显示 `ok: true`、基准模型可用和 GPU 队列存活；可选模型状态会分别列出。正式验收再提交一条短台本生成，确认音频能播放和下载。
+状态应为 `healthy`，容器探针 `/api/healthz` 返回 `ok: true`。登录工作台后，`/api/health` 会同时显示基准模型可用和 GPU 队列存活；可选模型状态会分别列出。正式验收再提交一条短台本生成，确认音频能播放和下载。

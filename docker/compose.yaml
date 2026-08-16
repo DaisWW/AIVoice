@@ -21,6 +21,7 @@ services:
       PYTHONUNBUFFERED: "1"
       VOICE_LAB_HOST: "0.0.0.0"
       VOICE_LAB_PORT: "18082"
+      VOICE_LAB_ADMIN_PASSWORD: ${VOICE_LAB_ADMIN_PASSWORD:-}
       VOICE_LAB_ADMIN_TOKEN: ${VOICE_LAB_ADMIN_TOKEN:-}
       VOICE_LAB_SEED_LEGACY: ${VOICE_LAB_SEED_LEGACY:-0}
     ports:
@@ -39,7 +40,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/health', timeout=4)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/healthz', timeout=4)"
       interval: 15s
       timeout: 5s
       start_period: 45s
