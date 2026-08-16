@@ -190,7 +190,44 @@
   gap: 10px;
   align-items: center;
   min-height: 82px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line);
+}
+
+.reference-text-field,
+.reference-text-readonly {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(150px, .8fr) minmax(260px, 3fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.reference-text-field > span,
+.reference-text-readonly > span {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.reference-text-field small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 400;
+}
+
+.reference-text-field textarea {
+  min-height: 54px;
+  resize: vertical;
+  font-size: 10px;
+}
+
+.reference-text-readonly p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.6;
 }
 
 .voice-file > * {

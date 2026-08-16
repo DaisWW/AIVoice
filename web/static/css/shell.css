@@ -478,3 +478,214 @@
     transform: scale(1.2);
   }
 }
+
+/* 2026 collaborative shell */
+.topbar {
+  grid-template-columns: 250px minmax(180px, 260px) minmax(280px, 1fr) auto;
+  height: var(--topbar-height);
+  border-bottom-color: rgba(255, 255, 255, .07);
+  background: rgba(10, 12, 17, .88);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+
+.brand {
+  gap: 13px;
+  padding: 0 24px;
+  border-right: 0;
+}
+
+.brand-mark {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid rgba(199, 243, 107, .28);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(199, 243, 107, .18), rgba(112, 212, 208, .08));
+  box-shadow: 0 10px 30px rgba(113, 150, 47, .14), inset 0 1px rgba(255, 255, 255, .1);
+}
+
+.brand-mark i {
+  width: 3px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.brand-mark i:nth-child(1) { height: 10px; }
+.brand-mark i:nth-child(2) { height: 21px; }
+.brand-mark i:nth-child(3) { height: 15px; }
+
+.brand-copy strong {
+  font-size: 13px;
+  letter-spacing: .14em;
+}
+
+.project-switcher {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid rgba(255, 255, 255, .06);
+}
+
+.project-switcher > span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.project-switcher select {
+  min-height: 27px;
+  padding: 0 26px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  box-shadow: none;
+}
+
+.topnav {
+  justify-content: center;
+  gap: 6px;
+  padding: 0 20px;
+}
+
+.nav-button {
+  min-width: 82px;
+  min-height: 38px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+.nav-button.active {
+  background: rgba(199, 243, 107, .1);
+  color: var(--accent-dark);
+}
+
+.nav-button.active::after {
+  right: 50%;
+  bottom: 3px;
+  left: auto;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  transform: translateX(50%);
+}
+
+.nav-button em {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: var(--warm);
+  color: #1a0e09;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.topbar-actions {
+  gap: 10px;
+  padding: 0 20px 0 12px;
+}
+
+.admin-link {
+  border: 1px solid var(--line);
+}
+
+.user-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(199, 243, 107, .22);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #26331d, #17201a);
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.identity {
+  min-width: 108px;
+}
+
+.identity code {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.logout-button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  transform: rotate(45deg);
+}
+
+.logout-button:hover {
+  background: var(--surface-hover);
+  color: var(--danger);
+}
+
+.app-body {
+  grid-template-columns: 318px minmax(0, 1fr);
+}
+
+.app-shell.section-mode .app-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-shell.section-mode .task-sidebar {
+  display: none;
+}
+
+.task-sidebar {
+  border-right-color: rgba(255, 255, 255, .06);
+  background: rgba(13, 16, 22, .82);
+}
+
+.sidebar-actions {
+  padding: 22px 20px 24px;
+}
+
+.new-job-button {
+  min-height: 50px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), #a9e15c);
+  color: #17200d;
+  box-shadow: 0 16px 36px rgba(125, 169, 58, .18), inset 0 1px rgba(255, 255, 255, .4);
+}
+
+.new-job-button:hover {
+  background: linear-gradient(135deg, #d6ff82, #b5ed65);
+}
+
+.filter-tabs {
+  border-radius: 10px;
+  background: rgba(25, 30, 40, .75);
+}
+
+.task-select {
+  min-height: 116px;
+  border-left-width: 2px;
+}
+
+.task-entry.active .task-select {
+  background: linear-gradient(90deg, rgba(199, 243, 107, .09), rgba(23, 28, 38, .88));
+}

@@ -1,32 +1,32 @@
 :root {
-  --bg: #111216;
-  --surface: #181a20;
-  --surface-raised: #1d2027;
-  --surface-soft: #1b1d23;
-  --surface-hover: #23262e;
-  --ink: #f2f1ee;
-  --ink-soft: #cbcbd0;
-  --muted: #9298a4;
-  --faint: #626977;
-  --line: #292d36;
-  --line-strong: #3a404c;
-  --accent: #9da8e5;
-  --accent-dark: #c2c8f0;
-  --accent-action: #6572ad;
-  --accent-action-hover: #7481bc;
-  --accent-soft: #292e49;
-  --warm: #dda866;
-  --warm-soft: #3a2d21;
-  --cool: #78b4c0;
-  --cool-soft: #20343b;
-  --danger: #e0878f;
-  --danger-soft: #3b2429;
-  --shadow: 0 22px 64px rgba(0, 0, 0, .5);
-  --radius: 6px;
-  --topbar-height: 68px;
+  --bg: #090b10;
+  --surface: #11151d;
+  --surface-raised: #171c26;
+  --surface-soft: #131821;
+  --surface-hover: #1d2430;
+  --ink: #f4f6f9;
+  --ink-soft: #d5d9e1;
+  --muted: #8b93a2;
+  --faint: #596171;
+  --line: #222936;
+  --line-strong: #343d4d;
+  --accent: #c7f36b;
+  --accent-dark: #dcffa0;
+  --accent-action: #9ec94a;
+  --accent-action-hover: #b1dd58;
+  --accent-soft: #202d1a;
+  --warm: #ff9e72;
+  --warm-soft: #3a251d;
+  --cool: #70d4d0;
+  --cool-soft: #193433;
+  --danger: #ff7b85;
+  --danger-soft: #3b2027;
+  --shadow: 0 28px 80px rgba(0, 0, 0, .48);
+  --radius: 11px;
+  --topbar-height: 76px;
   color-scheme: dark;
   color: var(--ink);
-  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI Variable", "Inter", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   letter-spacing: 0;
 }
@@ -35,12 +35,18 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   min-width: 320px;
   min-height: 100%;
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 80% -10%, rgba(102, 75, 190, .14), transparent 32%),
+    var(--bg);
 }
 
 body {
@@ -75,7 +81,9 @@ body {
   color: var(--ink);
 }
 
-.app-loading .app-shell {
+.app-loading .app-shell,
+.app-loading .admin-shell,
+.app-loading .auth-view {
   opacity: 0;
 }
 
@@ -105,6 +113,12 @@ a {
   outline-offset: 2px;
 }
 
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 button {
   cursor: pointer;
 }
@@ -123,7 +137,7 @@ textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: rgba(23, 28, 38, .92);
   transition: border-color .16s ease, box-shadow .16s ease;
 }
 

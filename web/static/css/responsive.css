@@ -1,6 +1,6 @@
 @media (max-width: 1080px) {
   .topbar {
-    grid-template-columns: 270px minmax(200px, 1fr) auto;
+    grid-template-columns: 190px minmax(160px, 220px) minmax(250px, 1fr) auto;
   }
 
   .app-body {
@@ -14,6 +14,10 @@
   .topbar-actions {
     gap: 10px;
     padding-inline: 14px;
+  }
+
+  .identity {
+    display: none;
   }
 
   .script-heading,
@@ -57,6 +61,15 @@
 }
 
 @media (max-width: 760px) {
+  html,
+  .workspace-page {
+    min-width: 0;
+  }
+
+  .workspace-page {
+    --topbar-height: 108px;
+  }
+
   body {
     overflow: auto;
   }
@@ -70,29 +83,55 @@
   .topbar {
     position: sticky;
     top: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    height: 60px;
+    grid-template-columns: 60px minmax(0, 1fr) auto;
+    grid-template-rows: 60px 48px;
+    height: var(--topbar-height);
   }
 
   .brand {
+    grid-column: 1;
+    grid-row: 1;
     border-right: 0;
-    padding-inline: 14px;
+    padding-inline: 13px 8px;
   }
 
-  .brand-copy small,
+  .brand-copy,
   .identity,
   .admin-link {
     display: none;
   }
 
-  .topnav {
+  .project-switcher {
     grid-column: 2;
     grid-row: 1;
-    padding: 0 12px 0 0;
+    padding-inline: 8px;
+    border-left: 0;
+  }
+
+  .topnav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: stretch;
+    padding: 4px 10px 7px;
+    border-top: 1px solid rgba(255, 255, 255, .045);
+  }
+
+  .nav-button {
+    min-width: 0;
+    flex: 1;
+    min-height: 36px;
   }
 
   .topbar-actions {
-    display: none;
+    grid-column: 3;
+    grid-row: 1;
+    gap: 2px;
+    padding: 0 9px 0 2px;
+  }
+
+  .topbar-actions .user-avatar {
+    width: 30px;
+    height: 30px;
   }
 
   .app-body {
@@ -157,7 +196,7 @@
   }
 
   .detail-header {
-    top: 60px;
+    top: var(--topbar-height);
     min-height: 88px;
     padding: 16px;
   }
@@ -263,8 +302,16 @@
 
   .voice-file-meta,
   .emotion-select,
-  .emotion-label {
+  .emotion-label,
+  .reference-text-field,
+  .reference-text-readonly {
     grid-column: 1 / -1;
+  }
+
+  .reference-text-field,
+  .reference-text-readonly {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
   }
 
   .voice-file-meta {
@@ -272,11 +319,11 @@
   }
 
   .create-drawer {
-    top: 60px;
+    top: var(--topbar-height);
   }
 
   .drawer-backdrop {
-    inset: 60px 0 0;
+    inset: var(--topbar-height) 0 0;
   }
 }
 
