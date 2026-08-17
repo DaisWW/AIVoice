@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
@@ -21,17 +22,18 @@ class ScriptStorage:
     def __init__(self, services: ApplicationServices) -> None:
         self._services = services
 
-    def read(self, script_id: str) -> tuple[dict, list[ScriptItem]]:
-        script = self._services.database.scripts.get(script_id)
-        if not script:
-            raise HTTPException(status_code=404, detail="找不到台本")
+    def load_items(self, script: dict[str, Any]) -> list[ScriptItem]:
         path = Path(str(script["source_path"]))
         if not path.is_file():
             raise HTTPException(status_code=409, detail="台本源文件已不在服务器上")
-        return script, self._parse(path)
+        return self._parse(path)
 
     async def store(
-        self, upload: UploadFile, owner_id: str, project_id: str
+        self,
+        upload: UploadFile,
+        owner_id: str,
+        project_id: str,
+        default_voice_id: str,
     ) -> tuple[str, list[ScriptItem]]:
         self._validate_extension(upload.filename or "")
         try:
@@ -42,14 +44,16 @@ class ScriptStorage:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         try:
-            items = self._parse(path)
+            name = self._script_name(original_name)
+            items = await run_in_threadpool(self._parse, path)
             script_id = self._services.database.scripts.create(
-                Path(original_name).stem,
+                name,
                 original_name,
                 path,
                 owner_id,
                 "upload",
                 items,
+                default_voice_id=default_voice_id,
                 project_id=project_id,
             )
             return script_id, items
@@ -63,6 +67,13 @@ class ScriptStorage:
             return
         allowed = "、".join(sorted(SUPPORTED_SCRIPT_EXTENSIONS))
         raise HTTPException(status_code=422, detail=f"台本仅支持 {allowed}")
+
+    @staticmethod
+    def _script_name(filename: str) -> str:
+        name = Path(filename).stem.strip()
+        if not name or len(name) > 80:
+            raise HTTPException(status_code=422, detail="台本名称需为 1-80 个字符")
+        return name
 
     @staticmethod
     def _parse(path: Path) -> list[ScriptItem]:

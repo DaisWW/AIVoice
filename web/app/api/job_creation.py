@@ -4,7 +4,7 @@ import json
 import secrets
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 
 from ..domain import ScriptItem
 from ..reference_emotions import validate_emotion
@@ -21,14 +21,13 @@ class JobCreationService:
         self._user_id = user_id
         self._project_id = project_id
 
-    async def create(
+    def create(
         self,
         *,
-        voice_id: str,
+        requested_voice_id: str,
         model_id: str,
         model_ids_json: str,
         script_id: str,
-        script: UploadFile | None,
         name: str,
         candidate_count: int,
         reference_emotion: str,
@@ -37,20 +36,26 @@ class JobCreationService:
     ) -> list[dict[str, Any]]:
         emotion = self._emotion(reference_emotion)
         model_ids = self._model_ids(model_id, model_ids_json)
-        self._validate_request(voice_id, model_ids, name, candidate_count, emotion)
+        self._validate_request(model_ids, name, candidate_count)
         primary_settings = self._settings(model_id, generation_settings_json)
         self._validate_seed(base_seed, 1)
-        selected_script_id, items = await self._resolve_script(script_id, script)
+        selected_script = self._script(script_id)
+        configured_voice_id = self._configured_voice(
+            selected_script,
+            requested_voice_id,
+        )
+        self._validate_voice(configured_voice_id, emotion)
+        items = ScriptStorage(self._services).load_items(selected_script)
         self._validate_seed(base_seed, len(items) * candidate_count)
         effective_seed = self._shared_seed(
             base_seed, len(model_ids), len(items) * candidate_count
         )
         jobs = self._create_jobs(
-            selected_script_id,
-            voice_id,
+            str(selected_script["id"]),
+            configured_voice_id,
             model_ids,
             items,
-            name,
+            name.strip() or str(selected_script["name"]),
             candidate_count,
             emotion,
             primary_settings,
@@ -66,13 +71,12 @@ class JobCreationService:
         voice_id: str,
         model_ids: list[str],
         items: list[ScriptItem],
-        requested_name: str,
+        base_name: str,
         candidate_count: int,
         emotion: str,
         primary_settings: dict[str, float | int],
         base_seed: int | None,
     ) -> list[dict[str, Any]]:
-        base_name = self._base_name(script_id, requested_name)
         jobs: list[dict[str, Any]] = []
         for index, model_id in enumerate(model_ids):
             settings = (
@@ -106,28 +110,28 @@ class JobCreationService:
 
     def _validate_request(
         self,
-        voice_id: str,
         model_ids: list[str],
         name: str,
         candidate_count: int,
-        emotion: str,
     ) -> None:
-        voice = self._services.database.voices.get(voice_id)
-        if not voice or str(voice.get("project_id") or "") != self._project_id:
-            raise HTTPException(status_code=404, detail="找不到所选声音库")
-        files = self._services.database.voices.list_files(voice_id)
-        if not files:
-            raise HTTPException(status_code=422, detail="所选声音库没有启用的录音")
         if len(name.strip()) > 80:
             raise HTTPException(status_code=422, detail="任务名称不能超过 80 个字符")
         if candidate_count not in {2, 3}:
             raise HTTPException(status_code=422, detail="每句候选数量只能选择 2 或 3")
-        if emotion != "all" and not any(
-            item.get("emotion_tag") == emotion for item in files
-        ):
-            raise HTTPException(status_code=422, detail="所选声音库没有启用该语气分组的录音")
         for model_id in model_ids:
             self._validate_model(model_id)
+
+    def _validate_voice(self, voice_id: str, emotion: str) -> None:
+        voice = self._services.database.voices.get(voice_id)
+        if not voice or str(voice.get("project_id") or "") != self._project_id:
+            raise HTTPException(status_code=404, detail="找不到台本配置的声音库")
+        if int(voice.get("enabled_file_count") or 0) < 1:
+            raise HTTPException(status_code=422, detail="台本配置的声音库没有启用的录音")
+        if emotion == "all":
+            return
+        files = self._services.database.voices.list_files(voice_id)
+        if not any(item.get("emotion_tag") == emotion for item in files):
+            raise HTTPException(status_code=422, detail="台本配置的声音库没有启用该语气分组的录音")
 
     def _validate_model(self, model_id: str) -> None:
         try:
@@ -141,18 +145,30 @@ class JobCreationService:
                 detail=status.reason or "当前服务器尚未安装该模型",
             )
 
-    async def _resolve_script(
-        self, script_id: str, upload: UploadFile | None
-    ) -> tuple[str, list[ScriptItem]]:
-        storage = ScriptStorage(self._services)
-        if upload and upload.filename:
-            return await storage.store(upload, self._user_id, self._project_id)
-        if script_id.strip():
-            script, items = storage.read(script_id.strip())
-            if str(script.get("project_id") or "") != self._project_id:
-                raise HTTPException(status_code=404, detail="台本不属于当前项目")
-            return str(script["id"]), items
-        raise HTTPException(status_code=422, detail="请选择已有台本，或上传一份新台本")
+    def _script(self, script_id: str) -> dict[str, Any]:
+        selected_id = script_id.strip()
+        if not selected_id:
+            raise HTTPException(status_code=422, detail="请选择台本库中的台本")
+        script = self._services.database.scripts.get(selected_id)
+        if not script or str(script.get("project_id") or "") != self._project_id:
+            raise HTTPException(status_code=404, detail="找不到台本")
+        return script
+
+    @staticmethod
+    def _configured_voice(script: dict[str, Any], requested_voice_id: str) -> str:
+        configured = str(script.get("default_voice_id") or "").strip()
+        if not configured:
+            raise HTTPException(
+                status_code=422,
+                detail="台本尚未配置声音，请先到台本库完成配置",
+            )
+        requested = requested_voice_id.strip()
+        if requested and requested != configured:
+            raise HTTPException(
+                status_code=422,
+                detail="声音由台本库配置，不能在生成时覆盖",
+            )
+        return configured
 
     def _settings(self, model_id: str, value: str) -> dict[str, float | int]:
         try:
@@ -204,12 +220,6 @@ class JobCreationService:
             return requested
         maximum = 2_147_483_647 - max(0, required_seeds - 1)
         return secrets.randbelow(maximum + 1)
-
-    def _base_name(self, script_id: str, requested: str) -> str:
-        if requested.strip():
-            return requested.strip()
-        script = self._services.database.scripts.get(script_id)
-        return str(script["name"] if script else "声音生成")
 
     def _job_name(self, base: str, model_id: str, model_count: int) -> str:
         if model_count == 1:

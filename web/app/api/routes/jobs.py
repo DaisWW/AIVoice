@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ..access import project_job, resolve_project_id
@@ -24,14 +24,14 @@ API_PREFIX = "/api/jobs"
 
 
 @router.post("", status_code=201)
-async def create_job(
-    voice_id: Annotated[str, Form(...)],
+def create_job(
     model_id: Annotated[str, Form(...)],
     user: CurrentUser,
     services: ServicesDep,
     request: Request,
+    # Legacy clients may confirm the binding, but can never override it.
+    voice_id: Annotated[str, Form()] = "",
     script_id: Annotated[str, Form()] = "",
-    script: Annotated[UploadFile | None, File()] = None,
     name: Annotated[str, Form()] = "",
     candidate_count: Annotated[int, Form()] = 2,
     reference_emotion: Annotated[str, Form()] = "all",
@@ -41,12 +41,11 @@ async def create_job(
     project_id: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
     selected = resolve_project_id(services, user, project_id)
-    jobs = await JobCreationService(services, str(user["id"]), selected).create(
-        voice_id=voice_id,
+    jobs = JobCreationService(services, str(user["id"]), selected).create(
+        requested_voice_id=voice_id,
         model_id=model_id,
         model_ids_json=model_ids,
         script_id=script_id,
-        script=script,
         name=name,
         candidate_count=candidate_count,
         reference_emotion=reference_emotion,

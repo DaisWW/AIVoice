@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from conftest import FakeEngine, login_as_admin
+from conftest import FakeEngine, login_as_admin, make_wav_bytes
 
 
 def test_authentication_session_and_bootstrap_password_lifecycle(
@@ -130,6 +132,8 @@ def test_project_invitation_sharing_isolation_and_admin_visibility(
 
         alpha = _create_project(alice, "Alpha")
         beta = _create_project(bob, "Beta")
+        alpha_voice = _create_voice(alice, alpha["id"], "Alpha voice")
+        beta_voice = _create_voice(bob, beta["id"], "Beta voice")
         assert alice.get(f"/api/projects/{beta['id']}").status_code == 404
         assert bob.get(f"/api/projects/{alpha['id']}").status_code == 404
 
@@ -154,14 +158,35 @@ def test_project_invitation_sharing_isolation_and_admin_visibility(
 
         uploaded = alice.post(
             "/api/scripts",
-            data={"project_id": alpha["id"]},
+            data={
+                "project_id": alpha["id"],
+                "default_voice_id": alpha_voice["id"],
+            },
             files={"file": ("shared.txt", "共享台词 | mo-la\n", "text/plain")},
         )
         assert uploaded.status_code == 201
+        script_id = uploaded.json()["script"]["id"]
         shared = bob.get(f"/api/scripts?project_id={alpha['id']}")
-        assert [item["id"] for item in shared.json()["scripts"]] == [
-            uploaded.json()["script"]["id"]
-        ]
+        assert [item["id"] for item in shared.json()["scripts"]] == [script_id]
+
+        cross_project_voice = bob.patch(
+            f"/api/scripts/{script_id}",
+            json={"name": "shared", "default_voice_id": beta_voice["id"]},
+        )
+        assert cross_project_voice.status_code == 404
+
+        script = services.database.scripts.get(script_id)
+        assert script
+        Path(str(script["source_path"])).unlink()
+        cross_project_job = bob.post(
+            "/api/jobs",
+            data={
+                "project_id": beta["id"],
+                "model_id": "test_model",
+                "script_id": script_id,
+            },
+        )
+        assert cross_project_job.status_code == 404
 
         all_projects = admin.get("/api/admin/projects").json()["projects"]
         assert {item["id"] for item in all_projects} >= {alpha["id"], beta["id"]}
@@ -249,9 +274,13 @@ def test_admin_control_room_exposes_insights_assets_and_project_detail(
             insights
         )
         project = _create_project(admin, "运营数据项目")
+        voice = _create_voice(admin, project["id"], "运营声音")
         uploaded = admin.post(
             "/api/scripts",
-            data={"project_id": project["id"]},
+            data={
+                "project_id": project["id"],
+                "default_voice_id": voice["id"],
+            },
             files={"file": ("lines.txt", "共享台词 | mo-la\n", "text/plain")},
         )
         assert uploaded.status_code == 201
@@ -292,3 +321,13 @@ def _create_project(client: TestClient, name: str) -> dict:
     )
     assert response.status_code == 201
     return response.json()["project"]
+
+
+def _create_voice(client: TestClient, project_id: str, name: str) -> dict:
+    response = client.post(
+        "/api/voices",
+        data={"project_id": project_id, "name": name},
+        files=[("files", ("source.wav", make_wav_bytes(), "audio/wav"))],
+    )
+    assert response.status_code == 201
+    return response.json()["voice"]

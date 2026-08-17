@@ -56,6 +56,11 @@ class VoiceFileUpdate(BaseModel):
     reference_text: str | None = Field(default=None, max_length=2000)
 
 
+class ScriptUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    default_voice_id: str = Field(min_length=1, max_length=80)
+
+
 class ElevenLabsProviderUpdate(BaseModel):
     enabled: bool
     api_key: str | None = Field(default=None, max_length=500)

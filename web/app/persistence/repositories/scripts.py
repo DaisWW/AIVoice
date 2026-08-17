@@ -59,6 +59,14 @@ class ScriptRepository:
             ).fetchone()
         return dict(row) if row else None
 
+    def update(self, script_id: str, name: str, default_voice_id: str) -> bool:
+        with self._database.write() as connection:
+            cursor = connection.execute(
+                "UPDATE scripts SET name=?, default_voice_id=? WHERE id=?",
+                (name.strip(), default_voice_id, script_id),
+            )
+        return cursor.rowcount == 1
+
     def list(
         self, project_id: str | None = None, *, limit: int | None = None
     ) -> list[dict[str, Any]]:

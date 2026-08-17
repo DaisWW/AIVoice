@@ -5,6 +5,7 @@ from typing import Any
 
 from voice_core.pronunciation import is_raw_pronunciation
 
+from ..domain import ScriptItem
 from ..generation_settings import stored_generation_settings
 from ..services import ApplicationServices
 
@@ -24,6 +25,15 @@ SCRIPT_FIELDS = (
 
 def script_payload(script: dict[str, Any]) -> dict[str, Any]:
     return {field: script[field] for field in SCRIPT_FIELDS}
+
+
+def script_detail_payload(
+    script: dict[str, Any], items: list[ScriptItem]
+) -> dict[str, Any]:
+    return {
+        **script_payload(script),
+        "items": [item.as_dict() for item in items],
+    }
 
 
 def voice_payload(
