@@ -2,6 +2,7 @@ const KEYS = {
   view: "voice-lab-view",
   job: "voice-lab-job",
   voice: "voice-lab-voice",
+  script: "voice-lab-script",
   project: "voice-lab-project",
 };
 
@@ -20,14 +21,15 @@ export class AppState {
     this.scripts = [];
     this.jobs = [];
     this.filter = "all";
-    this.scriptMode = "existing";
     const storedView = this.#read(KEYS.view);
-    this.view = ["workspace", "library", "project"].includes(storedView)
+    this.view = ["workspace", "library", "scripts", "project"].includes(storedView)
       ? storedView
       : "workspace";
     this.selectedJobId = this.#read(KEYS.job);
     this.selectedVoiceId = this.#read(KEYS.voice);
     this.voiceDetail = null;
+    this.selectedScriptId = this.#read(KEYS.script);
+    this.scriptDetail = null;
   }
 
   get jobApiBase() {
@@ -49,6 +51,8 @@ export class AppState {
     this.selectJob(null);
     this.selectVoice(null);
     this.voiceDetail = null;
+    this.selectScript(null);
+    this.scriptDetail = null;
   }
 
   selectJob(jobId) {
@@ -59,6 +63,11 @@ export class AppState {
   selectVoice(voiceId) {
     this.selectedVoiceId = voiceId;
     this.#write(KEYS.voice, voiceId);
+  }
+
+  selectScript(scriptId) {
+    this.selectedScriptId = scriptId;
+    this.#write(KEYS.script, scriptId);
   }
 
   model(modelId) {

@@ -18,14 +18,15 @@
       opacity: 0;
     }
   </style>
-  <link rel="stylesheet" href="/assets/css/base.css?v=20260815.1">
-  <link rel="stylesheet" href="/assets/css/shell.css?v=20260816.1">
+  <link rel="stylesheet" href="/assets/css/base.css?v=20260817.1">
+  <link rel="stylesheet" href="/assets/css/shell.css?v=20260817.1">
   <link rel="stylesheet" href="/assets/css/jobs.css">
   <link rel="stylesheet" href="/assets/css/voices.css">
+  <link rel="stylesheet" href="/assets/css/scripts.css?v=20260817.1">
   <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.3">
   <link rel="stylesheet" href="/assets/css/overlays.css">
   <link rel="stylesheet" href="/assets/css/motion.css">
-  <link rel="stylesheet" href="/assets/css/responsive.css?v=20260815.1">
+  <link rel="stylesheet" href="/assets/css/responsive.css?v=20260817.1">
 </head>
 <body class="workspace-page">
   <section id="authView" class="auth-view user-auth-view" aria-label="登录 Voice Lab">
@@ -61,6 +62,7 @@
       <nav class="topnav" aria-label="主导航">
         <button id="workspaceNav" class="nav-button active" type="button"><span>生成</span></button>
         <button id="libraryNav" class="nav-button" type="button"><span>声音库</span></button>
+        <button id="scriptNav" class="nav-button" type="button"><span>台本库</span></button>
         <button id="projectNav" class="nav-button" type="button"><span>项目</span><em id="invitationBadge" hidden>0</em></button>
       </nav>
 
@@ -143,6 +145,32 @@
           </div>
         </section>
 
+        <section id="scriptLibraryView" class="view library-view script-library-view" aria-label="台本库" aria-hidden="true">
+          <header class="library-header">
+            <div>
+              <span class="section-kicker">SCRIPT ASSETS</span>
+              <h2>台本库</h2>
+            </div>
+            <button id="createScript" class="secondary-button" type="button">上传台本</button>
+          </header>
+
+          <div class="library-workspace">
+            <aside class="voice-browser script-browser">
+              <div class="voice-browser-title">
+                <strong>全部台本</strong>
+                <span id="scriptCount">0</span>
+              </div>
+              <div id="scriptList" class="voice-list script-list" aria-live="polite"></div>
+            </aside>
+            <article id="scriptDetail" class="voice-detail script-detail">
+              <div class="stage-empty compact">
+                <span class="empty-number">台本</span>
+                <h2>选择一份台本</h2>
+              </div>
+            </article>
+          </div>
+        </section>
+
         <section id="projectView" class="view project-view" aria-label="项目与成员" aria-hidden="true">
           <div class="project-page">
             <header class="project-hero">
@@ -215,30 +243,19 @@
       </div>
 
       <fieldset class="form-section">
-        <legend>台本</legend>
-        <div class="choice-tabs">
-          <button class="choice-tab active" type="button" data-script-mode="existing">选择已有台本</button>
-          <button class="choice-tab" type="button" data-script-mode="upload">上传新台本</button>
+        <legend>台本与声音</legend>
+        <label class="field-label" for="scriptSelect">已配置台本</label>
+        <select id="scriptSelect" name="script_id" required></select>
+        <div id="scriptVoiceSummary" class="configured-asset missing">
+          <span>已绑定声音</span>
+          <strong id="boundVoiceName">尚未选择台本</strong>
+          <small id="boundVoiceNote">声音由台本库预先配置</small>
         </div>
-        <div id="existingScriptField" class="script-field active">
-          <label class="field-label" for="scriptSelect">服务器台本</label>
-          <select id="scriptSelect" name="script_id" required></select>
-        </div>
-        <div id="uploadScriptField" class="script-field">
-          <label class="upload-field" for="scriptFile">
-            <span id="scriptFileName">选择台本文件</span>
-            <small>TXT / MD / CSV / DOCX</small>
-          </label>
-          <input id="scriptFile" name="script" type="file" accept=".txt,.md,.csv,.docx">
-          <a class="template-link" href="/assets/templates/script-template.txt" download>下载 TXT 格式模板</a>
-          <a class="template-link" href="/assets/templates/pronunciation-guide.md" download>下载发音标记说明</a>
-        </div>
+        <button id="drawerScriptLibraryLink" class="text-button" type="button">管理台本库</button>
       </fieldset>
 
       <fieldset class="form-section">
-        <legend>声音</legend>
-        <label class="field-label" for="voiceSelect">声音库</label>
-        <select id="voiceSelect" name="voice_id" required></select>
+        <legend>生成选项</legend>
         <div class="two-columns compact-fields">
           <div>
             <label class="field-label" for="referenceEmotionSelect">参考语气</label>
@@ -252,7 +269,6 @@
             </select>
           </div>
         </div>
-        <button id="drawerLibraryLink" class="text-button" type="button">管理声音库</button>
       </fieldset>
 
       <fieldset class="form-section">
@@ -331,6 +347,33 @@
       <div class="modal-actions">
         <button class="quiet-button" type="button" data-close-dialog="voiceDialog">取消</button>
         <button id="submitVoice" class="primary-button" type="submit">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="scriptDialog" class="modal script-modal">
+    <form id="scriptCreateForm" method="dialog">
+      <header>
+        <div>
+          <span class="section-kicker">NEW SCRIPT ASSET</span>
+          <h2>上传台本</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="scriptDialog" title="关闭" aria-label="关闭">×</button>
+      </header>
+      <label class="field-label" for="scriptVoice">使用声音</label>
+      <select id="scriptVoice" name="default_voice_id" required></select>
+      <label class="upload-field" for="scriptUploadFile">
+        <span id="scriptUploadFileName">选择台本文件</span>
+        <small>TXT / MD / CSV / DOCX</small>
+      </label>
+      <input id="scriptUploadFile" name="file" type="file" accept=".txt,.md,.csv,.docx" required>
+      <div class="script-template-links">
+        <a class="template-link" href="/assets/templates/script-template.txt" download>下载 TXT 格式模板</a>
+        <a class="template-link" href="/assets/templates/pronunciation-guide.md" download>下载发音标记说明</a>
+      </div>
+      <div class="modal-actions">
+        <button class="quiet-button" type="button" data-close-dialog="scriptDialog">取消</button>
+        <button id="submitScript" class="primary-button" type="submit">上传并保存</button>
       </div>
     </form>
   </dialog>
@@ -425,6 +468,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/app.js?v=20260816.1"></script>
+  <script type="module" src="/assets/js/app.js?v=20260817.2"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@ export class ShellController {
     this.#onViewChange = onViewChange;
     $("#workspaceNav").addEventListener("click", () => this.showView("workspace"));
     $("#libraryNav").addEventListener("click", () => this.showView("library"));
+    $("#scriptNav").addEventListener("click", () => this.showView("scripts"));
     $("#projectNav").addEventListener("click", () => this.showView("project"));
     $$('[data-close-dialog]').forEach((button) => {
       button.addEventListener("click", () => $(`#${button.dataset.closeDialog}`).close());
@@ -20,20 +21,23 @@ export class ShellController {
   }
 
   showView(name) {
-    const resolved = ["workspace", "library", "project"].includes(name)
+    const resolved = ["workspace", "library", "scripts", "project"].includes(name)
       ? name
       : "workspace";
     const changed = this.#state.view !== resolved;
     this.#state.setView(resolved);
     const workspace = resolved === "workspace";
     const library = resolved === "library";
+    const scripts = resolved === "scripts";
     const project = resolved === "project";
     $(".app-shell").classList.toggle("section-mode", !workspace);
     this.#toggleView($("#workspaceView"), workspace);
     this.#toggleView($("#libraryView"), library);
+    this.#toggleView($("#scriptLibraryView"), scripts);
     this.#toggleView($("#projectView"), project);
     this.#toggleNav($("#workspaceNav"), workspace);
     this.#toggleNav($("#libraryNav"), library);
+    this.#toggleNav($("#scriptNav"), scripts);
     this.#toggleNav($("#projectNav"), project);
     if (changed && window.matchMedia("(max-width: 760px)").matches) {
       window.scrollTo({ top: 0, behavior: "smooth" });

@@ -1,5 +1,6 @@
 import { $, $$, escapeHtml, renderSelect, setButtonBusy } from "../core/dom.js";
 import { GenerationSettingsControls } from "./generation-settings-controls.js";
+import { ScriptSelectionControl } from "./script-selection-control.js";
 
 const GENERATION_INPUTS = Object.freeze({
   temperature: "createTemperature",
@@ -14,36 +15,32 @@ export class GenerationController {
   #api;
   #shell;
   #jobs;
-  #onManageVoices;
+  #onManageScripts;
   #controls;
+  #scriptSelection;
 
-  constructor({ state, api, shell, jobs, onManageVoices }) {
+  constructor({ state, api, shell, jobs, onManageScripts }) {
     this.#state = state;
     this.#api = api;
     this.#shell = shell;
     this.#jobs = jobs;
-    this.#onManageVoices = onManageVoices;
+    this.#onManageScripts = onManageScripts;
     this.#controls = new GenerationSettingsControls(state, GENERATION_INPUTS);
+    this.#scriptSelection = new ScriptSelectionControl(state);
   }
 
   bind() {
     $("#openCreate").addEventListener("click", () => this.open());
     $("#closeCreate").addEventListener("click", () => this.close());
     $("#drawerBackdrop").addEventListener("click", () => this.close());
-    $("#drawerLibraryLink").addEventListener("click", () => this.#manageVoices());
+    $("#drawerScriptLibraryLink").addEventListener("click", () => this.#manageScripts());
     $("#jobForm").addEventListener("submit", (event) => this.#submit(event));
-    $("#scriptSelect").addEventListener("change", () => this.applyScriptDefaults());
     $("#modelSelect").addEventListener("change", () => this.#applyModelDefaults());
     $("#modelCompareList").addEventListener("change", (event) => {
       if (event.target.matches('input[type="checkbox"]')) this.#limitCompareModels(event.target);
     });
+    this.#scriptSelection.bind();
     this.#controls.bind();
-    $("#scriptFile").addEventListener("change", (event) => {
-      $("#scriptFileName").textContent = event.target.files[0]?.name || "选择台本文件";
-    });
-    $$('[data-script-mode]').forEach((button) => {
-      button.addEventListener("click", () => this.setScriptMode(button.dataset.scriptMode));
-    });
     $$('[data-generation-mode]').forEach((button) => {
       button.addEventListener("click", () => this.#setGenerationMode(button.dataset.generationMode));
     });
@@ -55,18 +52,7 @@ export class GenerationController {
   }
 
   renderOptions() {
-    renderSelect(
-      $("#scriptSelect"),
-      this.#state.scripts,
-      "选择台本",
-      (item) => `${item.name} · ${item.item_count} 段`,
-    );
-    renderSelect(
-      $("#voiceSelect"),
-      this.#state.voices,
-      "选择声音库",
-      (item) => `${item.name} · ${item.enabled_file_count || 0} 条启用`,
-    );
+    this.#scriptSelection.render();
     renderSelect(
       $("#modelSelect"),
       this.#state.config.models,
@@ -83,31 +69,6 @@ export class GenerationController {
     if (!$("#referenceEmotionSelect").value) $("#referenceEmotionSelect").value = "all";
     this.#controls.configure();
     this.#applyModelDefaults();
-  }
-
-  setScriptMode(mode) {
-    this.#state.scriptMode = mode;
-    $$('[data-script-mode]').forEach((button) => {
-      const active = button.dataset.scriptMode === mode;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-    const existing = mode === "existing";
-    $("#existingScriptField").classList.toggle("active", existing);
-    $("#uploadScriptField").classList.toggle("active", !existing);
-    $("#scriptSelect").disabled = !existing;
-    $("#scriptSelect").required = existing;
-    $("#scriptFile").disabled = existing;
-    $("#scriptFile").required = !existing;
-  }
-
-  applyScriptDefaults() {
-    const script = this.#state.scripts.find(
-      (item) => item.id === $("#scriptSelect").value,
-    );
-    if (script && this.#state.voices.some((item) => item.id === script.default_voice_id)) {
-      $("#voiceSelect").value = script.default_voice_id;
-    }
   }
 
   open() {
@@ -135,16 +96,10 @@ export class GenerationController {
     }, 220);
   }
 
-  async reloadScripts() {
-    const { scripts } = await this.#api.get(
-      `/api/scripts?project_id=${encodeURIComponent(this.#state.projectId || "")}`,
-    );
-    this.#state.scripts = scripts;
-    this.renderOptions();
-  }
-
   #selectFirstOption(select, options) {
-    const first = options.find((item) => item.available !== false);
+    const first = options.find(
+      (item) => item.available !== false && item.disabled !== true,
+    );
     if (!select.value && first) select.value = first.id;
   }
 
@@ -219,9 +174,9 @@ export class GenerationController {
     $("#createAdvancedSettings").hidden = !advanced;
   }
 
-  #manageVoices() {
+  #manageScripts() {
     this.close();
-    this.#onManageVoices();
+    this.#onManageScripts();
   }
 
   async #submit(event) {
@@ -236,7 +191,7 @@ export class GenerationController {
       this.#resetForm();
       this.close();
       this.#shell.showView("workspace");
-      await Promise.all([this.#jobs.refresh(true), this.reloadScripts()]);
+      await this.#jobs.refresh(true);
       this.#jobs.schedule();
       this.#shell.toast(jobs.length > 1 ? `${jobs.length} 个对比任务已加入队列` : "任务已加入生成队列");
     } catch (error) {
@@ -248,26 +203,14 @@ export class GenerationController {
   }
 
   #validate() {
-    const scriptFile = $("#scriptFile").files[0];
-    if (this.#state.scriptMode === "existing" && !$("#scriptSelect").value) {
-      this.#shell.toast("请选择台本", true);
-      return false;
-    }
-    if (this.#state.scriptMode === "upload" && !scriptFile) {
-      this.#shell.toast("请选择台本文件", true);
-      return false;
-    }
-    if (!$("#voiceSelect").value) {
-      this.#shell.toast("请选择声音库", true);
-      return false;
-    }
-    return true;
+    const message = this.#scriptSelection.validationMessage();
+    if (message) this.#shell.toast(message, true);
+    return !message;
   }
 
   #formData() {
     const data = new FormData();
     data.set("name", $("#taskName").value);
-    data.set("voice_id", $("#voiceSelect").value);
     data.set("model_id", $("#modelSelect").value);
     data.set("model_ids", JSON.stringify(this.#compareModelIds()));
     data.set("reference_emotion", $("#referenceEmotionSelect").value || "all");
@@ -276,18 +219,12 @@ export class GenerationController {
     data.set("generation_settings", JSON.stringify(this.#controls.values()));
     const baseSeed = $("#createBaseSeed").value.trim();
     if (baseSeed) data.set("base_seed", baseSeed);
-    if (this.#state.scriptMode === "existing") {
-      data.set("script_id", $("#scriptSelect").value);
-    } else {
-      data.set("script", $("#scriptFile").files[0]);
-    }
+    data.set("script_id", this.#scriptSelection.value);
     return data;
   }
 
   #resetForm() {
     $("#taskName").value = "";
-    $("#scriptFile").value = "";
-    $("#scriptFileName").textContent = "选择台本文件";
     $("#createBaseSeed").value = "";
     $$(`#modelCompareList input[type="checkbox"]`).forEach((input) => {
       input.checked = false;

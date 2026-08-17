@@ -248,8 +248,7 @@
   font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-.filter-tabs,
-.choice-tabs {
+.filter-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
@@ -260,8 +259,7 @@
   background: #202229;
 }
 
-.filter-tab,
-.choice-tab {
+.filter-tab {
   min-height: 30px;
   border: 0;
   border-radius: 4px;
@@ -270,8 +268,7 @@
   font-size: 11px;
 }
 
-.filter-tab.active,
-.choice-tab.active {
+.filter-tab.active {
   background: var(--surface-raised);
   color: var(--ink);
   box-shadow: 0 1px 5px rgba(0, 0, 0, .3);

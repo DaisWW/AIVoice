@@ -16,6 +16,15 @@
     padding-inline: 14px;
   }
 
+  .topnav {
+    padding-inline: 8px;
+  }
+
+  .nav-button {
+    min-width: 58px;
+    padding-inline: 8px;
+  }
+
   .identity {
     display: none;
   }

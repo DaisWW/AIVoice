@@ -85,19 +85,6 @@
   margin-top: 12px;
 }
 
-.choice-tabs {
-  grid-template-columns: 1fr 1fr;
-  margin: 0 0 12px;
-}
-
-.script-field {
-  display: none;
-}
-
-.script-field.active {
-  display: block;
-}
-
 .upload-field {
   display: flex;
   min-height: 58px;

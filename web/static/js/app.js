@@ -1,15 +1,18 @@
 import { ApiClient } from "./core/api-client.js";
 import { CandidateController } from "./candidates/candidate-controller.js";
-import { AppState } from "./core/app-state.js";
+import { AppState } from "./core/app-state.js?v=20260817.1";
 import { AudioLoader } from "./core/audio-loader.js";
 import { AuthController } from "./auth/auth-controller.js?v=20260815.3";
-import { GenerationController } from "./generation/generation-controller.js?v=20260815.4";
+import { GenerationController } from "./generation/generation-controller.js?v=20260817.2";
 import { JobController } from "./jobs/job-controller.js";
 import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
 import { ProjectController } from "./projects/project-controller.js?v=20260815.2";
+import { ScriptController } from "./scripts/script-controller.js?v=20260817.2";
+import { ScriptDetailView } from "./scripts/script-detail-view.js";
+import { ScriptListView } from "./scripts/script-list-view.js";
 import { SystemController } from "./system/system-controller.js";
-import { ShellController } from "./ui/shell-controller.js?v=20260816.1";
+import { ShellController } from "./ui/shell-controller.js?v=20260817.1";
 import { VoiceController } from "./voices/voice-controller.js";
 import { VoiceDetailView } from "./voices/voice-detail-view.js";
 import { VoiceListView } from "./voices/voice-list-view.js";
@@ -24,6 +27,7 @@ class VoiceLabApp {
   #projects;
   #jobs;
   #voices;
+  #scripts;
   #generation;
   #candidates;
 
@@ -41,14 +45,25 @@ class VoiceLabApp {
       shell: this.#shell,
       listView: new VoiceListView(this.#state),
       detailView: new VoiceDetailView(this.#state, this.#audioLoader),
-      onVoicesChanged: () => this.#generation?.renderOptions(),
+      onVoicesChanged: () => {
+        this.#generation?.renderOptions();
+        this.#scripts?.render();
+      },
+    });
+    this.#scripts = new ScriptController({
+      state: this.#state,
+      api: this.#api,
+      shell: this.#shell,
+      listView: new ScriptListView(this.#state),
+      detailView: new ScriptDetailView(this.#state),
+      onScriptsChanged: () => this.#generation?.renderOptions(),
     });
     this.#generation = new GenerationController({
       state: this.#state,
       api: this.#api,
       shell: this.#shell,
       jobs: this.#jobs,
-      onManageVoices: () => this.#shell.showView("library"),
+      onManageScripts: () => this.#shell.showView("scripts"),
     });
     this.#candidates = new CandidateController({
       state: this.#state,
@@ -67,7 +82,6 @@ class VoiceLabApp {
 
   async start() {
     this.#bind();
-    this.#generation.setScriptMode("existing");
     const user = await this.#auth.restore();
     if (user) await this.#boot(user);
     this.#shell.reveal();
@@ -77,10 +91,12 @@ class VoiceLabApp {
     this.#auth.bind();
     this.#shell.bind((view) => {
       if (view === "library") this.#voices.ensureSelection();
+      if (view === "scripts") this.#scripts.ensureSelection();
     });
     this.#projects.bind();
     this.#jobs.bind();
     this.#voices.bind();
+    this.#scripts.bind();
     this.#generation.bind();
     this.#candidates.bind();
     document.addEventListener("visibilitychange", () => {
@@ -116,6 +132,7 @@ class VoiceLabApp {
       this.#state.jobs = [];
       this.#generation.renderOptions();
       this.#voices.render();
+      this.#scripts.render();
       this.#jobs.render();
       return;
     }
@@ -131,11 +148,12 @@ class VoiceLabApp {
     this.#state.scripts = scripts.scripts;
     this.#state.jobs = jobs.jobs;
     this.#generation.renderOptions();
-    this.#generation.applyScriptDefaults();
     this.#voices.render();
+    this.#scripts.render();
     this.#jobs.render();
     await this.#jobs.selectInitial();
     if (this.#state.view === "library") await this.#voices.ensureSelection();
+    if (this.#state.view === "scripts") await this.#scripts.ensureSelection();
   }
 }
 
