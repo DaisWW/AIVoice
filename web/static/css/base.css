@@ -147,6 +147,24 @@ select {
   padding: 0 12px;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+}
+
+select option:checked {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+select option[value=""] {
+  color: var(--muted);
+}
+
 textarea {
   min-height: 82px;
   padding: 10px 12px;
