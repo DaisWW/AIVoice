@@ -14,7 +14,6 @@ export class AppState {
     this.user = null;
     this.isAdmin = false;
     this.projects = [];
-    this.invitations = [];
     this.projectId = this.#read(KEYS.project);
     this.config = { models: [] };
     this.voices = [];

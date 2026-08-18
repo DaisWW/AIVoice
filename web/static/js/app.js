@@ -7,7 +7,7 @@ import { GenerationController } from "./generation/generation-controller.js?v=20
 import { JobController } from "./jobs/job-controller.js";
 import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
-import { ProjectController } from "./projects/project-controller.js?v=20260815.2";
+import { ProjectController } from "./projects/project-controller.js?v=20260818.1";
 import { ScriptController } from "./scripts/script-controller.js?v=20260817.2";
 import { ScriptDetailView } from "./scripts/script-detail-view.js";
 import { ScriptListView } from "./scripts/script-list-view.js";

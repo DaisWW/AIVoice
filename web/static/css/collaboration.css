@@ -356,6 +356,22 @@
   margin-bottom: 30px;
 }
 
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.leave-button {
+  color: var(--danger);
+}
+
+.leave-button:hover {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .project-hero h2 {
   margin: 7px 0 9px;
   font-size: clamp(28px, 3vw, 43px);
@@ -482,16 +498,14 @@
 }
 
 .project-card > span:last-child,
-.member-row > div,
-.invitation-card > div:first-child {
+.member-row > div {
   display: grid;
   min-width: 0;
   gap: 5px;
 }
 
 .project-card strong,
-.member-row strong,
-.invitation-card strong {
+.member-row strong {
   overflow: hidden;
   color: var(--ink-soft);
   font-size: 12px;
@@ -500,8 +514,7 @@
 }
 
 .project-card small,
-.member-row small,
-.invitation-card small {
+.member-row small {
   color: var(--muted);
   font-size: 9px;
 }
@@ -538,12 +551,12 @@
   font-style: normal;
 }
 
-.invite-form {
+.member-add-form {
   padding: 18px;
   background: rgba(255, 255, 255, .015);
 }
 
-.invite-form label {
+.member-add-form label {
   display: block;
   margin-bottom: 8px;
   color: var(--ink-soft);
@@ -551,48 +564,21 @@
   font-weight: 700;
 }
 
-.invite-form > div > div {
+.member-add-form > div > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
 
-.invite-form input {
+.member-add-form input {
   min-width: 0;
 }
 
-.invite-form small {
+.member-add-form small {
   display: block;
   margin-top: 8px;
   color: var(--faint);
   font-size: 9px;
-}
-
-.invitation-section {
-  margin-top: 18px;
-}
-
-.invitation-list {
-  display: grid;
-}
-
-.invitation-card {
-  display: flex;
-  min-height: 78px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--line);
-}
-
-.invitation-card:last-child {
-  border-bottom: 0;
-}
-
-.invitation-card > div:last-child {
-  display: flex;
-  gap: 7px;
 }
 
 .project-onboarding {
@@ -737,7 +723,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .invite-form > div > div,
+  .member-add-form > div > div,
   .member-row {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -762,12 +748,4 @@
     right: 14px;
   }
 
-  .invitation-card {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .invitation-card > div:last-child > button {
-    flex: 1;
-  }
 }

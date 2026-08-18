@@ -5,7 +5,6 @@ export class ProjectController {
   #api;
   #shell;
   #onProjectChanged;
-  #members = [];
 
   constructor({ state, api, shell, onProjectChanged }) {
     this.#state = state;
@@ -23,15 +22,14 @@ export class ProjectController {
       $("#projectName").focus();
     });
     $("#projectCreateForm").addEventListener("submit", (event) => this.#create(event));
-    $("#inviteForm").addEventListener("submit", (event) => this.#invite(event));
-    $("#invitationList").addEventListener("click", (event) => this.#respond(event));
+    $("#memberAddForm").addEventListener("submit", (event) => this.#addMember(event));
+    $("#leaveProject").addEventListener("click", () => this.#leave());
     $("#memberList").addEventListener("click", (event) => this.#removeMember(event));
   }
 
   async load() {
     const payload = await this.#api.get("/api/projects");
     this.#state.projects = payload.projects;
-    this.#state.invitations = payload.invitations;
     if (!this.#state.projects.some((item) => item.id === this.#state.projectId)) {
       this.#state.selectProject(this.#state.projects[0]?.id || null);
     }
@@ -65,11 +63,12 @@ export class ProjectController {
     );
     $("#projectSelect").value = this.#state.projectId || "";
     this.#renderProjectCards();
-    this.#renderInvitations();
     const project = this.#state.project;
     $("#emptyProjectState").hidden = Boolean(project);
     $("#projectContent").hidden = !project;
     $("#openCreate").disabled = !project;
+    $("#memberAddPanel").hidden = !project?.can_manage;
+    $("#leaveProject").hidden = !project || project.member_role === "owner";
     if (!project) return;
     $("#currentProjectName").textContent = project.name;
     $("#currentProjectDescription").textContent = project.description || "暂无项目说明";
@@ -77,7 +76,6 @@ export class ProjectController {
     $("#projectVoiceCount").textContent = project.voice_count;
     $("#projectScriptCount").textContent = project.script_count;
     $("#projectJobCount").textContent = project.job_count;
-    $("#invitePanel").hidden = !project.can_manage;
     await this.#loadMembers();
   }
 
@@ -94,28 +92,10 @@ export class ProjectController {
     });
   }
 
-  #renderInvitations() {
-    const invitations = this.#state.invitations;
-    $("#invitationBadge").textContent = invitations.length;
-    $("#invitationBadge").hidden = invitations.length === 0;
-    $("#invitationList").innerHTML = invitations.length
-      ? invitations.map((item) => `
-        <article class="invitation-card">
-          <div><strong>${escapeHtml(item.project_name)}</strong><small>${escapeHtml(item.inviter_name)} 邀请你加入</small></div>
-          <div>
-            <button class="quiet-button" type="button" data-invite-action="decline" data-invite-id="${escapeHtml(item.id)}">忽略</button>
-            <button class="primary-button" type="button" data-invite-action="accept" data-invite-id="${escapeHtml(item.id)}">加入项目</button>
-          </div>
-        </article>
-      `).join("")
-      : '<p class="muted-empty">当前没有待处理邀请</p>';
-  }
-
   async #loadMembers() {
     const { members } = await this.#api.get(
       `/api/projects/${encodeURIComponent(this.#state.projectId)}/members`,
     );
-    this.#members = members;
     const canManage = Boolean(this.#state.project?.can_manage);
     $("#memberList").innerHTML = members.map((member) => `
       <article class="member-row">
@@ -156,43 +136,19 @@ export class ProjectController {
     }
   }
 
-  async #invite(event) {
+  async #addMember(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const button = $("button[type='submit']", form);
     setButtonBusy(button, true);
     try {
       await this.#api.post(
-        `/api/projects/${encodeURIComponent(this.#state.projectId)}/invitations`,
-        { username: $("#inviteUsername").value.trim() },
+        `/api/projects/${encodeURIComponent(this.#state.projectId)}/members`,
+        { username: $("#memberUsername").value.trim() },
       );
       form.reset();
-      this.#shell.toast("邀请已发送");
-    } catch (error) {
-      this.#shell.toast(error.message, true);
-    } finally {
-      setButtonBusy(button, false);
-    }
-  }
-
-  async #respond(event) {
-    const button = event.target.closest("[data-invite-action]");
-    if (!button) return;
-    setButtonBusy(button, true);
-    try {
-      const { invitation } = await this.#api.post(
-        `/api/invitations/${encodeURIComponent(button.dataset.inviteId)}/${button.dataset.inviteAction}`,
-        {},
-      );
-      await this.load();
-      if (button.dataset.inviteAction === "accept") {
-        if (this.#state.projectId !== invitation.project_id) {
-          await this.select(invitation.project_id);
-        } else {
-          await this.#onProjectChanged(this.#state.project);
-        }
-      }
-      this.#shell.toast(button.dataset.inviteAction === "accept" ? "已加入项目" : "已忽略邀请");
+      await this.refreshCurrent();
+      this.#shell.toast("成员已添加");
     } catch (error) {
       this.#shell.toast(error.message, true);
     } finally {
@@ -208,8 +164,32 @@ export class ProjectController {
       await this.#api.delete(
         `/api/projects/${encodeURIComponent(this.#state.projectId)}/members/${encodeURIComponent(button.dataset.removeMember)}`,
       );
-      await this.#loadMembers();
+      await this.refreshCurrent();
       this.#shell.toast("成员已移除");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  async #leave() {
+    const project = this.#state.project;
+    const userId = this.#state.user?.id;
+    if (!project || project.member_role === "owner" || !userId) return;
+    if (!window.confirm(`退出“${project.name}”后将无法访问其中的资产，确定退出吗？`)) {
+      return;
+    }
+    const button = $("#leaveProject");
+    setButtonBusy(button, true);
+    try {
+      await this.#api.delete(
+        `/api/projects/${encodeURIComponent(project.id)}/members/${encodeURIComponent(userId)}`,
+      );
+      await this.load();
+      await this.#onProjectChanged(this.#state.project);
+      this.#shell.showView("project");
+      this.#shell.toast("已退出项目");
     } catch (error) {
       this.#shell.toast(error.message, true);
     } finally {

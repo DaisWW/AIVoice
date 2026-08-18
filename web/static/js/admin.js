@@ -328,7 +328,7 @@ class AdminApp {
         `${project.member_count}<small>${project.active_member_count || 0} 个启用</small>`,
         project.voice_count,
         project.script_count,
-        `${project.job_count}<small>${project.pending_invitation_count || 0} 个待邀请</small>`,
+        project.job_count,
         formatDate(project.last_job_at),
         `<button class="table-action" type="button" data-project-detail="${escapeHtml(project.id)}">查看详情</button><button class="table-action" type="button" data-project-jobs="${escapeHtml(project.id)}">任务</button>`,
       ]),
