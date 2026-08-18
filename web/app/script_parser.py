@@ -229,6 +229,10 @@ def parse_docx_sections(content: bytes) -> dict[str, list[ScriptItem]]:
                 text = line.strip()
                 if not text or text.startswith("无台词") or text.startswith("（"):
                     continue
+                if text.endswith("）"):
+                    text = text[:-1].rstrip()
+                if not text:
+                    continue
                 source_line += 1
                 rows.append(build_script_item(text, text, source_line, len(rows) + 1))
     return {role: rows for role, rows in sections.items() if rows}
