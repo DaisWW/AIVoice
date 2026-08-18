@@ -794,14 +794,10 @@ def test_voice_library_is_editable_by_project_members(
         project = owner.post(
             "/api/projects", json={"name": "协作项目", "description": ""}
         ).json()["project"]
-        invited = owner.post(
-            f"/api/projects/{project['id']}/invitations",
-            json={"username": "member"},
+        added = owner.post(
+            f"/api/projects/{project['id']}/members", json={"username": "member"}
         )
-        assert invited.status_code == 201
-        invitation = member.get("/api/projects").json()["invitations"][0]
-        accepted = member.post(f"/api/invitations/{invitation['id']}/accept")
-        assert accepted.status_code == 200
+        assert added.status_code == 201
 
         voice = _create_voice(owner, "source", 2)
         voice_id = voice["id"]

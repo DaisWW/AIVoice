@@ -54,16 +54,6 @@ CREATE TABLE IF NOT EXISTS project_members (
     PRIMARY KEY(project_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS project_invitations (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    invited_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL,
-    responded_at TEXT
-);
-
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor_user_id TEXT,
@@ -236,8 +226,6 @@ CREATE INDEX IF NOT EXISTS idx_voice_files_voice ON voice_files(voice_id, enable
 CREATE INDEX IF NOT EXISTS idx_voices_owner_created ON voices(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_scripts_owner_created ON scripts(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_members_user_project ON project_members(user_id, project_id);
-CREATE INDEX IF NOT EXISTS idx_invitations_user_status ON project_invitations(invited_user_id, status, created_at);
-CREATE INDEX IF NOT EXISTS idx_invitations_project_status ON project_invitations(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_actor_created ON audit_logs(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_logs(project_id, created_at DESC);

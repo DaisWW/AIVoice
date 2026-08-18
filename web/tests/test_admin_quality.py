@@ -97,7 +97,6 @@ def test_admin_query_indexes_are_created(settings_factory) -> None:
                 "jobs",
                 "job_item_candidates",
                 "sessions",
-                "project_invitations",
             )
             for row in connection.execute(f"PRAGMA index_list({table})")
         }
@@ -106,7 +105,6 @@ def test_admin_query_indexes_are_created(settings_factory) -> None:
         "idx_jobs_submitted",
         "idx_candidates_queue",
         "idx_sessions_expiry",
-        "idx_invitations_project_status",
     } <= indexes
 
 

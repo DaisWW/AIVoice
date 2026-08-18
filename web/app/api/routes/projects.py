@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
-from ..schemas import InvitationCreate, ProjectCreate, ProjectUpdate
+from ..schemas import MemberCreate, ProjectCreate, ProjectUpdate
 
 
 router = APIRouter(prefix="/api")
@@ -16,8 +16,7 @@ router = APIRouter(prefix="/api")
 def list_projects(user: CurrentUser, services: ServicesDep) -> dict[str, Any]:
     projects = services.database.projects.list_for_user(str(user["id"]))
     return {
-        "projects": [_project_payload(services, project, user) for project in projects],
-        "invitations": services.database.projects.invitations_for_user(str(user["id"])),
+        "projects": [_project_payload(services, project, user) for project in projects]
     }
 
 
@@ -81,56 +80,36 @@ def list_members(
     return {"members": services.database.projects.members(project_id)}
 
 
-@router.post("/projects/{project_id}/invitations", status_code=201)
-def invite_member(
+@router.post("/projects/{project_id}/members", status_code=201)
+def add_member(
     project_id: str,
-    changes: InvitationCreate,
+    changes: MemberCreate,
     request: Request,
     user: CurrentUser,
     services: ServicesDep,
-) -> dict[str, Any]:
+) -> dict[str, bool]:
     require_project(services, user, project_id, manage=True)
-    invited = services.database.auth.get_by_username(changes.username)
-    if not invited:
+    member = services.database.auth.get_by_username(changes.username)
+    if not member:
         raise HTTPException(status_code=404, detail="找不到该账户，请先由管理员创建账户")
-    if invited["status"] != "active":
+    if member["status"] != "active":
         raise HTTPException(status_code=409, detail="该账户已停用，暂时不能加入项目")
     try:
-        invitation = services.database.projects.invite(
-            project_id, str(invited["id"]), str(user["id"])
+        services.database.projects.add_member(
+            project_id, str(member["id"]), str(user["id"])
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     services.database.audit.record(
-        "project.member_invited",
+        "project.member_added",
         actor=user,
         target_type="user",
-        target_id=str(invited["id"]),
+        target_id=str(member["id"]),
         project_id=project_id,
         ip_address=_ip(request),
-        details={"username": invited["username"]},
+        details={"username": member["username"]},
     )
-    return {"invitation": invitation}
-
-
-@router.post("/invitations/{invitation_id}/accept")
-def accept_invitation(
-    invitation_id: str,
-    request: Request,
-    user: CurrentUser,
-    services: ServicesDep,
-) -> dict[str, Any]:
-    return _respond_invitation(invitation_id, True, request, user, services)
-
-
-@router.post("/invitations/{invitation_id}/decline")
-def decline_invitation(
-    invitation_id: str,
-    request: Request,
-    user: CurrentUser,
-    services: ServicesDep,
-) -> dict[str, Any]:
-    return _respond_invitation(invitation_id, False, request, user, services)
+    return {"ok": True}
 
 
 @router.delete("/projects/{project_id}/members/{member_id}")
@@ -141,7 +120,13 @@ def remove_member(
     user: CurrentUser,
     services: ServicesDep,
 ) -> dict[str, bool]:
-    require_project(services, user, project_id, manage=True)
+    require_project(services, user, project_id)
+    is_self = member_id == str(user["id"])
+    if is_self:
+        if services.database.projects.role(project_id, member_id) == "owner":
+            raise HTTPException(status_code=409, detail="项目负责人不能退出项目")
+    else:
+        require_project(services, user, project_id, manage=True)
     try:
         removed = services.database.projects.remove_member(project_id, member_id)
     except ValueError as error:
@@ -149,7 +134,7 @@ def remove_member(
     if not removed:
         raise HTTPException(status_code=404, detail="该账户不是项目成员")
     services.database.audit.record(
-        "project.member_removed",
+        "project.member_left" if is_self else "project.member_removed",
         actor=user,
         target_type="user",
         target_id=member_id,
@@ -157,30 +142,6 @@ def remove_member(
         ip_address=_ip(request),
     )
     return {"ok": True}
-
-
-def _respond_invitation(
-    invitation_id: str,
-    accept: bool,
-    request: Request,
-    user: dict[str, Any],
-    services: ServicesDep,
-) -> dict[str, Any]:
-    try:
-        invitation = services.database.projects.respond(
-            invitation_id, str(user["id"]), accept
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    services.database.audit.record(
-        f"project.invitation_{'accepted' if accept else 'declined'}",
-        actor=user,
-        target_type="invitation",
-        target_id=invitation_id,
-        project_id=str(invitation["project_id"]),
-        ip_address=_ip(request),
-    )
-    return {"invitation": invitation}
 
 
 def _project_payload(

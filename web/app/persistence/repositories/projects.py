@@ -131,9 +131,6 @@ class ProjectRepository:
                            AS job_count
                        ,(SELECT MAX(j.submitted_at) FROM jobs j
                          WHERE j.project_id=p.id) AS last_job_at
-                       ,(SELECT COUNT(*) FROM project_invitations pi
-                         WHERE pi.project_id=p.id AND pi.status='pending')
-                           AS pending_invitation_count
                 FROM projects p
                 JOIN users u ON u.id=p.owner_id
                 {clause}
@@ -179,108 +176,18 @@ class ProjectRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def invite(
-        self, project_id: str, invited_user_id: str, invited_by: str
-    ) -> dict[str, Any]:
-        invitation_id = f"invite-{uuid.uuid4().hex[:12]}"
+    def add_member(self, project_id: str, user_id: str, added_by: str) -> None:
         with self._database.write() as connection:
-            member = connection.execute(
-                "SELECT 1 FROM project_members WHERE project_id=? AND user_id=?",
-                (project_id, invited_user_id),
-            ).fetchone()
-            if member:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO project_members(
+                    project_id, user_id, role, added_by, joined_at
+                ) VALUES (?, ?, 'member', ?, ?)
+                """,
+                (project_id, user_id, added_by, utc_now()),
+            )
+            if cursor.rowcount != 1:
                 raise ValueError("该账户已经是项目成员")
-            pending = connection.execute(
-                """
-                SELECT 1 FROM project_invitations
-                WHERE project_id=? AND invited_user_id=? AND status='pending'
-                """,
-                (project_id, invited_user_id),
-            ).fetchone()
-            if pending:
-                raise ValueError("已经向该账户发送过邀请")
-            connection.execute(
-                """
-                INSERT INTO project_invitations(
-                    id, project_id, invited_user_id, invited_by, status, created_at
-                ) VALUES (?, ?, ?, ?, 'pending', ?)
-                """,
-                (invitation_id, project_id, invited_user_id, invited_by, utc_now()),
-            )
-        invitation = self.invitation(invitation_id)
-        if not invitation:  # pragma: no cover
-            raise RuntimeError("邀请创建后未找到")
-        return invitation
-
-    def invitation(self, invitation_id: str) -> dict[str, Any] | None:
-        with self._database.read() as connection:
-            row = connection.execute(
-                """
-                SELECT i.*, p.name AS project_name,
-                       target.username AS invited_username,
-                       target.display_name AS invited_display_name,
-                       actor.display_name AS inviter_name
-                FROM project_invitations i
-                JOIN projects p ON p.id=i.project_id
-                JOIN users target ON target.id=i.invited_user_id
-                JOIN users actor ON actor.id=i.invited_by
-                WHERE i.id=?
-                """,
-                (invitation_id,),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def invitations_for_user(self, user_id: str) -> list[dict[str, Any]]:
-        with self._database.read() as connection:
-            rows = connection.execute(
-                """
-                SELECT i.*, p.name AS project_name, p.description AS project_description,
-                       actor.display_name AS inviter_name
-                FROM project_invitations i
-                JOIN projects p ON p.id=i.project_id
-                JOIN users actor ON actor.id=i.invited_by
-                WHERE i.invited_user_id=? AND i.status='pending'
-                ORDER BY i.created_at DESC
-                """,
-                (user_id,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def respond(self, invitation_id: str, user_id: str, accept: bool) -> dict[str, Any]:
-        status = "accepted" if accept else "declined"
-        timestamp = utc_now()
-        with self._database.write() as connection:
-            invitation = connection.execute(
-                """
-                SELECT * FROM project_invitations
-                WHERE id=? AND invited_user_id=? AND status='pending'
-                """,
-                (invitation_id, user_id),
-            ).fetchone()
-            if not invitation:
-                raise ValueError("邀请不存在或已经处理")
-            connection.execute(
-                "UPDATE project_invitations SET status=?, responded_at=? WHERE id=?",
-                (status, timestamp, invitation_id),
-            )
-            if accept:
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO project_members(
-                        project_id, user_id, role, added_by, joined_at
-                    ) VALUES (?, ?, 'member', ?, ?)
-                    """,
-                    (
-                        invitation["project_id"],
-                        user_id,
-                        invitation["invited_by"],
-                        timestamp,
-                    ),
-                )
-        result = self.invitation(invitation_id)
-        if not result:  # pragma: no cover
-            raise RuntimeError("邀请处理后未找到")
-        return result
 
     def remove_member(self, project_id: str, user_id: str) -> bool:
         with self._database.write() as connection:

@@ -37,7 +37,7 @@ class ProjectUpdate(BaseModel):
     description: str = Field(default="", max_length=500)
 
 
-class InvitationCreate(BaseModel):
+class MemberCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
 
 

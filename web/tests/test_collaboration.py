@@ -111,7 +111,7 @@ def test_admin_account_status_revokes_sessions(settings_factory) -> None:
         assert changed.json()["user"]["must_change_password"] is False
 
 
-def test_project_invitation_sharing_isolation_and_admin_visibility(
+def test_project_member_sharing_isolation_and_admin_visibility(
     settings_factory,
 ) -> None:
     application = create_app(
@@ -137,20 +137,28 @@ def test_project_invitation_sharing_isolation_and_admin_visibility(
         assert alice.get(f"/api/projects/{beta['id']}").status_code == 404
         assert bob.get(f"/api/projects/{alpha['id']}").status_code == 404
 
-        invitation = alice.post(
-            f"/api/projects/{alpha['id']}/invitations", json={"username": "bob"}
+        added = alice.post(
+            f"/api/projects/{alpha['id']}/members", json={"username": "bob"}
         )
-        assert invitation.status_code == 201
-        pending = bob.get("/api/projects").json()["invitations"]
-        assert [item["project_id"] for item in pending] == [alpha["id"]]
-        accepted = bob.post(f"/api/invitations/{pending[0]['id']}/accept")
-        assert accepted.status_code == 200
+        assert added.status_code == 201
+        assert "invitations" not in bob.get("/api/projects").json()
+        duplicate = alice.post(
+            f"/api/projects/{alpha['id']}/members", json={"username": "bob"}
+        )
+        assert duplicate.status_code == 409
 
         members = bob.get(f"/api/projects/{alpha['id']}/members").json()["members"]
         assert {item["username"] for item in members} == {"alice", "bob"}
+        alice_user = services.database.auth.get_by_username("alice")
+        assert (
+            bob.delete(
+                f"/api/projects/{alpha['id']}/members/{alice_user['id']}"
+            ).status_code
+            == 403
+        )
         assert (
             bob.post(
-                f"/api/projects/{alpha['id']}/invitations",
+                f"/api/projects/{alpha['id']}/members",
                 json={"username": "admin"},
             ).status_code
             == 403
@@ -196,16 +204,34 @@ def test_project_invitation_sharing_isolation_and_admin_visibility(
         assert {
             "admin.user_created",
             "project.created",
-            "project.member_invited",
-            "project.invitation_accepted",
+            "project.member_added",
             "script.uploaded",
         } <= actions
 
         bob_user = services.database.auth.get_by_username("bob")
+        assert (
+            alice.delete(
+                f"/api/projects/{alpha['id']}/members/{alice_user['id']}"
+            ).status_code
+            == 409
+        )
+        left = bob.delete(f"/api/projects/{alpha['id']}/members/{bob_user['id']}")
+        assert left.status_code == 200
+        assert bob.get(f"/api/projects/{alpha['id']}").status_code == 404
+
+        readded = alice.post(
+            f"/api/projects/{alpha['id']}/members", json={"username": "bob"}
+        )
+        assert readded.status_code == 201
         removed = alice.delete(f"/api/projects/{alpha['id']}/members/{bob_user['id']}")
         assert removed.status_code == 200
         assert bob.get(f"/api/projects/{alpha['id']}").status_code == 404
         assert admin.get(f"/api/projects/{alpha['id']}").status_code == 404
+
+        actions = {
+            item["action"] for item in admin.get("/api/admin/audit-logs").json()["logs"]
+        }
+        assert {"project.member_left", "project.member_removed"} <= actions
 
 
 def test_system_admin_workspace_uses_project_membership(
@@ -229,25 +255,17 @@ def test_system_admin_workspace_uses_project_membership(
         admin_projects = admin.get("/api/admin/projects").json()["projects"]
         assert project["id"] in {item["id"] for item in admin_projects}
 
-        invited = owner.post(
-            f"/api/projects/{project['id']}/invitations",
-            json={"username": "admin"},
+        added = owner.post(
+            f"/api/projects/{project['id']}/members", json={"username": "admin"}
         )
-        assert invited.status_code == 201
-        pending = admin.get("/api/projects").json()["invitations"]
-        invitation = next(
-            item for item in pending if item["project_id"] == project["id"]
-        )
-        assert (
-            admin.post(f"/api/invitations/{invitation['id']}/accept").status_code == 200
-        )
+        assert added.status_code == 201
 
         joined = admin.get(f"/api/projects/{project['id']}").json()["project"]
         assert joined["member_role"] == "member"
         assert joined["can_manage"] is False
         assert (
             admin.post(
-                f"/api/projects/{project['id']}/invitations",
+                f"/api/projects/{project['id']}/members",
                 json={"username": "owner"},
             ).status_code
             == 403
