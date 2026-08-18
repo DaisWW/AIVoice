@@ -120,13 +120,10 @@ def remove_member(
     user: CurrentUser,
     services: ServicesDep,
 ) -> dict[str, bool]:
-    require_project(services, user, project_id)
     is_self = member_id == str(user["id"])
-    if is_self:
-        if services.database.projects.role(project_id, member_id) == "owner":
-            raise HTTPException(status_code=409, detail="项目负责人不能退出项目")
-    else:
-        require_project(services, user, project_id, manage=True)
+    project = require_project(services, user, project_id, manage=not is_self)
+    if is_self and str(project["owner_id"]) == member_id:
+        raise HTTPException(status_code=409, detail="项目负责人不能退出项目")
     try:
         removed = services.database.projects.remove_member(project_id, member_id)
     except ValueError as error:

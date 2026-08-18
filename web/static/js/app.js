@@ -4,11 +4,11 @@ import { AppState } from "./core/app-state.js?v=20260817.1";
 import { AudioLoader } from "./core/audio-loader.js";
 import { AuthController } from "./auth/auth-controller.js?v=20260815.3";
 import { GenerationController } from "./generation/generation-controller.js?v=20260817.2";
-import { JobController } from "./jobs/job-controller.js";
+import { JobController } from "./jobs/job-controller.js?v=20260818.1";
 import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
-import { ProjectController } from "./projects/project-controller.js?v=20260818.1";
-import { ScriptController } from "./scripts/script-controller.js?v=20260817.2";
+import { ProjectController } from "./projects/project-controller.js?v=20260818.2";
+import { ScriptController } from "./scripts/script-controller.js?v=20260818.1";
 import { ScriptDetailView } from "./scripts/script-detail-view.js";
 import { ScriptListView } from "./scripts/script-list-view.js";
 import { SystemController } from "./system/system-controller.js";
@@ -30,6 +30,7 @@ class VoiceLabApp {
   #scripts;
   #generation;
   #candidates;
+  #projectLoadVersion = 0;
 
   constructor() {
     this.#jobs = new JobController({
@@ -110,15 +111,14 @@ class VoiceLabApp {
     this.#shell.renderIdentity(user);
     try {
       const project = await this.#projects.load();
+      this.#system.refreshHealth();
+      this.#system.start();
       if (!project) {
         this.#shell.showView("project");
         return;
       }
       await this.#loadProject(project);
       this.#shell.showView(this.#state.view);
-      this.#system.refreshHealth();
-      this.#jobs.schedule();
-      this.#system.start();
     } catch (error) {
       this.#shell.toast(error.message, true);
       this.#shell.renderOffline();
@@ -126,6 +126,7 @@ class VoiceLabApp {
   }
 
   async #loadProject(project) {
+    const version = ++this.#projectLoadVersion;
     if (!project) {
       this.#state.voices = [];
       this.#state.scripts = [];
@@ -134,6 +135,7 @@ class VoiceLabApp {
       this.#voices.render();
       this.#scripts.render();
       this.#jobs.render();
+      this.#jobs.schedule();
       return;
     }
     const projectId = encodeURIComponent(project.id);
@@ -143,6 +145,7 @@ class VoiceLabApp {
       this.#api.get(`/api/scripts?project_id=${projectId}`),
       this.#api.get(`/api/jobs?limit=300&project_id=${projectId}`),
     ]);
+    if (!this.#isCurrentProject(project.id, version)) return;
     this.#state.config = config;
     this.#state.voices = voices.voices;
     this.#state.scripts = scripts.scripts;
@@ -152,8 +155,14 @@ class VoiceLabApp {
     this.#scripts.render();
     this.#jobs.render();
     await this.#jobs.selectInitial();
+    if (!this.#isCurrentProject(project.id, version)) return;
     if (this.#state.view === "library") await this.#voices.ensureSelection();
     if (this.#state.view === "scripts") await this.#scripts.ensureSelection();
+    this.#jobs.schedule();
+  }
+
+  #isCurrentProject(projectId, version) {
+    return version === this.#projectLoadVersion && this.#state.projectId === projectId;
   }
 }
 

@@ -62,12 +62,14 @@ export class JobController {
   }
 
   async refresh(forceDetail = false) {
-    if (this.#refreshing || (document.hidden && !forceDetail)) return;
+    const projectId = this.#state.projectId;
+    if (!projectId || this.#refreshing || (document.hidden && !forceDetail)) return;
     this.#refreshing = true;
     try {
       const { jobs } = await this.#api.get(
-        `${this.#state.jobApiBase}?limit=300&project_id=${encodeURIComponent(this.#state.projectId || "")}`,
+        `${this.#state.jobApiBase}?limit=300&project_id=${encodeURIComponent(projectId)}`,
       );
+      if (this.#state.projectId !== projectId) return;
       this.#state.jobs = jobs;
       this.#listView.render();
       await this.#syncSelection(forceDetail);
@@ -80,6 +82,7 @@ export class JobController {
 
   schedule(delay) {
     clearTimeout(this.#refreshTimer);
+    if (!this.#state.projectId) return;
     const idleDelay = this.#state.isAdmin ? 4000 : 6000;
     const nextDelay = delay ?? (this.#state.jobs.some(isActiveJob) ? 1200 : idleDelay);
     this.#refreshTimer = setTimeout(async () => {

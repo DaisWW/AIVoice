@@ -5,6 +5,8 @@ export class ProjectController {
   #api;
   #shell;
   #onProjectChanged;
+  #selectionVersion = 0;
+  #memberLoadVersion = 0;
 
   constructor({ state, api, shell, onProjectChanged }) {
     this.#state = state;
@@ -28,7 +30,9 @@ export class ProjectController {
   }
 
   async load() {
+    const version = ++this.#selectionVersion;
     const payload = await this.#api.get("/api/projects");
+    if (version !== this.#selectionVersion) return this.#state.project;
     this.#state.projects = payload.projects;
     if (!this.#state.projects.some((item) => item.id === this.#state.projectId)) {
       this.#state.selectProject(this.#state.projects[0]?.id || null);
@@ -39,22 +43,27 @@ export class ProjectController {
 
   async select(projectId) {
     if (!projectId || projectId === this.#state.projectId) return;
+    const version = ++this.#selectionVersion;
     this.#state.selectProject(projectId);
     await this.#render();
+    if (version !== this.#selectionVersion) return;
     await this.#onProjectChanged(this.#state.project);
   }
 
   async refreshCurrent() {
-    if (!this.#state.projectId) return;
+    const projectId = this.#state.projectId;
+    if (!projectId) return;
     const { project } = await this.#api.get(
-      `/api/projects/${encodeURIComponent(this.#state.projectId)}`,
+      `/api/projects/${encodeURIComponent(projectId)}`,
     );
+    if (this.#state.projectId !== projectId) return;
     const index = this.#state.projects.findIndex((item) => item.id === project.id);
     if (index >= 0) this.#state.projects[index] = project;
     await this.#render();
   }
 
   async #render() {
+    const memberLoadVersion = ++this.#memberLoadVersion;
     renderSelect(
       $("#projectSelect"),
       this.#state.projects,
@@ -67,7 +76,7 @@ export class ProjectController {
     $("#emptyProjectState").hidden = Boolean(project);
     $("#projectContent").hidden = !project;
     $("#openCreate").disabled = !project;
-    $("#memberAddPanel").hidden = !project?.can_manage;
+    $("#memberAddForm").hidden = !project?.can_manage;
     $("#leaveProject").hidden = !project || project.member_role === "owner";
     if (!project) return;
     $("#currentProjectName").textContent = project.name;
@@ -76,7 +85,7 @@ export class ProjectController {
     $("#projectVoiceCount").textContent = project.voice_count;
     $("#projectScriptCount").textContent = project.script_count;
     $("#projectJobCount").textContent = project.job_count;
-    await this.#loadMembers();
+    await this.#loadMembers(memberLoadVersion, project.id);
   }
 
   #renderProjectCards() {
@@ -92,10 +101,11 @@ export class ProjectController {
     });
   }
 
-  async #loadMembers() {
+  async #loadMembers(version, projectId) {
     const { members } = await this.#api.get(
-      `/api/projects/${encodeURIComponent(this.#state.projectId)}/members`,
+      `/api/projects/${encodeURIComponent(projectId)}/members`,
     );
+    if (version !== this.#memberLoadVersion || this.#state.projectId !== projectId) return;
     const canManage = Boolean(this.#state.project?.can_manage);
     $("#memberList").innerHTML = members.map((member) => `
       <article class="member-row">

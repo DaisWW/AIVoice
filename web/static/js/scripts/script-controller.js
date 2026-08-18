@@ -161,6 +161,7 @@ export class ScriptController {
 
   async #edit(form) {
     const scriptId = this.#state.selectedScriptId;
+    const projectId = this.#state.projectId;
     if (!scriptId) return;
     const button = $("button[type='submit']", form);
     setButtonBusy(button, true);
@@ -172,6 +173,7 @@ export class ScriptController {
           default_voice_id: $("#scriptDefaultVoice").value,
         },
       );
+      if (this.#state.projectId !== projectId) return;
       this.#storeSummary(script);
       if (this.#state.scriptDetail?.id === scriptId) {
         this.#state.scriptDetail = { ...this.#state.scriptDetail, ...script };
