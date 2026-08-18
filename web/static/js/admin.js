@@ -404,7 +404,7 @@ class AdminApp {
         `<strong>${job.completed_items}/${job.total_items} 段</strong><small>${job.progress}%</small>`,
         `<span class="admin-status ${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>`,
         formatDate(job.submitted_at),
-        `<button class="table-action" type="button" data-job-action="detail" data-job-id="${escapeHtml(job.id)}">查看详情</button>`,
+        `<button class="table-action" type="button" data-job-action="detail" data-job-id="${escapeHtml(job.id)}">查看详情</button>${job.status === "queued" || job.status === "running" ? "" : `<button class="table-action danger-action" type="button" data-job-action="delete" data-job-id="${escapeHtml(job.id)}">删除</button>`}`,
       ]),
     );
   }
@@ -518,6 +518,9 @@ class AdminApp {
     if (button.dataset.jobAction === "detail") {
       void this.#openJobDetail(button.dataset.jobId);
     }
+    if (button.dataset.jobAction === "delete") {
+      void this.#deleteJob(button.dataset.jobId);
+    }
     if (button.dataset.jobAction === "rename-save") {
       void this.#renameJob(button);
     }
@@ -562,6 +565,7 @@ class AdminApp {
       <div class="admin-job-actions">
         <label class="admin-job-rename"><span>任务名称</span><input id="adminJobRenameInput" value="${escapeHtml(job.name)}" maxlength="80"></label>
         <button type="button" data-job-action="rename-save" data-job-id="${escapeHtml(job.id)}">保存名称</button>
+        ${job.status === "queued" || job.status === "running" ? "" : `<button class="danger-action" type="button" data-job-action="delete" data-job-id="${escapeHtml(job.id)}">删除记录</button>`}
         ${links}
       </div>
       ${job.error ? `<pre class="admin-job-error">${escapeHtml(job.error)}</pre>` : ""}
@@ -593,6 +597,21 @@ class AdminApp {
       this.#shell.toast(error.message, true);
     } finally {
       button.disabled = false;
+    }
+  }
+
+  async #deleteJob(jobId) {
+    const job = this.#state.jobs.find((item) => String(item.id) === String(jobId));
+    if (!job || job.status === "queued" || job.status === "running") return;
+    if (!window.confirm(`确定删除生成记录“${job.name}”吗？`)) return;
+    try {
+      await this.#api.delete(`/api/admin/jobs/${encodeURIComponent(jobId)}`);
+      this.#state.jobs = this.#state.jobs.filter((item) => String(item.id) !== String(jobId));
+      if ($("#jobDetailDialog").open) $("#jobDetailDialog").close();
+      this.#renderJobs();
+      this.#shell.toast("生成记录已删除");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
     }
   }
 

@@ -1046,6 +1046,16 @@
   color: var(--ink);
 }
 
+.danger-action {
+  color: var(--danger);
+}
+
+.danger-action:hover {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .admin-settings-content {
   width: 100%;
   padding: 0;
