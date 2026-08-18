@@ -15,8 +15,20 @@ class ProjectRepository:
         self._database = database
 
     def ensure_legacy_project(self, owner_id: str) -> None:
-        timestamp = utc_now()
         with self._database.write() as connection:
+            legacy_tables = ("voices", "scripts", "jobs")
+            unassigned = sum(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE COALESCE(project_id, '')=''"
+                ).fetchone()[0]
+                for table in legacy_tables
+            )
+            existing = connection.execute(
+                "SELECT 1 FROM projects WHERE id=?", (LEGACY_PROJECT_ID,)
+            ).fetchone()
+            if not existing and not unassigned:
+                return
+            timestamp = utc_now()
             connection.execute(
                 """
                 INSERT OR IGNORE INTO projects(
@@ -34,9 +46,9 @@ class ProjectRepository:
                 """,
                 (LEGACY_PROJECT_ID, owner_id, owner_id, timestamp),
             )
-            for table in ("voices", "scripts", "jobs"):
+            for table in legacy_tables:
                 connection.execute(
-                    f"UPDATE {table} SET project_id=? WHERE project_id=''",
+                    f"UPDATE {table} SET project_id=? WHERE COALESCE(project_id, '')=''",
                     (LEGACY_PROJECT_ID,),
                 )
             connection.execute(

@@ -7,9 +7,25 @@ from types import SimpleNamespace
 from app.api.payloads import JobPresenter
 from app.database import Database
 from app.legacy_import import LegacyImporter, legacy_id
+from app.persistence.repositories.projects import LEGACY_PROJECT_ID
 from app.profiles import Profiles
 
 from conftest import make_wav_bytes
+
+
+def test_legacy_project_is_not_created_without_unassigned_assets(
+    settings_factory,
+) -> None:
+    settings = settings_factory()
+    database = Database(settings.database_path)
+    database.initialize()
+    admin = database.auth.create_user(
+        "admin", "管理员", "hash", must_change_password=False
+    )
+
+    database.projects.ensure_legacy_project(str(admin["id"]))
+
+    assert database.projects.get(LEGACY_PROJECT_ID) is None
 
 
 def test_legacy_import_is_idempotent_and_preserves_display_text(
