@@ -44,4 +44,12 @@ foreach ($JavaScriptFile in $JavaScriptFiles) {
     }
 }
 
+$JavaScriptTests = Get-ChildItem web\tests\js -Filter *.test.mjs
+if ($JavaScriptTests) {
+    node --test $JavaScriptTests.FullName
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
 exit 0

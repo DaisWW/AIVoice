@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from app.api.payloads import JobPresenter
 from app.database import Database
@@ -13,20 +14,41 @@ from app.profiles import Profiles
 from conftest import make_wav_bytes
 
 
+def test_legacy_project_initializes_fresh_database_once(settings_factory) -> None:
+    database, admin = _database_with_admin(settings_factory)
+
+    database.projects.ensure_legacy_project(str(admin["id"]))
+    database.projects.ensure_legacy_project(str(admin["id"]))
+
+    legacy = database.projects.get(LEGACY_PROJECT_ID)
+    assert legacy is not None
+    assert legacy["owner_id"] == admin["id"]
+    assert database.projects.role(LEGACY_PROJECT_ID, str(admin["id"])) == "owner"
+    assert [
+        item["id"] for item in database.projects.list_for_user(str(admin["id"]))
+    ] == [LEGACY_PROJECT_ID]
+
+
 def test_legacy_project_is_not_recreated_after_modern_project_exists(
     settings_factory,
 ) -> None:
-    settings = settings_factory()
-    database = Database(settings.database_path)
-    database.initialize()
-    admin = database.auth.create_user(
-        "admin", "管理员", "hash", must_change_password=False
-    )
+    database, admin = _database_with_admin(settings_factory)
     database.projects.create(str(admin["id"]), "新项目", "")
 
     database.projects.ensure_legacy_project(str(admin["id"]))
 
     assert database.projects.get(LEGACY_PROJECT_ID) is None
+
+
+def test_legacy_project_claims_unassigned_assets(settings_factory) -> None:
+    database, admin = _database_with_admin(settings_factory)
+    database.projects.create(str(admin["id"]), "新项目", "")
+    voice_id = database.voices.create("旧声音", str(admin["id"]), "")
+
+    database.projects.ensure_legacy_project(str(admin["id"]))
+
+    assert database.projects.get(LEGACY_PROJECT_ID) is not None
+    assert database.voices.get(voice_id)["project_id"] == LEGACY_PROJECT_ID
 
 
 def test_legacy_import_is_idempotent_and_preserves_display_text(
@@ -78,6 +100,16 @@ def test_legacy_import_is_idempotent_and_preserves_display_text(
         item["accepted_candidate_id"]
     ]
     assert candidates[0]["text"] == "正常台词"
+
+
+def _database_with_admin(settings_factory) -> tuple[Database, dict[str, Any]]:
+    settings = settings_factory()
+    database = Database(settings.database_path)
+    database.initialize()
+    admin = database.auth.create_user(
+        "admin", "管理员", "hash", must_change_password=False
+    )
+    return database, admin
 
 
 def _legacy_files(root: Path) -> tuple[Path, Path, Path]:
