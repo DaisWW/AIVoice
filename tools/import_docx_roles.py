@@ -146,11 +146,13 @@ def main() -> None:
         timestamp = _now()
         imported_root = data_root / "uploads" / "scripts" / args.project_id / "docx-roles"
         rows = []
+        new_paths: set[Path] = set()
         for index, (role, items) in enumerate(sections.items(), start=1):
             script_id = f"script-{uuid.uuid4().hex[:12]}"
             filename = f"{index:03d}_{_safe_name(role)}.csv"
             local_path = imported_root / filename
             _write_role_file(local_path, items)
+            new_paths.add(local_path.resolve())
             runtime_path = PurePosixPath(
                 RUNTIME_DATA_ROOT.as_posix(),
                 "uploads",
@@ -192,7 +194,8 @@ def main() -> None:
                 rows,
             )
         for path in old_paths:
-            path.unlink(missing_ok=True)
+            if path.resolve() not in new_paths:
+                path.unlink(missing_ok=True)
         _remove_job_files(data_root, job_ids)
         print(f"已导入: {len(rows)} 份角色台本, {sum(len(v) for v in sections.values())} 段")
     finally:
