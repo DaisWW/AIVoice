@@ -13,5 +13,7 @@ def remove_job_artifacts(services: ApplicationServices, job_id: str) -> None:
     if directory.is_dir():
         shutil.rmtree(directory)
     for suffix in (".zip", "-accepted.zip"):
-        archive = ensure_within(services.settings.export_root / f"{job_id}{suffix}", root)
+        archive = ensure_within(
+            services.settings.export_root / f"{job_id}{suffix}", root
+        )
         archive.unlink(missing_ok=True)

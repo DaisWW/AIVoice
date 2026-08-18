@@ -179,7 +179,7 @@ def export_script(
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": (
-                f'attachment; filename="script.csv"; filename*=UTF-8\'\'{quote(filename)}'
+                f"attachment; filename=\"script.csv\"; filename*=UTF-8''{quote(filename)}"
             )
         },
     )
@@ -195,7 +195,9 @@ def delete_script(
     script = project_script(services, script_id, user)
     if services.database.scripts.has_jobs(script_id):
         raise HTTPException(status_code=409, detail="请先删除引用该台本的生成记录")
-    source_path = ensure_within(Path(str(script["source_path"])), services.settings.root)
+    source_path = ensure_within(
+        Path(str(script["source_path"])), services.settings.root
+    )
     if not services.database.scripts.delete(script_id):
         raise HTTPException(status_code=404, detail="找不到台本")
     source_path.unlink(missing_ok=True)

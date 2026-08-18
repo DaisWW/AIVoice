@@ -86,7 +86,9 @@ class ScriptStorage:
             self.save_items(
                 script,
                 items,
-                original_name=safe_filename(upload.filename or str(script["original_name"])),
+                original_name=safe_filename(
+                    upload.filename or str(script["original_name"])
+                ),
             )
             return items
         except ScriptFormatError as error:
