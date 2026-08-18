@@ -26,7 +26,10 @@ class ProjectRepository:
             existing = connection.execute(
                 "SELECT 1 FROM projects WHERE id=?", (LEGACY_PROJECT_ID,)
             ).fetchone()
-            if not existing and not unassigned:
+            any_project = connection.execute(
+                "SELECT 1 FROM projects LIMIT 1"
+            ).fetchone()
+            if not existing and any_project and not unassigned:
                 return
             timestamp = utc_now()
             connection.execute(

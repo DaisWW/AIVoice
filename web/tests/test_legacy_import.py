@@ -13,7 +13,7 @@ from app.profiles import Profiles
 from conftest import make_wav_bytes
 
 
-def test_legacy_project_is_not_created_without_unassigned_assets(
+def test_legacy_project_is_not_recreated_after_modern_project_exists(
     settings_factory,
 ) -> None:
     settings = settings_factory()
@@ -22,6 +22,7 @@ def test_legacy_project_is_not_created_without_unassigned_assets(
     admin = database.auth.create_user(
         "admin", "管理员", "hash", must_change_password=False
     )
+    database.projects.create(str(admin["id"]), "新项目", "")
 
     database.projects.ensure_legacy_project(str(admin["id"]))
 
