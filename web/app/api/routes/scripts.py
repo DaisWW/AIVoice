@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -176,7 +177,11 @@ def export_script(
     return Response(
         content=ScriptStorage.export_csv(items),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="script.csv"; filename*=UTF-8\'\'{quote(filename)}'
+            )
+        },
     )
 
 

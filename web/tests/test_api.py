@@ -248,7 +248,7 @@ def test_script_library_binding_controls_job_voice(app_client) -> None:
 def test_script_items_round_trip_export_import_and_edit(app_client) -> None:
     client, services = app_client
     _create_voice(client, "script editor voice")
-    script = _create_script(client, "editable.txt", "第一句 | mo-la\n第二句 | gu-la\n")
+    script = _create_script(client, "可编辑台本.txt", "第一句 | mo-la\n第二句 | gu-la\n")
 
     updated = client.put(
         f"/api/scripts/{script['id']}/items",
@@ -264,6 +264,7 @@ def test_script_items_round_trip_export_import_and_edit(app_client) -> None:
 
     exported = client.get(f"/api/scripts/{script['id']}/export")
     assert exported.status_code == 200
+    assert "filename*=UTF-8''" in exported.headers["content-disposition"]
     assert exported.text.splitlines() == [
         "text,pronunciation",
         "改过的第一句,mo-la",
