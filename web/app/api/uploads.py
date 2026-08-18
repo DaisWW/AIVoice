@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +15,14 @@ from ..audio_conversion import (
 )
 from ..audio_quality import AudioQualityAnalyzer
 from ..domain import ScriptItem
-from ..script_parser import SUPPORTED_SCRIPT_EXTENSIONS, ScriptFormatError, parse_file
+from ..script_parser import (
+    SUPPORTED_SCRIPT_EXTENSIONS,
+    ScriptFormatError,
+    parse_content,
+    parse_file,
+)
 from ..services import ApplicationServices
-from ..storage import save_upload
+from ..storage import ensure_within, safe_filename, save_upload
 
 
 class ScriptStorage:
@@ -23,7 +30,9 @@ class ScriptStorage:
         self._services = services
 
     def load_items(self, script: dict[str, Any]) -> list[ScriptItem]:
-        path = Path(str(script["source_path"]))
+        path = ensure_within(
+            Path(str(script["source_path"])), self._services.settings.root
+        )
         if not path.is_file():
             raise HTTPException(status_code=409, detail="台本源文件已不在服务器上")
         return self._parse(path)
@@ -61,6 +70,69 @@ class ScriptStorage:
             path.unlink(missing_ok=True)
             raise
 
+    async def replace_from_upload(
+        self,
+        script: dict[str, Any],
+        upload: UploadFile,
+    ) -> list[ScriptItem]:
+        self._validate_extension(upload.filename or "")
+        content = await upload.read()
+        try:
+            items = await run_in_threadpool(
+                self._parse_content,
+                content,
+                Path(upload.filename or "").suffix,
+            )
+            self.save_items(
+                script,
+                items,
+                original_name=safe_filename(upload.filename or str(script["original_name"])),
+            )
+            return items
+        except ScriptFormatError as error:
+            raise HTTPException(status_code=422, detail=f"台本格式错误: {error}") from error
+
+    def save_items(
+        self,
+        script: dict[str, Any],
+        items: list[ScriptItem],
+        *,
+        original_name: str | None = None,
+    ) -> None:
+        old_path = ensure_within(
+            Path(str(script["source_path"])), self._services.settings.root
+        )
+        old_path.parent.mkdir(parents=True, exist_ok=True)
+        target = old_path.parent / f"{script['id']}.edited.csv"
+        temporary = target.with_name(f".{target.name}.tmp")
+        had_target = target.exists()
+        try:
+            self._write_csv(temporary, items)
+            temporary.replace(target)
+            updated = self._services.database.scripts.update_source(
+                str(script["id"]),
+                target,
+                len(items),
+                original_name=original_name,
+            )
+            if not updated:
+                raise HTTPException(status_code=404, detail="找不到台本")
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            if target != old_path and not had_target:
+                target.unlink(missing_ok=True)
+            raise
+        if old_path != target:
+            old_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def export_csv(items: list[ScriptItem]) -> str:
+        output = io.StringIO(newline="")
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(("text", "pronunciation"))
+        writer.writerows((item.text, item.pronunciation) for item in items)
+        return output.getvalue()
+
     @staticmethod
     def _validate_extension(filename: str) -> None:
         if Path(filename).suffix.lower() in SUPPORTED_SCRIPT_EXTENSIONS:
@@ -81,6 +153,17 @@ class ScriptStorage:
             return parse_file(path)
         except ScriptFormatError as error:
             raise HTTPException(status_code=422, detail=f"台本格式错误: {error}") from error
+
+    @staticmethod
+    def _parse_content(content: bytes, suffix: str) -> list[ScriptItem]:
+        return parse_content(content, suffix)
+
+    @staticmethod
+    def _write_csv(path: Path, items: list[ScriptItem]) -> None:
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, lineterminator="\n")
+            writer.writerow(("text", "pronunciation"))
+            writer.writerows((item.text, item.pronunciation) for item in items)
 
 
 class VoiceFileStorage:

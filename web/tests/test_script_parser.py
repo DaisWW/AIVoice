@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
+from docx import Document
 
 from app.script_parser import (
     ScriptFormatError,
     analyze_script_pronunciation,
     parse_content,
+    parse_docx_sections,
     parse_guide,
 )
 
@@ -65,6 +68,29 @@ def test_parse_legacy_guide_groups_multiline_text(tmp_path: Path) -> None:
     assert list(sections) == ["愚公"]
     assert sections["愚公"][0].text == "第一行\n第二行"
     assert sections["愚公"][0].pronunciation == "mo-la"
+
+
+def test_parse_docx_sections_merges_adjacent_tables_by_role() -> None:
+    document = Document()
+    document.add_paragraph("角色甲")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "第一句"
+    document.add_paragraph("")
+    document.add_paragraph("角色甲")
+    document.add_paragraph("")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "第二句"
+    document.add_paragraph("")
+    document.add_paragraph("")
+    document.add_paragraph("角色乙")
+    document.add_paragraph("")
+    document.add_paragraph("第三句")
+
+    output = io.BytesIO()
+    document.save(output)
+    sections = parse_docx_sections(output.getvalue())
+
+    assert list(sections) == ["角色甲", "角色乙"]
+    assert [item.text for item in sections["角色甲"]] == ["第一句", "第二句"]
+    assert [item.text for item in sections["角色乙"]] == ["第三句"]
 
 
 @pytest.mark.parametrize(

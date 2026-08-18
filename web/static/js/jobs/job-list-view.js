@@ -68,6 +68,7 @@ export class JobListView {
         <span class="task-bottom"><span></span><span></span></span>
       </button>
       <button class="rename-task" type="button" data-action="rename-job" title="重命名任务">重命名</button>
+      <button class="delete-task" type="button" data-action="delete-job" title="删除生成记录">删除</button>
     `;
     return entry;
   }
@@ -82,6 +83,8 @@ export class JobListView {
     selectButton.dataset.jobId = job.id;
     selectButton.setAttribute("aria-current", String(active));
     $(".rename-task", entry).dataset.jobId = job.id;
+    $(".delete-task", entry).dataset.jobId = job.id;
+    $(".delete-task", entry).disabled = isActiveJob(job);
     $(".task-title", entry).textContent = job.name;
     this.#updateStatus($(".status", entry), job.status);
     $(".task-meta", entry).textContent = this.#meta(job);

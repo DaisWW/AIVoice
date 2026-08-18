@@ -1,7 +1,7 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 
 from ..access import AdminAccess, admin_job
 from ..candidate_operations import (
@@ -9,6 +9,8 @@ from ..candidate_operations import (
     candidate_audio_response,
     regenerate_candidate,
 )
+from ..cleanup import remove_job_artifacts
+from ..audit import record_action
 from ..dependencies import ServicesDep
 from ..downloads import JobDownloadService
 from ..payloads import JobPresenter
@@ -53,6 +55,32 @@ def rename_job(
         raise HTTPException(status_code=404, detail="找不到任务")
     job = admin_job(services, job_id)
     return {"job": JobPresenter(services).payload(job, api_prefix=API_PREFIX)}
+
+
+@router.delete("/{job_id}", status_code=204)
+def delete_job(
+    job_id: str,
+    user: AdminAccess,
+    services: ServicesDep,
+    request: Request,
+) -> Response:
+    job = admin_job(services, job_id)
+    if job["status"] in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="任务处理完成后才能删除")
+    if not services.database.jobs.delete(job_id):
+        raise HTTPException(status_code=404, detail="找不到任务")
+    remove_job_artifacts(services, job_id)
+    record_action(
+        services,
+        request,
+        user,
+        "job.deleted",
+        target_type="job",
+        target_id=job_id,
+        project_id=str(job.get("project_id") or ""),
+        details={"name": job.get("display_name") or job.get("script_name") or ""},
+    )
+    return Response(status_code=204)
 
 
 @router.post("/{job_id}/items/{item_id}/regenerate", status_code=201)

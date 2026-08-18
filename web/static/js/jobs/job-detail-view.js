@@ -84,6 +84,8 @@ export class JobDetailView {
     title.title = job.name;
     this.#updateDownload(job);
     this.#updateFormalExport(job);
+    const deleteButton = $("[data-detail-action='delete']", this.#root);
+    if (deleteButton) deleteButton.disabled = isActiveJob(job);
   }
 
   #patchSummary(job) {
@@ -192,6 +194,7 @@ export class JobDetailView {
           <div class="detail-actions">
             <span class="accepted-summary" data-accepted-count>${job.accepted_items || 0}/${job.total_items} 已采用</span>
             <button class="secondary-button" type="button" data-detail-action="rename">重命名</button>
+            <button class="quiet-button danger-button" type="button" data-detail-action="delete"${isActiveJob(job) ? " disabled" : ""}>删除记录</button>
             ${job.can_export ? `<a class="download-button formal-export" data-formal-export href="${escapeHtml(job.export_url)}" download>正式导出</a>` : '<span class="export-hint" data-formal-export-hint>逐句采用后可正式导出</span>'}
             ${canDownload ? this.#downloadMarkup(job) : ""}
           </div>

@@ -110,6 +110,7 @@ export class JobController {
     if (!control) return;
     if (control.dataset.action === "select-job") this.select(control.dataset.jobId, true);
     if (control.dataset.action === "rename-job") this.openRename(control.dataset.jobId);
+    if (control.dataset.action === "delete-job") this.#delete(control.dataset.jobId);
   }
 
   #handleDetailClick(event) {
@@ -122,6 +123,9 @@ export class JobController {
     if (!control) return;
     if (control.dataset.detailAction === "rename" && this.#state.selectedJobId) {
       this.openRename(this.#state.selectedJobId);
+    }
+    if (control.dataset.detailAction === "delete" && this.#state.selectedJobId) {
+      this.#delete(this.#state.selectedJobId);
     }
   }
 
@@ -266,5 +270,25 @@ export class JobController {
     if (index >= 0) this.#state.jobs[index] = { ...this.#state.jobs[index], ...job };
     this.#listView.render();
     if (this.#state.selectedJobId === job.id) await this.#refreshDetail(job.id);
+  }
+
+  async #delete(jobId) {
+    const job = this.#state.jobs.find((item) => item.id === jobId);
+    if (!job || isActiveJob(job) || !window.confirm(`确定删除生成记录“${job.name}”吗？`)) return;
+    try {
+      await this.#api.delete(`${this.#state.jobApiBase}/${encodeURIComponent(jobId)}`);
+      this.#state.jobs = this.#state.jobs.filter((item) => item.id !== jobId);
+      if (this.#state.selectedJobId === jobId) {
+        this.#cancelSelection();
+        this.#state.selectJob(null);
+        this.#selectedJob = null;
+        this.#detailView.clear();
+      }
+      this.#listView.render();
+      await this.#selectFallback();
+      this.#shell.toast("生成记录已删除");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    }
   }
 }

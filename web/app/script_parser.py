@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections import OrderedDict
 from pathlib import Path
 
 from voice_core.pronunciation import (
@@ -30,15 +31,24 @@ def analyze_script_pronunciation(pronunciation: str) -> PronunciationAnalysis:
         raise ScriptFormatError(str(error)) from error
 
 
-def _item(text: str, pronunciation: str, line_number: int, order: int) -> ScriptItem:
+def build_script_item(
+    text: str,
+    pronunciation: str,
+    line_number: int,
+    order: int,
+) -> ScriptItem:
+    """Validate one editable row and derive its generation metadata."""
     pronunciation = pronunciation.strip()
+    text = text.strip()
+    if not pronunciation:
+        pronunciation = text
     if not pronunciation:
         raise ScriptFormatError(f"第 {line_number} 行缺少发音标记")
     analysis = analyze_script_pronunciation(pronunciation)
     return ScriptItem(
         order=order,
         source_line=line_number,
-        text=text.strip() or analysis.generated_text,
+        text=text or analysis.generated_text,
         pronunciation=pronunciation,
         generated_text=analysis.generated_text,
         direction=analysis.direction,
@@ -46,6 +56,9 @@ def _item(text: str, pronunciation: str, line_number: int, order: int) -> Script
         hold_units=analysis.hold_units,
         raw_mode=analysis.raw_mode,
     )
+
+
+_item = build_script_item
 
 
 def _parse_rows(lines: list[str]) -> list[ScriptItem]:
@@ -121,15 +134,19 @@ def parse_content(content: bytes, suffix: str) -> list[ScriptItem]:
     if suffix not in SUPPORTED_SCRIPT_EXTENSIONS:
         raise ScriptFormatError("台本仅支持 .txt、.md、.csv、.docx")
     if suffix == ".docx":
-        try:
-            from docx import Document
-        except ImportError as error:  # pragma: no cover
-            raise ScriptFormatError("当前环境未安装 python-docx") from error
-        try:
-            document = Document(io.BytesIO(content))
-        except Exception as error:
-            raise ScriptFormatError("DOCX 文件损坏或不是有效的 Word 文档") from error
-        return _parse_rows([paragraph.text for paragraph in document.paragraphs])
+        sections = parse_docx_sections(content)
+        items = [item for rows in sections.values() for item in rows]
+        if not items:
+            raise ScriptFormatError("DOCX 没有可生成的非空台词")
+        return [
+            build_script_item(
+                item.text,
+                item.pronunciation,
+                item.source_line,
+                order,
+            )
+            for order, item in enumerate(items, start=1)
+        ]
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError as error:
@@ -139,6 +156,82 @@ def parse_content(content: bytes, suffix: str) -> list[ScriptItem]:
 
 def parse_file(path: Path) -> list[ScriptItem]:
     return parse_content(path.read_bytes(), path.suffix)
+
+
+def parse_docx_sections(content: bytes) -> dict[str, list[ScriptItem]]:
+    """Group one-column DOCX tables by the nearest role heading.
+
+    The source document uses blank paragraphs as section separators and can
+    continue one role across several adjacent tables. Rows without text are
+    intentionally skipped; pronunciation starts as the source text and can be
+    refined later in the script editor.
+    """
+    try:
+        from docx import Document
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+    except ImportError as error:  # pragma: no cover
+        raise ScriptFormatError("当前环境未安装 python-docx") from error
+    try:
+        document = Document(io.BytesIO(content))
+    except Exception as error:
+        raise ScriptFormatError("DOCX 文件损坏或不是有效的 Word 文档") from error
+
+    sections: OrderedDict[str, list[ScriptItem]] = OrderedDict()
+    paragraph_notes: dict[str, list[str]] = {}
+    current_role: str | None = None
+    blank_paragraphs = 0
+    source_line = 0
+    previous_was_table = False
+
+    for child in document.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            paragraph = Paragraph(child, document)
+            text = paragraph.text.strip()
+            if not text:
+                blank_paragraphs += 1
+                continue
+            source_line += 1
+            is_heading = (
+                current_role is None
+                or blank_paragraphs >= 2
+                or (previous_was_table and blank_paragraphs >= 1)
+            )
+            if is_heading:
+                current_role = text
+                sections.setdefault(current_role, [])
+                paragraph_notes.setdefault(current_role, [])
+            else:
+                paragraph_notes.setdefault(current_role, []).append(text)
+            blank_paragraphs = 0
+            previous_was_table = False
+            continue
+        if not child.tag.endswith("}tbl"):
+            continue
+        if current_role is None:
+            continue
+        table = Table(child, document)
+        rows = sections.setdefault(current_role, [])
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            text = next((value for value in cells if value), "")
+            if not text:
+                continue
+            source_line += 1
+            rows.append(build_script_item(text, text, source_line, len(rows) + 1))
+        blank_paragraphs = 0
+        previous_was_table = True
+
+    for role, notes in paragraph_notes.items():
+        rows = sections.setdefault(role, [])
+        for note in notes:
+            for line in note.splitlines():
+                text = line.strip()
+                if not text or text.startswith("无台词") or text.startswith("（"):
+                    continue
+                source_line += 1
+                rows.append(build_script_item(text, text, source_line, len(rows) + 1))
+    return {role: rows for role, rows in sections.items() if rows}
 
 
 def parse_guide(path: Path) -> dict[str, list[ScriptItem]]:

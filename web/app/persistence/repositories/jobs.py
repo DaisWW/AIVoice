@@ -287,6 +287,11 @@ class JobRepository:
             cursor = connection.execute(query, parameters)
         return cursor.rowcount == 1
 
+    def delete(self, job_id: str) -> bool:
+        with self._database.write() as connection:
+            cursor = connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+        return cursor.rowcount == 1
+
     def items(self, job_id: str) -> list[dict[str, Any]]:
         with self._database.read() as connection:
             rows = connection.execute(

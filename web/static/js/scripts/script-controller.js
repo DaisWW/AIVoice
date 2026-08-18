@@ -1,4 +1,4 @@
-import { $, renderSelect, setButtonBusy } from "../core/dom.js";
+import { $, $$, renderSelect, setButtonBusy } from "../core/dom.js";
 import { isVoiceUsable, voiceOptionLabel } from "./script-voice-utils.js";
 
 export class ScriptController {
@@ -25,9 +25,23 @@ export class ScriptController {
       if (button) this.select(button.dataset.scriptId);
     });
     $("#scriptDetail").addEventListener("submit", (event) => {
+      if (event.target.id === "scriptItemsForm") {
+        event.preventDefault();
+        this.#saveItems(event.target);
+        return;
+      }
       if (event.target.id !== "scriptEditForm") return;
       event.preventDefault();
       this.#edit(event.target);
+    });
+    $("#scriptDetail").addEventListener("click", (event) => {
+      const control = event.target.closest("[data-script-action]");
+      if (control?.dataset.scriptAction === "delete") this.#delete();
+    });
+    $("#scriptDetail").addEventListener("change", (event) => {
+      if (event.target.id === "scriptImportFile" && event.target.files[0]) {
+        this.#import(event.target.files[0], event.target);
+      }
     });
     $("#createScript").addEventListener("click", () => this.#openCreate());
     $("#scriptCreateForm").addEventListener("submit", (event) => this.#create(event));
@@ -210,6 +224,69 @@ export class ScriptController {
     } finally {
       setButtonBusy(button, false);
       button.textContent = "上传并保存";
+    }
+  }
+
+  async #saveItems(form) {
+    const scriptId = this.#state.selectedScriptId;
+    if (!scriptId) return;
+    const button = $("button[type='submit']", form);
+    const items = $$('[data-script-item]', form).map((row) => ({
+      text: $("textarea[name='text']", row).value,
+      pronunciation: $("textarea[name='pronunciation']", row).value,
+    }));
+    setButtonBusy(button, true);
+    try {
+      const { script } = await this.#api.put(
+        `/api/scripts/${encodeURIComponent(scriptId)}/items`,
+        { items },
+      );
+      this.#sync(script);
+      this.#shell.toast("台词与发音已保存");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  async #import(file, input) {
+    const scriptId = this.#state.selectedScriptId;
+    if (!scriptId) return;
+    const data = new FormData();
+    data.append("file", file);
+    input.disabled = true;
+    try {
+      const { script } = await this.#api.postForm(
+        `/api/scripts/${encodeURIComponent(scriptId)}/import`,
+        data,
+      );
+      this.#sync(script);
+      this.#shell.toast("台本已重新导入");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    } finally {
+      input.value = "";
+      input.disabled = false;
+    }
+  }
+
+  async #delete() {
+    const scriptId = this.#state.selectedScriptId;
+    const script = this.#state.scripts.find((item) => item.id === scriptId);
+    if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return;
+    try {
+      await this.#api.delete(`/api/scripts/${encodeURIComponent(scriptId)}`);
+      this.#state.scripts = this.#state.scripts.filter((item) => item.id !== scriptId);
+      this.#state.scriptDetail = null;
+      this.#state.selectScript(null);
+      this.#detailView.clear();
+      this.render();
+      this.#onScriptsChanged();
+      await this.ensureSelection();
+      this.#shell.toast("台本已删除");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
     }
   }
 }

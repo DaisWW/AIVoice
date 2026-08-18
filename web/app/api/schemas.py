@@ -61,6 +61,15 @@ class ScriptUpdate(BaseModel):
     default_voice_id: str = Field(min_length=1, max_length=80)
 
 
+class ScriptItemUpdate(BaseModel):
+    text: str = Field(default="", max_length=2000)
+    pronunciation: str = Field(default="", max_length=2000)
+
+
+class ScriptItemsUpdate(BaseModel):
+    items: list[ScriptItemUpdate] = Field(min_length=1, max_length=3000)
+
+
 class ElevenLabsProviderUpdate(BaseModel):
     enabled: bool
     api_key: str | None = Field(default=None, max_length=500)

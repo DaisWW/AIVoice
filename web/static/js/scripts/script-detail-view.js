@@ -42,15 +42,24 @@ export class ScriptDetailView {
       <div class="voice-detail-content script-detail-content">
         <header class="voice-detail-header">
           <div><span class="section-kicker">SCRIPT ASSET</span><h2>${escapeHtml(script.name)}</h2></div>
+          <div class="script-detail-actions">
+            <a class="download-button" href="/api/scripts/${encodeURIComponent(script.id)}/export" download>导出 CSV</a>
+            <label class="secondary-button script-import-button" for="scriptImportFile">导入 CSV</label>
+            <input id="scriptImportFile" type="file" accept=".txt,.md,.csv,.docx" hidden>
+            <button class="quiet-button danger-button" type="button" data-script-action="delete">删除台本</button>
+          </div>
           <span class="script-status-badge${usable ? "" : " missing"}">${status}</span>
         </header>
         ${this.#formMarkup(script)}
         <section class="script-items-section">
           <div class="script-items-toolbar">
-            <div><h3>台本内容</h3><p>上传前完成正文与发音标记编辑</p></div>
+            <div><h3>台本内容</h3><p>逐句编辑正文和发音，保存后可直接用于生成</p></div>
             <span>${escapeHtml(formatDate(script.created_at))}</span>
           </div>
-          <div class="script-items-list">${this.#itemsMarkup(script.items)}</div>
+          <form id="scriptItemsForm">
+            <div class="script-items-list">${this.#itemsMarkup(script.items)}</div>
+            <div class="script-items-actions"><button class="primary-button" type="submit">保存台词与发音</button></div>
+          </form>
         </section>
       </div>
     `;
@@ -87,11 +96,11 @@ export class ScriptDetailView {
   #itemsMarkup(items = []) {
     if (!items.length) return '<div class="list-empty">台本没有可展示的段落</div>';
     return items.map((item) => `
-      <article class="script-item">
+      <article class="script-item" data-script-item>
         <span>${escapeHtml(String(item.order).padStart(2, "0"))}</span>
-        <div>
-          <strong>${escapeHtml(item.text)}</strong>
-          <code>${escapeHtml(item.pronunciation)}</code>
+        <div class="script-item-fields">
+          <label><span>正常台词</span><textarea name="text" rows="2" maxlength="2000" required>${escapeHtml(item.text)}</textarea></label>
+          <label><span>发音标记</span><textarea name="pronunciation" rows="2" maxlength="2000" required>${escapeHtml(item.pronunciation)}</textarea></label>
         </div>
       </article>
     `).join("");

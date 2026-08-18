@@ -12,6 +12,7 @@ export class ApiClient {
     if (!response.ok) {
       throw new ApiError(await this.#errorMessage(response), response.status);
     }
+    if (response.status === 204) return null;
     return response.json();
   }
 
@@ -36,6 +37,15 @@ export class ApiClient {
     return this.request(path, {
       ...options,
       method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options.headers },
+      body: JSON.stringify(body),
+    });
+  }
+
+  put(path, body, options = {}) {
+    return this.request(path, {
+      ...options,
+      method: "PUT",
       headers: { "Content-Type": "application/json", ...options.headers },
       body: JSON.stringify(body),
     });

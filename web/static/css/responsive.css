@@ -175,7 +175,8 @@
     padding-left: 15px;
   }
 
-  .rename-task {
+  .rename-task,
+  .delete-task {
     opacity: 1;
   }
 

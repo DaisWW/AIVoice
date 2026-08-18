@@ -245,6 +245,61 @@ def test_script_library_binding_controls_job_voice(app_client) -> None:
     assert rejected.json()["detail"] == "声音由台本库配置，不能在生成时覆盖"
 
 
+def test_script_items_round_trip_export_import_and_edit(app_client) -> None:
+    client, services = app_client
+    _create_voice(client, "script editor voice")
+    script = _create_script(client, "editable.txt", "第一句 | mo-la\n第二句 | gu-la\n")
+
+    updated = client.put(
+        f"/api/scripts/{script['id']}/items",
+        json={
+            "items": [
+                {"text": "改过的第一句", "pronunciation": "mo-la"},
+                {"text": "第二句", "pronunciation": "GU-la。↘"},
+            ]
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["script"]["items"][0]["text"] == "改过的第一句"
+
+    exported = client.get(f"/api/scripts/{script['id']}/export")
+    assert exported.status_code == 200
+    assert exported.text.splitlines() == [
+        "text,pronunciation",
+        "改过的第一句,mo-la",
+        "第二句,GU-la。↘",
+    ]
+
+    imported = client.post(
+        f"/api/scripts/{script['id']}/import",
+        files={"file": ("round-trip.csv", exported.content, "text/csv")},
+    )
+    assert imported.status_code == 200
+    detail = client.get(f"/api/scripts/{script['id']}").json()["script"]
+    assert [item["text"] for item in detail["items"]] == ["改过的第一句", "第二句"]
+    assert services.database.scripts.get(script["id"])["item_count"] == 2
+
+
+def test_script_and_job_delete_preserve_voice_library(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "deletion voice")
+    script = _create_script(client, "deletion.txt", "要删除的台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={"model_id": "test_model", "script_id": script["id"]},
+    )
+    assert created.status_code == 201
+    job = wait_for_job(client, created.json()["job"]["id"])
+    job_root = services.settings.job_root / job["id"]
+
+    blocked = client.delete(f"/api/scripts/{script['id']}")
+    assert blocked.status_code == 409
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 204
+    assert not job_root.exists()
+    assert client.delete(f"/api/scripts/{script['id']}").status_code == 204
+    assert services.database.voices.get(voice["id"]) is not None
+
+
 def test_script_upload_requires_usable_voice(app_client) -> None:
     client, services = app_client
     before = services.database.monitoring.counts()["scripts"]

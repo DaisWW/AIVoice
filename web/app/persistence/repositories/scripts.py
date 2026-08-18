@@ -67,6 +67,37 @@ class ScriptRepository:
             )
         return cursor.rowcount == 1
 
+    def update_source(
+        self,
+        script_id: str,
+        source_path: Path,
+        item_count: int,
+        original_name: str | None = None,
+    ) -> bool:
+        fields = ["source_path=?", "item_count=?"]
+        parameters: list[Any] = [str(source_path), item_count]
+        if original_name is not None:
+            fields.append("original_name=?")
+            parameters.append(original_name)
+        parameters.append(script_id)
+        with self._database.write() as connection:
+            cursor = connection.execute(
+                f"UPDATE scripts SET {', '.join(fields)} WHERE id=?", parameters
+            )
+        return cursor.rowcount == 1
+
+    def has_jobs(self, script_id: str) -> bool:
+        with self._database.read() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM jobs WHERE script_id=? LIMIT 1", (script_id,)
+            ).fetchone()
+        return row is not None
+
+    def delete(self, script_id: str) -> bool:
+        with self._database.write() as connection:
+            cursor = connection.execute("DELETE FROM scripts WHERE id=?", (script_id,))
+        return cursor.rowcount == 1
+
     def list(
         self, project_id: str | None = None, *, limit: int | None = None
     ) -> list[dict[str, Any]]:
