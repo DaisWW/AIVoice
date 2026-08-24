@@ -33,9 +33,38 @@
   font-size: 11px;
 }
 
+.voice-browser-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .voice-browser-title span {
   color: var(--muted);
   font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.voice-browser-create {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.voice-browser-create:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  color: var(--accent-dark);
 }
 
 .voice-list {

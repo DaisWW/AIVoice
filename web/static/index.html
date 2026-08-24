@@ -125,14 +125,16 @@
               <span class="section-kicker">VOICE SOURCES</span>
               <h2>声音库设置</h2>
             </div>
-            <button id="createVoice" class="secondary-button" type="button">创建声音库</button>
           </header>
 
           <div class="library-workspace">
             <aside class="voice-browser">
               <div class="voice-browser-title">
-                <strong>全部声音</strong>
-                <span id="voiceCount">0</span>
+                <div class="voice-browser-label">
+                  <strong>全部声音</strong>
+                  <span id="voiceCount">0</span>
+                </div>
+                <button id="createVoice" class="voice-browser-create" type="button" title="创建声音库" aria-label="创建声音库">+</button>
               </div>
               <div id="voiceList" class="voice-list" aria-live="polite"></div>
             </aside>
