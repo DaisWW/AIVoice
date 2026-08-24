@@ -21,7 +21,7 @@
   <link rel="stylesheet" href="/assets/css/base.css?v=20260817.1">
   <link rel="stylesheet" href="/assets/css/shell.css?v=20260817.1">
   <link rel="stylesheet" href="/assets/css/jobs.css">
-  <link rel="stylesheet" href="/assets/css/voices.css">
+  <link rel="stylesheet" href="/assets/css/voices.css?v=20260824.2">
   <link rel="stylesheet" href="/assets/css/scripts.css?v=20260817.1">
   <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260818.1">
   <link rel="stylesheet" href="/assets/css/overlays.css">
@@ -136,6 +136,12 @@
                 </div>
                 <button id="createVoice" class="voice-browser-create" type="button" title="创建声音库" aria-label="创建声音库">+</button>
               </div>
+              <div class="voice-browser-search">
+                <label class="asset-search" for="voiceSearch">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="voiceSearch" type="search" autocomplete="off" placeholder="搜索声音库" aria-label="搜索声音库">
+                </label>
+              </div>
               <div id="voiceList" class="voice-list" aria-live="polite"></div>
             </aside>
             <article id="voiceDetail" class="voice-detail">
@@ -159,8 +165,16 @@
           <div class="library-workspace">
             <aside class="voice-browser script-browser">
               <div class="voice-browser-title">
-                <strong>全部台本</strong>
-                <span id="scriptCount">0</span>
+                <div class="voice-browser-label">
+                  <strong>全部台本</strong>
+                  <span id="scriptCount">0</span>
+                </div>
+              </div>
+              <div class="voice-browser-search">
+                <label class="asset-search" for="scriptSearch">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="scriptSearch" type="search" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本">
+                </label>
               </div>
               <div id="scriptList" class="voice-list script-list" aria-live="polite"></div>
             </aside>
@@ -340,11 +354,26 @@
       <input id="voiceName" name="name" type="text" maxlength="80" required>
       <label class="field-label" for="voiceNotes">备注</label>
       <textarea id="voiceNotes" name="notes" rows="3" maxlength="500" placeholder="录音者、音色或录制环境"></textarea>
-      <label class="upload-field" for="voiceFiles">
-        <span id="voiceFileName">选择真人录音</span>
-        <small>WAV / MP3 / M4A 等，可多选</small>
-      </label>
-      <input id="voiceFiles" name="files" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" multiple required>
+      <div id="voiceDropZone" class="voice-drop-zone" tabindex="0" role="button" aria-describedby="voiceUploadHint">
+        <div class="voice-drop-icon" aria-hidden="true">↥</div>
+        <strong>拖入音频文件或文件夹</strong>
+        <span>也可以直接粘贴剪贴板中的音频</span>
+        <div class="voice-upload-actions">
+          <label class="secondary-button voice-upload-choice" for="voiceFiles">选择文件</label>
+          <label class="secondary-button voice-upload-choice" for="voiceFolder">选择文件夹</label>
+          <button id="voicePasteButton" class="quiet-button voice-upload-choice" type="button">从剪贴板粘贴</button>
+        </div>
+        <input id="voiceFiles" name="files" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" multiple>
+        <input id="voiceFolder" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" webkitdirectory directory multiple>
+      </div>
+      <div class="voice-upload-summary">
+        <span id="voiceFileName">尚未选择录音</span>
+        <small id="voiceUploadHint">支持 WAV、MP3、M4A、AAC、FLAC、OGG、OPUS，可重复添加多个文件</small>
+      </div>
+      <ul id="voiceSelectedFiles" class="voice-selected-files" aria-live="polite">
+        <li class="voice-selected-empty">还没有添加音频</li>
+      </ul>
+      <p id="voiceFileError" class="voice-file-error" role="alert" hidden></p>
       <div class="modal-actions">
         <button class="quiet-button" type="button" data-close-dialog="voiceDialog">取消</button>
         <button id="submitVoice" class="primary-button" type="submit">创建</button>
@@ -469,6 +498,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/app.js?v=20260818.2"></script>
+  <script type="module" src="/assets/js/app.js?v=20260824.2"></script>
 </body>
 </html>

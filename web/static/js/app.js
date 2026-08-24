@@ -8,14 +8,14 @@ import { JobController } from "./jobs/job-controller.js?v=20260818.1";
 import { JobDetailView } from "./jobs/job-detail-view.js";
 import { JobListView } from "./jobs/job-list-view.js";
 import { ProjectController } from "./projects/project-controller.js?v=20260818.2";
-import { ScriptController } from "./scripts/script-controller.js?v=20260818.1";
+import { ScriptController } from "./scripts/script-controller.js?v=20260824.1";
 import { ScriptDetailView } from "./scripts/script-detail-view.js";
-import { ScriptListView } from "./scripts/script-list-view.js";
+import { ScriptListView } from "./scripts/script-list-view.js?v=20260824.1";
 import { SystemController } from "./system/system-controller.js";
 import { ShellController } from "./ui/shell-controller.js?v=20260817.1";
-import { VoiceController } from "./voices/voice-controller.js";
+import { VoiceController } from "./voices/voice-controller.js?v=20260824.2";
 import { VoiceDetailView } from "./voices/voice-detail-view.js";
-import { VoiceListView } from "./voices/voice-list-view.js";
+import { VoiceListView } from "./voices/voice-list-view.js?v=20260824.1";
 
 class VoiceLabApp {
   #state = new AppState();

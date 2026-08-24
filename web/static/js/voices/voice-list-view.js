@@ -4,16 +4,27 @@ import { voiceOwnerLabel } from "./voice-utils.js";
 export class VoiceListView {
   #state;
   #root;
+  #searchQuery = "";
 
   constructor(state) {
     this.#state = state;
     this.#root = $("#voiceList");
   }
 
+  setSearchQuery(query) {
+    this.#searchQuery = String(query ?? "");
+    this.render();
+  }
+
   render() {
+    const voices = this.#filteredVoices();
     $("#voiceCount").textContent = this.#state.voices.length;
-    if (!this.#state.voices.length) {
-      this.#renderEmpty();
+    if (!voices.length) {
+      this.#renderEmpty(
+        this.#state.voices.length && this.#searchQuery.trim()
+          ? "没有匹配的声音库"
+          : "暂无声音库",
+      );
       return;
     }
     $(".list-empty", this.#root)?.remove();
@@ -22,16 +33,22 @@ export class VoiceListView {
         (button) => [button.dataset.voiceId, button],
       ),
     );
-    this.#state.voices.forEach((voice, index) => {
+    voices.forEach((voice, index) => {
       this.#placeVoice(voice, index, existing);
     });
     existing.forEach((button) => button.remove());
   }
 
-  #renderEmpty() {
-    if (!$(".list-empty", this.#root) || $(".voice-list-button", this.#root)) {
-      this.#root.innerHTML = '<div class="list-empty">暂无声音库</div>';
-    }
+  #filteredVoices() {
+    const query = this.#searchQuery.trim().toLowerCase();
+    if (!query) return this.#state.voices;
+    return this.#state.voices.filter((voice) =>
+      String(voice.name ?? "").toLowerCase().includes(query),
+    );
+  }
+
+  #renderEmpty(message) {
+    this.#root.innerHTML = `<div class="list-empty">${message}</div>`;
   }
 
   #placeVoice(voice, index, existing) {

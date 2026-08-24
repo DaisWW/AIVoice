@@ -24,6 +24,9 @@ export class ScriptController {
       const button = event.target.closest("[data-script-id]");
       if (button) this.select(button.dataset.scriptId);
     });
+    $("#scriptSearch").addEventListener("input", (event) => {
+      this.#listView.setSearchQuery(event.currentTarget.value);
+    });
     $("#scriptDetail").addEventListener("submit", (event) => {
       if (event.target.id === "scriptItemsForm") {
         event.preventDefault();
