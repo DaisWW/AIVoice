@@ -1,5 +1,4 @@
 # Install CUDA-enabled torch and torchaudio separately for the local GPU.
-coverage>=7.6
 matplotlib==3.10.3
 numpy==1.26.4
 scipy==1.17.1
