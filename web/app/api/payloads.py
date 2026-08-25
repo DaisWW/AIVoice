@@ -8,6 +8,7 @@ from voice_core.pronunciation import is_raw_pronunciation
 from ..domain import ScriptItem
 from ..generation_settings import stored_generation_settings
 from ..services import ApplicationServices
+from ..search import search_text
 
 
 SCRIPT_FIELDS = (
@@ -23,7 +24,10 @@ SCRIPT_FIELDS = (
 
 
 def script_payload(script: dict[str, Any]) -> dict[str, Any]:
-    return {field: script[field] for field in SCRIPT_FIELDS}
+    return {
+        **{field: script[field] for field in SCRIPT_FIELDS},
+        "search_text": search_text(script["name"], script["original_name"]),
+    }
 
 
 def script_detail_payload(
@@ -59,6 +63,7 @@ def _voice_summary(voice: dict[str, Any], can_edit: bool) -> dict[str, Any]:
         "size_bytes": int(voice.get("size_bytes") or 0),
         "created_at": voice["created_at"],
         "can_edit": can_edit,
+        "search_text": search_text(voice["name"], voice["notes"]),
     }
 
 
@@ -214,6 +219,12 @@ class JobPresenter:
             "finished_at": job["finished_at"],
             "eta_seconds": JobPresenter._eta(job),
             "error": job["error"],
+            "search_text": search_text(
+                job.get("display_name"),
+                job.get("script_name"),
+                job.get("voice_name"),
+                job.get("model_id"),
+            ),
         }
 
     def _output_type(self, model_id: str) -> str:

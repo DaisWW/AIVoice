@@ -5,6 +5,7 @@ from typing import Any
 
 from ..common import utc_now
 from ..connection import SQLiteConnection
+from ...search import matches_search
 
 
 class AuthRepository:
@@ -69,6 +70,32 @@ class AuthRepository:
 
     def get_by_username(self, username: str) -> dict[str, Any] | None:
         return self._one("u.username=? COLLATE NOCASE", (username.strip(),))
+
+    def member_candidates(
+        self, project_id: str, query: str, *, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        if not query.strip():
+            return []
+        with self._database.read() as connection:
+            rows = connection.execute(
+                """
+                SELECT u.id, u.username, u.display_name
+                FROM users u
+                WHERE u.status='active'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM project_members pm
+                      WHERE pm.project_id=? AND pm.user_id=u.id
+                  )
+                ORDER BY u.display_name COLLATE NOCASE, u.username COLLATE NOCASE
+                """,
+                (project_id,),
+            ).fetchall()
+        candidates = [
+            dict(row)
+            for row in rows
+            if matches_search(query, (row["display_name"], row["username"]))
+        ]
+        return candidates[: max(0, min(limit, 50))]
 
     def _one(self, where: str, parameters: tuple[Any, ...]) -> dict[str, Any] | None:
         with self._database.read() as connection:

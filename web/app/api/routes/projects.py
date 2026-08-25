@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
 from ..schemas import MemberCreate, MemberRoleUpdate, ProjectCreate, ProjectUpdate
+from ...search import search_text
 
 
 router = APIRouter(prefix="/api")
@@ -78,6 +79,17 @@ def list_members(
 ) -> dict[str, Any]:
     require_project(services, user, project_id)
     return {"members": services.database.projects.members(project_id)}
+
+
+@router.get("/projects/{project_id}/member-candidates")
+def member_candidates(
+    project_id: str,
+    user: CurrentUser,
+    services: ServicesDep,
+    q: str = Query(default="", max_length=64),
+) -> dict[str, Any]:
+    require_project(services, user, project_id, manage=True)
+    return {"candidates": services.database.auth.member_candidates(project_id, q)}
 
 
 @router.post("/projects/{project_id}/members", status_code=201)
@@ -189,6 +201,12 @@ def _project_payload(
         **project,
         "project_role": role,
         "can_manage": role in {"owner", "admin"},
+        "search_text": search_text(
+            project.get("name"),
+            project.get("description"),
+            project.get("owner_name"),
+            project.get("owner_username"),
+        ),
     }
 
 

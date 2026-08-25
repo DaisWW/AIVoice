@@ -9,6 +9,7 @@ from .generation_settings import (
     generation_defaults,
     normalize_generation_settings,
 )
+from .search import search_text
 
 
 class Profiles:
@@ -98,6 +99,12 @@ class Profiles:
             "models": [
                 {
                     **{key: item.get(key, "") for key in keys},
+                    "search_text": search_text(
+                        item.get("id"),
+                        item.get("label"),
+                        item.get("description"),
+                        item.get("engine"),
+                    ),
                     "generation_defaults": self.generation_settings(model_id),
                     "generation_parameters": list(item["generation_parameters"]),
                     **self._public_status(item, statuses.get(model_id, {})),
