@@ -57,6 +57,8 @@ VOICE_LAB_BUILD_PROXY=http://host.docker.internal:7897
 
 不需要代理时保持空值。该配置只用于构建镜像，不会写入最终运行环境。
 
+如果所在网络无法访问默认 Python 包源，可设置 `VOICE_LAB_PYPI_INDEX` 为可访问的公开镜像；默认生成的 env 使用清华镜像。该配置只用于构建镜像，不会写入运行环境。
+
 模型不会打进应用层镜像，Compose 以只读方式挂载：
 
 ```text

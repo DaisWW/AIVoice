@@ -2,6 +2,7 @@ ARG BASE_IMAGE=docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtim
 FROM ${BASE_IMAGE}
 ARG TORCH_VERSION=2.5.1
 ARG TORCH_CUDA_INDEX=cu121
+ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 LABEL org.opencontainers.image.title="Voice Lab"
 LABEL org.opencontainers.image.description="LAN multi-model voice cloning workspace"
@@ -25,8 +26,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -m pip install --no-deps \
         --index-url "https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}" \
         "torchaudio==${TORCH_VERSION}+${TORCH_CUDA_INDEX}" \
-    && python -m pip install --no-build-isolation --no-deps "openai-whisper==20250625" \
-    && python -m pip install -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-multimodel.txt -r /tmp/requirements-web.txt \
+    && python -m pip install --no-build-isolation --no-deps \
+        --index-url "${PYPI_INDEX_URL}" "openai-whisper==20250625" \
+    && python -m pip install --index-url "${PYPI_INDEX_URL}" \
+        -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-multimodel.txt -r /tmp/requirements-web.txt \
     && sox --version \
     && python -c "import accelerate, conformer, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
     && apt-get purge -y --auto-remove build-essential

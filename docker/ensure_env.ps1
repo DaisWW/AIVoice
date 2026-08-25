@@ -25,6 +25,7 @@ $password = [Convert]::ToBase64String($bytes).TrimEnd('=') -replace '\+', '-' -r
     "VOICE_LAB_BASE_IMAGE=docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime"
     "VOICE_LAB_TORCH_VERSION=2.5.1"
     "VOICE_LAB_TORCH_CUDA_INDEX=cu121"
+    "VOICE_LAB_PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"
     "VOICE_LAB_BUILD_PROXY="
     "VOICE_LAB_DATA_DIR=./docker-data"
     "VOICE_LAB_INPUT_DIR=./input"

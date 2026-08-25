@@ -7,6 +7,7 @@ services:
         BASE_IMAGE: ${VOICE_LAB_BASE_IMAGE:-docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime}
         TORCH_VERSION: ${VOICE_LAB_TORCH_VERSION:-2.5.1}
         TORCH_CUDA_INDEX: ${VOICE_LAB_TORCH_CUDA_INDEX:-cu121}
+        PYPI_INDEX_URL: ${VOICE_LAB_PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}
         HTTP_PROXY: ${VOICE_LAB_BUILD_PROXY:-}
         HTTPS_PROXY: ${VOICE_LAB_BUILD_PROXY:-}
         http_proxy: ${VOICE_LAB_BUILD_PROXY:-}
