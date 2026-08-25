@@ -190,7 +190,7 @@ class JobCreationService:
         result = list(
             dict.fromkeys(item.strip() for item in [primary, *parsed] if item.strip())
         )
-        if not result or len(result) > 4:
+        if not primary.strip() or len(result) > 4:
             raise HTTPException(status_code=422, detail="每次请选择 1-4 个模型")
         return result
 
