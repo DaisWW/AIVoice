@@ -33,6 +33,9 @@
 
 .drawer-header,
 .modal > form > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex: 0 0 auto;
   min-height: 80px;
   padding: 18px 22px;

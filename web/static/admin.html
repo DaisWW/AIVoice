@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/assets/css/base.css?v=20260815.1">
   <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260816.2">
   <link rel="stylesheet" href="/assets/css/settings.css">
-  <link rel="stylesheet" href="/assets/css/overlays.css">
+  <link rel="stylesheet" href="/assets/css/overlays.css?v=20260825.1">
   <link rel="stylesheet" href="/assets/css/admin.css?v=20260816.3">
 </head>
 <body class="admin-page">
@@ -194,7 +194,7 @@
   <dialog id="userDialog" class="modal admin-modal">
     <form id="userCreateForm" method="dialog">
       <header><div><span class="section-kicker">NEW ACCOUNT</span><h2>创建账户</h2></div><button class="icon-button" type="button" data-admin-close="userDialog">×</button></header>
-      <label class="field-label" for="newUsername">用户名</label><input id="newUsername" pattern="[A-Za-z0-9_.-]{3,32}" maxlength="32" required placeholder="name.surname">
+      <label class="field-label" for="newUsername">用户名</label><input id="newUsername" pattern="[A-Za-z0-9_.@-]{3,32}" maxlength="32" required placeholder="name@example.com">
       <label class="field-label" for="newDisplayName">显示名称</label><input id="newDisplayName" maxlength="60" required placeholder="成员姓名">
       <label class="field-label" for="newUserPassword">临时密码</label><input id="newUserPassword" type="password" maxlength="128" required autocomplete="new-password">
       <p class="modal-copy">账户首次登录后会被提示修改密码。</p>
@@ -235,6 +235,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/admin.js?v=20260816.5"></script>
+  <script type="module" src="/assets/js/admin.js?v=20260825.1"></script>
 </body>
 </html>

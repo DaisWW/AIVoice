@@ -32,21 +32,11 @@ export class AuthController {
   showAuthenticated(user) {
     $("#authView").hidden = true;
     $(`#${this.#shellId}`).hidden = false;
-    $("#createDrawer")?.toggleAttribute("hidden", false);
     document.body.classList.add("authenticated");
     if (user.must_change_password) $("#passwordDialog")?.showModal();
   }
 
   showLogin() {
-    const drawer = $("#createDrawer");
-    const backdrop = $("#drawerBackdrop");
-    drawer?.classList.remove("open");
-    drawer?.setAttribute("aria-hidden", "true");
-    drawer?.toggleAttribute("hidden", true);
-    if (backdrop) {
-      backdrop.classList.remove("visible");
-      backdrop.hidden = true;
-    }
     $("#authView").hidden = false;
     $(`#${this.#shellId}`).hidden = true;
     document.body.classList.remove("authenticated");

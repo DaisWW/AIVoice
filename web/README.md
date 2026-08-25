@@ -24,7 +24,7 @@ web/
 │  ├─ audio_quality.py            参考录音质量提示
 │  ├─ legacy_import.py            旧 input/output 幂等登记
 │  └─ script_parser.py            台本和发音格式解析
-├─ static/                        原生 HTML、CSS、ES Modules
+├─ static/                        项目工作站与系统管理后台静态入口
 ├─ tests/                         API、队列、克隆输入、解析和兼容测试
 ├─ config/profiles.json           模型注册、预设和参数能力
 └─ data/                          SQLite、上传、任务音频和导出缓存
@@ -45,10 +45,12 @@ web/
 - 只有 `JobQueue` 可调用 GPU；生产环境固定一个 Uvicorn worker。
 - 可用模型按需加载；切换适配器或权重前释放上一模型显存。
 - 上传录音统一经 PyAV 转为单声道、48 kHz、16-bit PCM WAV。
-- 每个新生成结果只有一份模型原音，数据库的两个兼容路径字段指向同一文件。
+- 每个新生成结果只有一份模型原音，数据库的两个兼容路径字段指向同一文件；声音在生成任务中选择，不绑定到新台本。
 - 历史 DSP 表和字段仅为已有数据库兼容保留，不提供仓储、队列、路由或前端入口。
 - `LegacyImporter.run()` 可重复执行，不复制或删除旧音频。
-- 前端使用原生 ES Modules，所有模块必须通过 `run_tests.ps1` 的递归语法检查。
+- 项目角色固定为负责人、项目管理员、成员；`projects.owner_id` 是负责人唯一来源。
+- 用户工作站由 `index.html`、`css/workstation.css`、`js/app.js` 组成；管理后台独立使用 `admin.html` 和 `js/admin.js`。
+- 前端使用原生 ES Modules，所有入口及其递归依赖必须通过 `run_tests.ps1` 的静态契约和语法检查。
 
 ## ElevenLabs 与 MiniMax 小样本克隆
 

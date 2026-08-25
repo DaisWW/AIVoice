@@ -8,8 +8,10 @@ WEB_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = WEB_ROOT / "static"
 HTML_ASSET_RE = re.compile(r'(?:src|href)="(/(?:static|assets)/[^"?#]+)"')
 MODULE_IMPORT_RE = re.compile(r'from\s+["\']([^"\']+)["\']')
+MODULE_ENTRY_RE = re.compile(r'<script\b[^>]*\bsrc="(/(?:static|assets)/[^"?#]+\.js)')
 HTML_ID_RE = re.compile(r'\bid=["\']([A-Za-z][\w-]*)["\']')
 JS_ID_QUERY_RE = re.compile(r'\$\$?\(\s*["\']#([A-Za-z][\w-]*)["\']')
+BY_ID_QUERY_RE = re.compile(r'\bbyId\(\s*["\']([A-Za-z][\w-]*)["\']')
 
 
 def test_html_pages_reference_existing_static_assets() -> None:
@@ -46,11 +48,48 @@ def test_javascript_module_imports_resolve() -> None:
 
 
 def test_javascript_static_id_queries_resolve() -> None:
-    sources = [*STATIC_ROOT.glob("*.html"), *(STATIC_ROOT / "js").rglob("*.js")]
+    sources = [*STATIC_ROOT.glob("*.html"), *_loaded_modules()]
     contents = [source.read_text(encoding="utf-8") for source in sources]
     declared = {match for content in contents for match in HTML_ID_RE.findall(content)}
     referenced = {
         match for content in contents for match in JS_ID_QUERY_RE.findall(content)
-    }
+    } | {match for content in contents for match in BY_ID_QUERY_RE.findall(content)}
 
     assert not sorted(referenced - declared)
+
+
+def _loaded_modules() -> set[Path]:
+    pending = [
+        STATIC_ROOT / reference.removeprefix("/static/").removeprefix("/assets/")
+        for page in STATIC_ROOT.glob("*.html")
+        for reference in MODULE_ENTRY_RE.findall(page.read_text(encoding="utf-8"))
+    ]
+    loaded: set[Path] = set()
+    while pending:
+        source = pending.pop().resolve()
+        if source in loaded:
+            continue
+        loaded.add(source)
+        for reference in MODULE_IMPORT_RE.findall(source.read_text(encoding="utf-8")):
+            if reference.startswith("."):
+                pending.append((source.parent / reference.split("?", 1)[0]).resolve())
+    return loaded
+
+
+def test_admin_username_pattern_accepts_email_style_username() -> None:
+    content = (STATIC_ROOT / "admin.html").read_text(encoding="utf-8")
+    input_tag = re.search(r'<input\b[^>]*\bid="newUsername"[^>]*>', content)
+
+    assert input_tag
+    pattern = re.search(r'\bpattern="([^"]+)"', input_tag.group())
+    assert pattern
+    assert re.fullmatch(pattern.group(1), "member@example.com")
+
+
+def test_generation_form_only_lists_explicitly_available_models() -> None:
+    content = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert (
+        "this.state.config.models.filter((model) => model.available === true)"
+        in content
+    )

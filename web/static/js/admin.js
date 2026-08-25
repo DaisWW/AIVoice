@@ -1,4 +1,4 @@
-import { AuthController } from "./auth/auth-controller.js?v=20260815";
+import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { ApiClient } from "./core/api-client.js";
 import { $, escapeHtml, setButtonBusy } from "./core/dom.js";
 import { ProviderController } from "./providers/provider-controller.js";
@@ -491,7 +491,7 @@ class AdminApp {
         <div><span>任务</span><strong>${project.job_count} 个 · 最近 ${formatDate(project.last_job_at)}</strong></div>
       </div>
       <div class="project-detail-grid">
-        <section><header><h3>项目成员</h3><span>${members.length}</span></header><div class="project-member-list">${members.length ? members.map((member) => `<div><span class="member-avatar">${escapeHtml(member.display_name.slice(0, 1))}</span><strong>${escapeHtml(member.display_name)}</strong><small>${member.role === "owner" ? "负责人" : "成员"} · ${member.status === "active" ? "启用" : "停用"}</small></div>`).join("") : '<p class="muted-empty">暂无成员</p>'}</div></section>
+        <section><header><h3>项目成员</h3><span>${members.length}</span></header><div class="project-member-list">${members.length ? members.map((member) => `<div><span class="member-avatar">${escapeHtml(member.display_name.slice(0, 1))}</span><strong>${escapeHtml(member.display_name)}</strong><small>${member.role === "owner" ? "负责人" : member.role === "admin" ? "管理员" : "成员"} · ${member.status === "active" ? "启用" : "停用"}</small></div>`).join("") : '<p class="muted-empty">暂无成员</p>'}</div></section>
         <section><header><h3>最近任务</h3><button type="button" data-project-jobs="${escapeHtml(project.id)}">查看全部</button></header><div class="project-job-list">${jobs.length ? jobs.slice(0, 6).map((job) => `<div><strong>${escapeHtml(job.name)}</strong><small>${statusLabel(job.status)} · ${formatDate(job.submitted_at)}</small></div>`).join("") : '<p class="muted-empty">暂无任务</p>'}</div></section>
       </div>
       <div class="project-asset-summary"><span>声音库 ${voices.length}</span><span>录音 ${voices.reduce((sum, voice) => sum + Number(voice.file_count || 0), 0)}</span><span>台本 ${scripts.length}</span><span>台词 ${scripts.reduce((sum, script) => sum + Number(script.item_count || 0), 0)}</span></div>

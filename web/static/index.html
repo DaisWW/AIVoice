@@ -4,42 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0b0d12">
-  <title>Voice Lab · 项目工作台</title>
+  <meta name="theme-color" content="#0d1014">
+  <title>Voice Lab · 项目工作站</title>
   <style>
-    html,
-    body {
-      margin: 0;
-      background: #0b0d12;
-      color-scheme: dark;
-    }
-
-    html.app-loading .app-shell {
-      opacity: 0;
-    }
+    html, body { margin: 0; background: #0d1014; }
+    html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
-  <link rel="stylesheet" href="/assets/css/base.css?v=20260817.1">
-  <link rel="stylesheet" href="/assets/css/shell.css?v=20260817.1">
-  <link rel="stylesheet" href="/assets/css/jobs.css">
-  <link rel="stylesheet" href="/assets/css/voices.css?v=20260824.2">
-  <link rel="stylesheet" href="/assets/css/scripts.css?v=20260817.1">
-  <link rel="stylesheet" href="/assets/css/collaboration.css?v=20260818.1">
-  <link rel="stylesheet" href="/assets/css/overlays.css">
-  <link rel="stylesheet" href="/assets/css/motion.css">
-  <link rel="stylesheet" href="/assets/css/responsive.css?v=20260817.1">
+  <link rel="stylesheet" href="/assets/css/base.css?v=20260825.1">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260825.3">
 </head>
-<body class="workspace-page">
-  <section id="authView" class="auth-view user-auth-view" aria-label="登录 Voice Lab">
-    <div class="auth-story user-auth-story" aria-hidden="true"></div>
+<body class="workstation-page">
+  <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
+    <div class="auth-rail" aria-hidden="true">
+      <div class="auth-signal"><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="eyebrow">VOICE LAB / PROJECT WORKSTATION</span>
+      <h1>让台本、声音和生成结果<br>在同一个项目里协作。</h1>
+      <p>项目是唯一的工作边界。一个人可以独立使用，邀请成员后直接进入团队流程。</p>
+    </div>
     <div class="auth-panel">
       <form id="loginForm" class="login-card">
         <span class="eyebrow">WORKSPACE ACCESS</span>
-        <h2>登录工作台</h2>
-        <p>使用管理员创建的账户进入项目。</p>
+        <h2>进入项目工作站</h2>
+        <p>使用管理员创建的账户登录。</p>
         <label for="loginUsername"><span>用户名</span><input id="loginUsername" name="username" autocomplete="username" maxlength="64" required placeholder="your.name"></label>
         <label for="loginPassword"><span>密码</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="输入密码"></label>
         <p id="loginError" class="form-error" role="alert"></p>
-        <button class="auth-submit" type="submit"><span>进入工作台</span><b aria-hidden="true">→</b></button>
+        <button class="button button-primary button-large" type="submit"><span>进入工作站</span><strong aria-hidden="true">→</strong></button>
         <small>账户由系统管理员创建，不开放公开注册。</small>
       </form>
     </div>
@@ -47,457 +37,128 @@
 
   <div id="appShell" class="app-shell" hidden>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Voice Lab 工作台">
-        <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span class="brand-copy">
-          <strong>VOICE LAB</strong>
-          <small>团队声音工作台</small>
-        </span>
+      <a class="brand" href="/" aria-label="Voice Lab 项目工作站">
+        <span class="brand-mark"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-copy"><strong>VOICE LAB</strong><small>项目工作站</small></span>
       </a>
 
-      <label class="project-switcher" for="projectSelect">
+      <div class="project-picker">
+        <span class="topbar-label">当前项目</span>
         <select id="projectSelect" aria-label="切换当前项目"></select>
-      </label>
+        <button id="createProjectButton" class="icon-button" type="button" title="创建项目" aria-label="创建项目">+</button>
+      </div>
 
-      <nav class="topnav" aria-label="主导航">
-        <button id="workspaceNav" class="nav-button active" type="button"><span>生成</span></button>
-        <button id="libraryNav" class="nav-button" type="button"><span>声音库</span></button>
-        <button id="scriptNav" class="nav-button" type="button"><span>台本库</span></button>
-        <button id="projectNav" class="nav-button" type="button"><span>项目</span></button>
+      <nav id="workflowNav" class="workflow-nav" aria-label="项目流程">
+        <button class="workflow-link active" type="button" data-view="overview"><span class="step-index">01</span><span>概览</span></button>
+        <button class="workflow-link" type="button" data-view="script"><span class="step-index">02</span><span>台本</span></button>
+        <button class="workflow-link" type="button" data-view="voice"><span class="step-index">03</span><span>声音</span></button>
+        <button class="workflow-link" type="button" data-view="generation"><span class="step-index">04</span><span>生成与审核</span></button>
+        <button class="workflow-link" type="button" data-view="project"><span class="step-index">05</span><span>项目设置</span></button>
       </nav>
 
-      <div class="topbar-actions">
-        <a id="adminLink" class="admin-link" href="/admin" hidden>管理后台</a>
+      <div class="identity-block">
         <span id="userAvatar" class="user-avatar">U</span>
-        <div class="identity">
-          <span id="identityRole">当前用户</span>
-          <code id="clientId">--</code>
-        </div>
+        <div><strong id="clientId">--</strong><small id="identityRole">项目成员</small></div>
+        <a id="adminLink" class="admin-link" href="/admin" hidden>系统后台</a>
         <button id="logoutButton" class="logout-button" type="button" title="退出登录" aria-label="退出登录">↗</button>
       </div>
     </header>
 
-    <div class="app-body">
-      <aside class="task-sidebar" aria-label="生成任务">
-        <div class="sidebar-actions">
-          <button id="openCreate" class="new-job-button" type="button">
-            <span aria-hidden="true">+</span>
-            新建生成
-          </button>
+    <div class="workspace-body">
+      <aside class="workflow-rail" aria-label="工作站导航">
+        <div class="rail-project">
+          <span class="rail-kicker">PROJECT WORKSTATION</span>
+          <strong id="railProjectName">尚未选择项目</strong>
+          <span id="railProjectRole" class="role-chip">--</span>
         </div>
-
-        <div class="sidebar-heading">
-          <div>
-            <span class="section-kicker">GENERATIONS</span>
-            <h1 id="jobListTitle">我的生成记录</h1>
-          </div>
-          <span id="jobCount" class="count-badge">0</span>
+        <div class="rail-nav" aria-label="项目流程导航">
+          <button type="button" data-view="overview"><span>概览</span><small>项目状态与最近活动</small></button>
+          <button type="button" data-view="script"><span>台本</span><small>编辑台词与发音</small></button>
+          <button type="button" data-view="voice"><span>声音</span><small>维护参考录音</small></button>
+          <button type="button" data-view="generation"><span>生成与审核</span><small>尝试、比较、采用</small></button>
+          <button type="button" data-view="project"><span>项目设置</span><small>成员与管理员权限</small></button>
         </div>
-
-        <div class="filter-tabs" role="tablist" aria-label="任务状态筛选">
-          <button class="filter-tab active" type="button" data-filter="all">全部</button>
-          <button class="filter-tab" type="button" data-filter="active">进行中</button>
-          <button class="filter-tab" type="button" data-filter="completed">已完成</button>
-        </div>
-
-        <div id="jobList" class="task-list" aria-live="polite"></div>
-
-        <div class="queue-summary">
-          <span><i id="workerDot"></i>单 GPU 队列</span>
-          <strong id="queueSummary">--</strong>
+        <div class="rail-footer">
+          <div class="queue-indicator"><i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong></div>
+          <p>项目成员共享台本、声音和生成记录。每次生成都会保存来源快照。</p>
         </div>
       </aside>
 
-      <main class="main-stage">
-        <section id="workspaceView" class="view active" aria-label="任务详情" aria-hidden="false">
-          <article id="jobDetail" class="job-detail">
-            <div class="stage-empty">
-              <span class="empty-number">00</span>
-              <h2>选择一条生成记录</h2>
-              <p>完整台本、发音标记与逐段音频将在这里展示。</p>
-            </div>
-          </article>
+      <main id="workspaceMain" class="workspace-main">
+        <section id="emptyWorkspace" class="empty-workspace" hidden>
+          <div class="empty-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+          <span class="eyebrow">START WITH A PROJECT</span>
+          <h1>先建立一个项目工作站。</h1>
+          <p>项目会成为台本、声音和所有生成尝试的共享边界。创建后可以随时邀请团队成员。</p>
+          <button class="button button-primary" type="button" data-action="open-project-dialog">创建第一个项目 <span aria-hidden="true">→</span></button>
         </section>
 
-        <section id="libraryView" class="view library-view" aria-label="声音库设置" aria-hidden="true">
-          <header class="library-header">
-            <div>
-              <span class="section-kicker">VOICE SOURCES</span>
-              <h2>声音库设置</h2>
-            </div>
-          </header>
-
-          <div class="library-workspace">
-            <aside class="voice-browser">
-              <div class="voice-browser-title">
-                <div class="voice-browser-label">
-                  <strong>全部声音</strong>
-                  <span id="voiceCount">0</span>
-                </div>
-                <button id="createVoice" class="voice-browser-create" type="button" title="创建声音库" aria-label="创建声音库"><span aria-hidden="true">+</span></button>
-              </div>
-              <div class="voice-browser-search">
-                <label class="asset-search" for="voiceSearch">
-                  <span aria-hidden="true">⌕</span>
-                  <input id="voiceSearch" type="search" autocomplete="off" placeholder="搜索声音库" aria-label="搜索声音库">
-                </label>
-              </div>
-              <div id="voiceList" class="voice-list" aria-live="polite"></div>
-            </aside>
-            <article id="voiceDetail" class="voice-detail">
-              <div class="stage-empty compact">
-                <span class="empty-number">音频</span>
-                <h2>选择一个声音库</h2>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section id="scriptLibraryView" class="view library-view script-library-view" aria-label="台本库" aria-hidden="true">
-          <header class="library-header">
-            <div>
-              <span class="section-kicker">SCRIPT ASSETS</span>
-              <h2>台本库</h2>
-            </div>
-          </header>
-
-          <div class="library-workspace">
-            <aside class="voice-browser script-browser">
-              <div class="voice-browser-title">
-                <div class="voice-browser-label">
-                  <strong>全部台本</strong>
-                  <span id="scriptCount">0</span>
-                </div>
-                <button id="createScript" class="voice-browser-create" type="button" title="上传台本" aria-label="上传台本"><span aria-hidden="true">+</span></button>
-              </div>
-              <div class="voice-browser-search">
-                <label class="asset-search" for="scriptSearch">
-                  <span aria-hidden="true">⌕</span>
-                  <input id="scriptSearch" type="search" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本">
-                </label>
-              </div>
-              <div id="scriptList" class="voice-list script-list" aria-live="polite"></div>
-            </aside>
-            <article id="scriptDetail" class="voice-detail script-detail">
-              <div class="stage-empty compact">
-                <span class="empty-number">台本</span>
-                <h2>选择一份台本</h2>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section id="projectView" class="view project-view" aria-label="项目与成员" aria-hidden="true">
-          <div class="project-page">
-            <header class="project-hero">
-              <div>
-                <span class="section-kicker">SHARED WORKSPACE</span>
-                <h2 id="currentProjectName">项目空间</h2>
-                <p id="currentProjectDescription">团队成员共享这里的台本、声音库与生成结果。</p>
-              </div>
-              <div class="project-actions">
-                <button id="leaveProject" class="quiet-button leave-button" type="button" hidden>退出项目</button>
-                <button id="createProject" class="primary-button" type="button">创建新项目</button>
-              </div>
-            </header>
-
-            <div id="emptyProjectState" class="project-onboarding" hidden>
-              <span>你的第一个空间</span>
-              <h3>先创建一个项目，再开始协作。</h3>
-              <p>项目把成员、台本、参考录音和结果放在同一个边界里。</p>
-            </div>
-
-            <div id="projectContent" class="project-content">
-              <section class="project-metrics" aria-label="项目统计">
-                <article><span>成员</span><strong id="projectMemberCount">0</strong><small>共同维护</small></article>
-                <article><span>声音库</span><strong id="projectVoiceCount">0</strong><small>参考录音</small></article>
-                <article><span>台本</span><strong id="projectScriptCount">0</strong><small>项目资产</small></article>
-                <article><span>任务</span><strong id="projectJobCount">0</strong><small>生成记录</small></article>
-              </section>
-
-              <div class="project-columns">
-                <section class="collab-card project-list-card">
-                  <header><div><span class="section-kicker">YOUR PROJECTS</span><h3>我的项目</h3></div></header>
-                  <div id="projectGrid" class="project-grid"></div>
-                </section>
-
-                <section class="collab-card members-card">
-                  <header><div><span class="section-kicker">PEOPLE</span><h3>项目成员</h3></div></header>
-                  <div id="memberList" class="member-list"></div>
-                  <form id="memberAddForm" class="member-add-form">
-                    <div>
-                      <label for="memberUsername">添加已有账户</label>
-                      <div><input id="memberUsername" autocomplete="off" placeholder="输入准确用户名" required><button class="primary-button" type="submit">添加成员</button></div>
-                      <small>添加后立即加入项目；账户不存在时，请先联系系统管理员创建。</small>
-                    </div>
-                  </form>
-                </section>
-              </div>
-
-            </div>
-          </div>
-        </section>
+        <div id="workspaceGrid" hidden>
+          <section id="overviewView" class="workspace-view" data-view-panel="overview" aria-label="项目概览">
+            <div id="overviewContent"></div>
+          </section>
+          <section id="scriptView" class="workspace-view" data-view-panel="script" aria-label="项目台本" hidden>
+            <div id="scriptContent"></div>
+          </section>
+          <section id="voiceView" class="workspace-view" data-view-panel="voice" aria-label="项目声音" hidden>
+            <div id="voiceContent"></div>
+          </section>
+          <section id="generationView" class="workspace-view" data-view-panel="generation" aria-label="生成与审核" hidden>
+            <div id="generationContent"></div>
+          </section>
+          <section id="projectView" class="workspace-view" data-view-panel="project" aria-label="项目设置" hidden>
+            <div id="projectContent"></div>
+          </section>
+        </div>
       </main>
     </div>
   </div>
 
-  <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
-  <aside id="createDrawer" class="create-drawer" hidden aria-hidden="true" aria-label="新建生成任务">
-    <header class="drawer-header">
-      <div>
-        <span class="section-kicker">NEW GENERATION</span>
-        <h2>新建生成</h2>
-      </div>
-      <button id="closeCreate" class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
-    </header>
-
-    <form id="jobForm" class="drawer-form">
-      <div class="form-section">
-        <label class="field-label" for="taskName">任务名称 <small>可选</small></label>
-        <input id="taskName" name="name" type="text" maxlength="80" placeholder="默认使用台本名称">
-      </div>
-
-      <fieldset class="form-section">
-        <legend>台本与声音</legend>
-        <label class="field-label" for="scriptSelect">已配置台本</label>
-        <select id="scriptSelect" name="script_id" required></select>
-        <div id="scriptVoiceSummary" class="configured-asset missing">
-          <span>已绑定声音</span>
-          <strong id="boundVoiceName">尚未选择台本</strong>
-          <small id="boundVoiceNote">声音由台本库预先配置</small>
-        </div>
-        <button id="drawerScriptLibraryLink" class="text-button" type="button">管理台本库</button>
-      </fieldset>
-
-      <fieldset class="form-section">
-        <legend>生成选项</legend>
-        <div class="two-columns compact-fields">
-          <div>
-            <label class="field-label" for="referenceEmotionSelect">参考语气</label>
-            <select id="referenceEmotionSelect" name="reference_emotion"></select>
-          </div>
-          <div>
-            <label class="field-label" for="candidateCount">每句候选</label>
-            <select id="candidateCount" name="candidate_count">
-              <option value="2" selected>2 个</option>
-              <option value="3">3 个</option>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset class="form-section">
-        <label class="field-label" for="modelSelect">模型 / 预设</label>
-        <select id="modelSelect" name="model_id" required></select>
-        <small id="modelDescription" class="field-note"></small>
-        <div class="model-compare-field">
-          <span class="field-label">同时对比其他模型 <small>可选，最多 3 个</small></span>
-          <div id="modelCompareList" class="model-compare-list" role="group" aria-label="同时对比其他模型"></div>
-          <small id="modelCompareHint" class="field-note">其他模型采用各自预设，并与主模型共享候选种子。</small>
-        </div>
-        <div class="generation-mode-tabs" role="group" aria-label="生成参数模式">
-          <button class="active" type="button" data-generation-mode="simple" aria-pressed="true">小白模式</button>
-          <button type="button" data-generation-mode="advanced" aria-pressed="false">高级模式</button>
-        </div>
-        <div class="create-generation-controls">
-          <label for="createTemperature"><span>表现变化</span><output id="createTemperatureValue">0.8</output><input id="createTemperature" type="range" min="0.1" max="1.5" step="0.01"></label>
-          <label for="createSpeed"><span>生成语速</span><output id="createSpeedValue">1.0</output><input id="createSpeed" type="range" min="0.65" max="1.5" step="0.01"></label>
-          <label class="seed-field" for="createBaseSeed"><span>基准随机种子</span><input id="createBaseSeed" type="number" min="0" max="2147483640" placeholder="留空则随机"><small>多模型对比时，留空也会自动共享同一组种子</small></label>
-        </div>
-        <div id="createAdvancedSettings" class="create-generation-controls advanced" hidden>
-          <label for="createTopK"><span>候选词范围</span><output id="createTopKValue">15</output><input id="createTopK" type="range" min="1" max="100" step="1"></label>
-          <label for="createTopP"><span>累计概率范围</span><output id="createTopPValue">0.9</output><input id="createTopP" type="range" min="0.1" max="1" step="0.01"></label>
-          <label for="createPenalty"><span>重复抑制</span><output id="createPenaltyValue">1.25</output><input id="createPenalty" type="range" min="1" max="2" step="0.01"></label>
-        </div>
-        <p id="modelOutputNote" class="clone-output-note">直接输出模型原音，不进行降噪、变调、EQ、压缩、混响或响度处理。</p>
-      </fieldset>
-
-      <div class="drawer-spacer"></div>
-      <div class="submit-summary">
-        <span>任务将进入单 GPU 队列</span>
-        <strong id="estimatedSubmit">等待时间将在提交后计算</strong>
-      </div>
-      <button id="submitJob" class="submit-button" type="submit">
-        <span>加入生成队列</span>
-      </button>
-    </form>
-  </aside>
-
-  <dialog id="renameDialog" class="modal">
-    <form id="renameForm" method="dialog">
-      <header>
-        <div>
-          <span class="section-kicker">RENAME</span>
-          <h2>重命名任务</h2>
-        </div>
-        <button class="icon-button" type="button" data-close-dialog="renameDialog" title="关闭" aria-label="关闭">×</button>
-      </header>
-      <label class="field-label" for="renameInput">任务名称</label>
-      <input id="renameInput" name="name" type="text" maxlength="80" required>
-      <div class="modal-actions">
-        <button class="quiet-button" type="button" data-close-dialog="renameDialog">取消</button>
-        <button class="primary-button" type="submit">保存</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="voiceDialog" class="modal voice-modal">
-    <form id="voiceCreateForm" method="dialog">
-      <header>
-        <div>
-          <span class="section-kicker">NEW VOICE SOURCE</span>
-          <h2>创建声音库</h2>
-        </div>
-        <button class="icon-button" type="button" data-close-dialog="voiceDialog" title="关闭" aria-label="关闭">×</button>
-      </header>
-      <label class="field-label" for="voiceName">声音库名称</label>
-      <input id="voiceName" name="name" type="text" maxlength="80" required>
-      <label class="field-label" for="voiceNotes">备注</label>
-      <textarea id="voiceNotes" name="notes" rows="3" maxlength="500" placeholder="录音者、音色或录制环境"></textarea>
-      <div id="voiceDropZone" class="voice-drop-zone" tabindex="0" role="button" aria-describedby="voiceUploadHint">
-        <div class="voice-drop-icon" aria-hidden="true">↥</div>
-        <strong>拖入音频文件或文件夹</strong>
-        <span>也可以直接粘贴剪贴板中的音频</span>
-        <div class="voice-upload-actions">
-          <label class="secondary-button voice-upload-choice" for="voiceFiles">选择文件</label>
-          <label class="secondary-button voice-upload-choice" for="voiceFolder">选择文件夹</label>
-          <button id="voicePasteButton" class="quiet-button voice-upload-choice" type="button">从剪贴板粘贴</button>
-        </div>
-        <input id="voiceFiles" name="files" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" multiple>
-        <input id="voiceFolder" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" webkitdirectory directory multiple>
-      </div>
-      <div class="voice-upload-summary">
-        <span id="voiceFileName">尚未选择录音</span>
-        <small id="voiceUploadHint">支持 WAV、MP3、M4A、AAC、FLAC、OGG、OPUS，可重复添加多个文件</small>
-      </div>
-      <ul id="voiceSelectedFiles" class="voice-selected-files" aria-live="polite">
-        <li class="voice-selected-empty">还没有添加音频</li>
-      </ul>
-      <p id="voiceFileError" class="voice-file-error" role="alert" hidden></p>
-      <div class="modal-actions">
-        <button class="quiet-button" type="button" data-close-dialog="voiceDialog">取消</button>
-        <button id="submitVoice" class="primary-button" type="submit">创建</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="scriptDialog" class="modal script-modal">
-    <form id="scriptCreateForm" method="dialog">
-      <header>
-        <div>
-          <span class="section-kicker">NEW SCRIPT ASSET</span>
-          <h2>上传台本</h2>
-        </div>
-        <button class="icon-button" type="button" data-close-dialog="scriptDialog" title="关闭" aria-label="关闭">×</button>
-      </header>
-      <label class="field-label" for="scriptVoice">使用声音</label>
-      <select id="scriptVoice" name="default_voice_id" required></select>
-      <label class="upload-field" for="scriptUploadFile">
-        <span id="scriptUploadFileName">选择台本文件</span>
-        <small>TXT / MD / CSV / DOCX</small>
-      </label>
-      <input id="scriptUploadFile" name="file" type="file" accept=".txt,.md,.csv,.docx" required>
-      <div class="script-template-links">
-        <a class="template-link" href="/assets/templates/script-template.txt" download>下载 TXT 格式模板</a>
-        <a class="template-link" href="/assets/templates/pronunciation-guide.md" download>下载发音标记说明</a>
-      </div>
-      <div class="modal-actions">
-        <button class="quiet-button" type="button" data-close-dialog="scriptDialog">取消</button>
-        <button id="submitScript" class="primary-button" type="submit">上传并保存</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="candidateRegenerateDialog" class="modal candidate-modal">
-    <form id="candidateRegenerateForm" method="dialog">
-      <header>
-        <div>
-          <span class="section-kicker">NEW TAKE</span>
-          <h2>单句重做</h2>
-        </div>
-        <button class="icon-button" type="button" data-close-dialog="candidateRegenerateDialog" title="关闭" aria-label="关闭">×</button>
-      </header>
-      <div class="candidate-source-line"><span>参考候选</span><strong id="candidateSource">当前采用候选</strong></div>
-      <div class="candidate-edit-grid">
-        <label class="wide" for="candidateText">
-          <span class="field-label">正常台词</span>
-          <textarea id="candidateText" rows="2" maxlength="1000" required></textarea>
-        </label>
-        <label class="wide" for="candidatePronunciation">
-          <span class="field-label">发音标记</span>
-          <textarea id="candidatePronunciation" rows="2" maxlength="1000" required></textarea>
-        </label>
-        <label for="candidateDirection">
-          <span class="field-label">尾音方向</span>
-          <select id="candidateDirection">
-            <option value="auto">跟随发音标记</option>
-            <option value="flat">平稳</option>
-            <option value="rise">上扬</option>
-            <option value="fall">下沉</option>
-          </select>
-        </label>
-        <label for="candidateName">
-          <span class="field-label">候选名称</span>
-          <input id="candidateName" type="text" maxlength="80">
-        </label>
-      </div>
-      <section class="generation-take-controls">
-        <label for="candidateTemperature"><span>表现变化</span><output id="candidateTemperatureValue">0.8</output><input id="candidateTemperature" type="range" min="0.1" max="1.5" step="0.01"></label>
-        <label for="candidateSpeed"><span>生成语速</span><output id="candidateSpeedValue">1.0</output><input id="candidateSpeed" type="range" min="0.65" max="1.5" step="0.01"></label>
-      </section>
-      <details class="candidate-advanced">
-        <summary>高级生成参数</summary>
-        <div class="candidate-edit-grid advanced-generation-grid">
-          <label for="candidateTopK"><span class="field-label">候选词范围</span><input id="candidateTopK" type="range" min="1" max="100" step="1"><output id="candidateTopKValue">15</output></label>
-          <label for="candidateTopP"><span class="field-label">累计概率范围</span><input id="candidateTopP" type="range" min="0.1" max="1" step="0.01"><output id="candidateTopPValue">0.9</output></label>
-          <label for="candidatePenalty"><span class="field-label">重复抑制</span><input id="candidatePenalty" type="range" min="1" max="2" step="0.01"><output id="candidatePenaltyValue">1.25</output></label>
-          <label for="candidateSeed"><span class="field-label">随机种子</span><input id="candidateSeed" type="number" min="0" max="2147483647" placeholder="自动随机"></label>
-          <label class="seed-lock" for="candidateLockSeed"><span class="field-label">A/B 可复现</span><span><input id="candidateLockSeed" type="checkbox" checked> 锁定参考候选种子</span></label>
-        </div>
-      </details>
-      <div class="modal-actions">
-        <button class="quiet-button" type="button" data-close-dialog="candidateRegenerateDialog">取消</button>
-        <button class="primary-button" type="submit">加入生成队列</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="projectDialog" class="modal project-modal">
-    <form id="projectCreateForm" method="dialog">
-      <header>
-        <div><span class="section-kicker">NEW PROJECT</span><h2>创建项目</h2></div>
-        <button class="icon-button" type="button" data-close-dialog="projectDialog" aria-label="关闭">×</button>
-      </header>
-      <label class="field-label" for="projectName">项目名称</label>
-      <input id="projectName" maxlength="80" required placeholder="例如：星港电台 · 第一季">
-      <label class="field-label" for="projectDescription">项目说明</label>
-      <textarea id="projectDescription" maxlength="500" rows="3" placeholder="角色、交付目标或协作说明"></textarea>
-      <div class="modal-actions">
-        <button class="quiet-button" type="button" data-close-dialog="projectDialog">取消</button>
-        <button class="primary-button" type="submit">创建并进入</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="passwordDialog" class="modal password-modal">
-    <form id="passwordForm" method="dialog">
-      <header>
-        <div><span class="section-kicker">ACCOUNT SECURITY</span><h2>修改登录密码</h2></div>
-        <button class="icon-button" type="button" data-close-dialog="passwordDialog" aria-label="关闭">×</button>
-      </header>
-      <p class="modal-copy">首次登录或管理员重置密码后，请设置仅你自己知道的新密码。</p>
-      <label class="field-label" for="currentPassword">当前密码</label>
-      <input id="currentPassword" type="password" autocomplete="current-password" maxlength="128" required>
-      <label class="field-label" for="newPassword">新密码</label>
-      <input id="newPassword" type="password" autocomplete="new-password" maxlength="128" required>
-      <p id="passwordMessage" class="form-error"></p>
-      <div class="modal-actions">
-        <button class="primary-button" type="submit">保存新密码</button>
-      </div>
-    </form>
-  </dialog>
-
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/assets/js/app.js?v=20260824.2"></script>
+
+  <dialog id="projectDialog" class="modal-dialog">
+    <form id="projectCreateForm" method="dialog">
+      <header class="dialog-header"><div><span class="eyebrow">NEW PROJECT</span><h2>创建项目工作站</h2></div><button class="icon-button" type="button" data-close-dialog="projectDialog" title="关闭" aria-label="关闭">×</button></header>
+      <p class="dialog-intro">项目创建后，你会自动成为项目管理员；邀请成员后沿用同一条台本到音频流程。</p>
+      <label class="field"><span>项目名称</span><input id="projectName" name="name" maxlength="80" required placeholder="例如：第一章 · 试录"></label>
+      <label class="field"><span>项目说明 <em>可选</em></span><textarea id="projectDescription" name="description" maxlength="500" rows="3" placeholder="说明项目目标、负责人或交付范围"></textarea></label>
+      <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="projectDialog">取消</button><button class="button button-primary" type="submit">创建项目</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="scriptDialog" class="modal-dialog">
+    <form id="scriptCreateForm" method="dialog" enctype="multipart/form-data">
+      <header class="dialog-header"><div><span class="eyebrow">SCRIPT SOURCE</span><h2>导入台本</h2></div><button class="icon-button" type="button" data-close-dialog="scriptDialog" title="关闭" aria-label="关闭">×</button></header>
+      <p class="dialog-intro">上传后台本会进入当前项目，成员可以继续编辑。声音映射可以在台本页面设置。</p>
+      <label class="upload-drop" for="scriptUploadFile"><span class="upload-glyph">↑</span><strong id="scriptUploadFileName">选择台本文件</strong><small>支持 TXT、MD、CSV、DOCX</small></label>
+      <input id="scriptUploadFile" name="file" type="file" accept=".txt,.md,.csv,.docx" required>
+      <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="scriptDialog">取消</button><button class="button button-primary" type="submit">导入台本</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="voiceDialog" class="modal-dialog">
+    <form id="voiceCreateForm" method="dialog" enctype="multipart/form-data">
+      <header class="dialog-header"><div><span class="eyebrow">VOICE SOURCE</span><h2>创建声音</h2></div><button class="icon-button" type="button" data-close-dialog="voiceDialog" title="关闭" aria-label="关闭">×</button></header>
+      <p class="dialog-intro">声音属于项目共享资产。请上传至少一条参考录音，后续可以继续追加并按语气维护。</p>
+      <label class="field"><span>声音名称</span><input id="voiceName" name="name" maxlength="80" required placeholder="例如：旁白 · 平静"></label>
+      <label class="field"><span>说明 <em>可选</em></span><textarea id="voiceNotes" name="notes" maxlength="500" rows="2" placeholder="录音者、音色或使用场景"></textarea></label>
+      <label class="upload-drop" for="voiceFiles"><span class="upload-glyph">♪</span><strong id="voiceFileName">选择参考录音</strong><small>支持 WAV、MP3、M4A、AAC、FLAC、OGG、OPUS，可多选</small></label>
+      <input id="voiceFiles" name="files" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus" multiple required>
+      <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="voiceDialog">取消</button><button class="button button-primary" type="submit">创建声音</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="passwordDialog" class="modal-dialog compact-dialog">
+    <form id="passwordForm" method="dialog">
+      <header class="dialog-header"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2>设置新密码</h2></div></header>
+      <p class="dialog-intro">这是账户首次登录，请先设置一个新的登录密码。</p>
+      <label class="field"><span>当前密码</span><input id="currentPassword" type="password" autocomplete="current-password" required></label>
+      <label class="field"><span>新密码</span><input id="newPassword" type="password" autocomplete="new-password" required minlength="1"></label>
+      <p id="passwordMessage" class="form-error"></p>
+      <footer class="dialog-actions"><button class="button button-primary" type="submit">更新密码</button></footer>
+    </form>
+  </dialog>
+
+  <script type="module" src="/assets/js/app.js?v=20260825.4"></script>
 </body>
 </html>
