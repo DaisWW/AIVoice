@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260825.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260825.3">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260825.5">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
@@ -49,11 +49,9 @@
       </div>
 
       <nav id="workflowNav" class="workflow-nav" aria-label="项目流程">
-        <button class="workflow-link active" type="button" data-view="overview"><span class="step-index">01</span><span>概览</span></button>
-        <button class="workflow-link" type="button" data-view="script"><span class="step-index">02</span><span>台本</span></button>
-        <button class="workflow-link" type="button" data-view="voice"><span class="step-index">03</span><span>声音</span></button>
-        <button class="workflow-link" type="button" data-view="generation"><span class="step-index">04</span><span>生成与审核</span></button>
-        <button class="workflow-link" type="button" data-view="project"><span class="step-index">05</span><span>项目设置</span></button>
+        <button class="workflow-link active" type="button" data-view="script"><span class="step-index">01</span><span>台本</span></button>
+        <button class="workflow-link" type="button" data-view="voice"><span class="step-index">02</span><span>声音</span></button>
+        <button class="workflow-link" type="button" data-view="project"><span class="step-index">03</span><span>项目设置</span></button>
       </nav>
 
       <div class="identity-block">
@@ -72,15 +70,13 @@
           <span id="railProjectRole" class="role-chip">--</span>
         </div>
         <div class="rail-nav" aria-label="项目流程导航">
-          <button type="button" data-view="overview"><span>概览</span><small>项目状态与最近活动</small></button>
-          <button type="button" data-view="script"><span>台本</span><small>编辑台词与发音</small></button>
+          <button class="active" type="button" data-view="script"><span>台本</span><small>编辑台词、发音并生成</small></button>
           <button type="button" data-view="voice"><span>声音</span><small>维护参考录音</small></button>
-          <button type="button" data-view="generation"><span>生成与审核</span><small>尝试、比较、采用</small></button>
           <button type="button" data-view="project"><span>项目设置</span><small>成员与管理员权限</small></button>
         </div>
         <div class="rail-footer">
           <div class="queue-indicator"><i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong></div>
-          <p>项目成员共享台本、声音和生成记录。每次生成都会保存来源快照。</p>
+          <p>选中台本后即可编辑台词、选择声音并加入生成队列。</p>
         </div>
       </aside>
 
@@ -94,17 +90,11 @@
         </section>
 
         <div id="workspaceGrid" hidden>
-          <section id="overviewView" class="workspace-view" data-view-panel="overview" aria-label="项目概览">
-            <div id="overviewContent"></div>
-          </section>
-          <section id="scriptView" class="workspace-view" data-view-panel="script" aria-label="项目台本" hidden>
+          <section id="scriptView" class="workspace-view" data-view-panel="script" aria-label="项目台本">
             <div id="scriptContent"></div>
           </section>
           <section id="voiceView" class="workspace-view" data-view-panel="voice" aria-label="项目声音" hidden>
             <div id="voiceContent"></div>
-          </section>
-          <section id="generationView" class="workspace-view" data-view-panel="generation" aria-label="生成与审核" hidden>
-            <div id="generationContent"></div>
           </section>
           <section id="projectView" class="workspace-view" data-view-panel="project" aria-label="项目设置" hidden>
             <div id="projectContent"></div>
@@ -159,6 +149,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260825.4"></script>
+  <script type="module" src="/assets/js/app.js?v=20260825.5"></script>
 </body>
 </html>

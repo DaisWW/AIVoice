@@ -471,6 +471,62 @@ def test_create_job_applies_custom_settings_and_reproducible_seed_sequence(
     )
 
 
+def test_create_job_can_generate_one_script_line(app_client) -> None:
+    client, _ = app_client
+    voice = _create_voice(client, "single line voice")
+    script = _create_script(
+        client,
+        "single-line.txt",
+        "第一句 | mo-la\n第二句 | gu-na\n",
+    )
+
+    whole_script = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 1,
+        },
+    )
+
+    assert whole_script.status_code == 201
+    whole_job = wait_for_job(client, whole_script.json()["job"]["id"])
+    assert whole_job["total_items"] == 2
+    assert all(len(item["candidates"]) == 1 for item in whole_job["items"])
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 1,
+            "line_number": 2,
+        },
+    )
+
+    assert response.status_code == 201
+    job = wait_for_job(client, response.json()["job"]["id"])
+    assert job["total_items"] == 1
+    assert job["items"][0]["sequence"] == 2
+    assert len(job["items"][0]["candidates"]) == 1
+    assert job["items"][0]["accepted_candidate_id"]
+
+    invalid = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 1,
+            "line_number": 3,
+        },
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "台本中没有第 3 行"
+
+
 def test_create_jobs_compare_models_with_shared_seeds_and_model_defaults(
     settings_factory,
 ) -> None:

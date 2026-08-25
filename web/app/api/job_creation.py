@@ -31,6 +31,7 @@ class JobCreationService:
         script_id: str,
         name: str,
         candidate_count: int,
+        line_number: int | None,
         reference_emotion: str,
         generation_settings_json: str,
         base_seed: int | None,
@@ -45,6 +46,7 @@ class JobCreationService:
         selected_script = self._script(script_id)
         self._validate_voices(voice_ids, emotion)
         items = ScriptStorage(self._services).load_items(selected_script)
+        items = self._select_items(items, line_number)
         self._validate_seed(base_seed, len(items) * candidate_count)
         effective_seed = self._shared_seed(
             base_seed,
@@ -126,8 +128,8 @@ class JobCreationService:
     ) -> None:
         if len(name.strip()) > 80:
             raise HTTPException(status_code=422, detail="任务名称不能超过 80 个字符")
-        if candidate_count not in {2, 3}:
-            raise HTTPException(status_code=422, detail="每句候选数量只能选择 2 或 3")
+        if candidate_count not in {1, 2, 3}:
+            raise HTTPException(status_code=422, detail="每句候选数量只能选择 1、2 或 3")
         for model_id in model_ids:
             self._validate_model(model_id)
 
@@ -167,6 +169,19 @@ class JobCreationService:
         if not script or str(script.get("project_id") or "") != self._project_id:
             raise HTTPException(status_code=404, detail="找不到台本")
         return script
+
+    @staticmethod
+    def _select_items(
+        items: list[ScriptItem], line_number: int | None
+    ) -> list[ScriptItem]:
+        if line_number is None:
+            return items
+        if line_number < 1:
+            raise HTTPException(status_code=422, detail="行号必须从 1 开始")
+        selected = [item for item in items if item.order == line_number]
+        if not selected:
+            raise HTTPException(status_code=422, detail=f"台本中没有第 {line_number} 行")
+        return selected
 
     def _settings(self, model_id: str, value: str) -> dict[str, float | int]:
         try:

@@ -13,7 +13,7 @@ const first = (value) => String(value || "").trim().slice(0, 1).toUpperCase() ||
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedJobId: null, scriptSearchQuery: "" };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.requestVersion = 0;
     this.toastTimer = null;
@@ -83,13 +83,23 @@ class WorkstationApp {
       this.state.scripts = scriptsResult.scripts;
       this.state.voices = voicesResult.voices;
       this.state.jobs = jobsResult.jobs;
-      if (previousProjectId !== id) this.state.scriptSearchQuery = "";
+      if (previousProjectId !== id) {
+        this.state.scriptSearchQuery = "";
+        this.state.voiceSearchQuery = "";
+        this.state.scriptDetail = null;
+        this.state.voiceDetail = null;
+        this.state.jobDetails = {};
+      }
       this.state.selectedScriptId = this.state.scripts.some((item) => item.id === this.state.selectedScriptId) ? this.state.selectedScriptId : this.state.scripts[0]?.id || null;
-      this.state.selectedVoiceId = this.state.voices.some((item) => item.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : this.state.voices[0]?.id || null;
-      this.state.selectedJobId = this.state.jobs.some((item) => item.id === this.state.selectedJobId) ? this.state.selectedJobId : this.state.jobs[0]?.id || null;
+      const usableVoices = this.state.voices.filter((item) => item.enabled_file_count);
+      this.state.selectedVoiceId = usableVoices.some((item) => item.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : usableVoices[0]?.id || this.state.voices[0]?.id || null;
+      const models = this.state.config.models.filter((model) => model.available === true);
+      this.state.selectedModelId = models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0]?.id || null;
       this.storeProjectId(id);
       this.renderProjectSelect();
       this.render();
+      this.showView("script");
+      for (const job of this.state.jobs.filter((item) => item.script_id === this.state.selectedScriptId).slice(0, 12)) void this.loadJobDetail(job.id);
       byId("workspaceMain").scrollTop = 0;
       if (!initial) this.toast("已切换项目");
     } catch (error) { this.toast(error.message, true); }
@@ -107,13 +117,12 @@ class WorkstationApp {
     byId("workspaceGrid").hidden = !project;
     byId("railProjectName").textContent = project?.name || "尚未选择项目";
     byId("railProjectRole").textContent = project ? roleLabel(project.project_role) : "--";
-    byId("queueSummary").textContent = this.state.jobs.some((job) => ["queued", "running"].includes(job.status)) ? "处理中" : "空闲";
+    const activeJobs = this.state.jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
+    byId("queueSummary").textContent = activeJobs ? `${activeJobs} 个处理中` : "空闲";
     byId("workerDot").className = this.state.jobs.some((job) => job.status === "running") ? "online" : "";
     if (!project) return;
-    this.renderOverview();
     this.renderScript();
     this.renderVoice();
-    this.renderGeneration();
     this.renderProject();
   }
 
@@ -123,27 +132,16 @@ class WorkstationApp {
     byId("workspaceMain").scrollTop = 0;
   }
 
-  renderOverview() {
-    const project = this.state.project;
-    const active = this.state.jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
-    const activity = this.state.jobs.slice(0, 5).map((job) => `<div class="activity-row"><i class="activity-dot ${escapeHtml(job.status)}"></i><div class="activity-main"><strong>${escapeHtml(job.name)}</strong><small>${escapeHtml(job.script_name)} · ${escapeHtml(statusLabel(job.status))}</small></div><time class="activity-time">${formatDate(job.submitted_at)}</time></div>`).join("") || '<p class="empty-list">还没有生成记录。选择台本、声音和模型后可以创建首个生成任务。</p>';
-    byId("overviewContent").innerHTML = `
-      <div class="view-header"><div><span class="eyebrow">PROJECT OVERVIEW</span><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.description || "为项目补充目标和交付说明。")}</p></div><button class="button button-primary" type="button" data-action="view" data-view-target="generation">创建生成任务</button></div>
-      <div class="metrics-grid"><div class="metric"><span>台本</span><strong>${this.state.scripts.length}</strong><small>可编辑台词</small></div><div class="metric"><span>声音</span><strong>${this.state.voices.length}</strong><small>共享参考音</small></div><div class="metric"><span>生成任务</span><strong>${this.state.jobs.length}</strong><small>${active ? `${active} 个处理中` : "队列空闲"}</small></div><div class="metric"><span>项目成员</span><strong>${project.member_count}</strong><small>${roleLabel(project.project_role)}</small></div></div>
-      <div class="workflow-strip">${[["01", "台本", this.state.scripts.length, "script"], ["02", "声音", this.state.voices.length, "voice"], ["03", "任务", this.state.jobs.length, "generation"], ["04", "导出", this.state.jobs.filter((job) => job.status === "completed").length, "generation"]].map(([index, name, count, view]) => `<button class="workflow-stage${count ? " active" : ""}" type="button" data-action="view" data-view-target="${view}"><div class="workflow-stage-top"><span class="workflow-stage-index">${index}</span><span>${count ? "已就绪" : "待处理"}</span></div><strong>${name}</strong><b>${count}</b></button>`).join("")}</div>
-      <div class="content-grid"><section class="work-section"><header class="section-heading"><div><h2>最近生成</h2><p>任务状态与候选采用记录</p></div><button class="button button-quiet button-small" type="button" data-action="refresh">刷新</button></header><div class="activity-list">${activity}</div></section><section class="work-section"><header class="section-heading"><div><h2>下一步</h2><p>保持资产和生成链路在同一项目中</p></div></header><div class="quick-links"><button class="quick-link" type="button" data-action="view" data-view-target="script"><span>导入或编辑台本</span><span>→</span></button><button class="quick-link" type="button" data-action="view" data-view-target="voice"><span>维护声音参考录音</span><span>→</span></button><button class="quick-link" type="button" data-action="view" data-view-target="project"><span>邀请项目成员</span><span>→</span></button></div></section></div>`;
-  }
-
   renderScript(options = {}) {
     const focus = options.focusScriptId
       ? { type: "script", id: options.focusScriptId }
       : this.captureScriptFocus();
     const selected = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const query = String(this.state.scriptSearchQuery || "").trim().toLowerCase();
-    const scripts = query ? this.state.scripts.filter((script) => String(script.name || "").toLowerCase().includes(query)) : this.state.scripts;
+    const scripts = query ? this.state.scripts.filter((script) => String(script.search_text || `${script.name} ${script.original_name}`).toLowerCase().includes(query)) : this.state.scripts;
     const list = scripts.map((script) => `<button class="asset-row${script.id === selected?.id ? " active" : ""}" type="button" data-action="select-script" data-id="${escapeHtml(script.id)}" aria-current="${script.id === selected?.id}"><span class="asset-icon">T</span><span class="asset-copy"><strong>${escapeHtml(script.name)}</strong><small>${script.item_count} 行 · ${formatDate(script.created_at)}</small></span><span class="asset-status">台词</span></button>`).join("") || (query && this.state.scripts.length ? '<p class="empty-list">没有匹配的台本</p>' : '<p class="empty-list">尚未导入台本</p>');
     const detail = selected ? this.scriptDetail(selected) : '<div class="empty-panel"><div><strong>选择或导入一个台本</strong>上传后可编辑每行台词和发音。</div></div>';
-    byId("scriptContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">SCRIPT LIBRARY</span><h1>台本与发言</h1><p>台本只保存原始台词、发音和发言顺序；声音在生成时选择。</p></div><button class="button button-primary" type="button" data-action="open-script">导入台本</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个资产</small></div></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    byId("scriptContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">SCRIPT WORKSTATION</span><h1>台本</h1><p>选中台本后，直接编辑台词和发音，选择声音并生成音频。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">添加</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
     this.restoreScriptFocus(focus);
     if (selected) void this.loadScriptDetail(selected.id);
   }
@@ -179,15 +177,60 @@ class WorkstationApp {
   scriptDetail(script) {
     const detail = this.state.scriptDetail?.id === script.id ? this.state.scriptDetail : null;
     if (!detail) return '<div class="empty-panel">正在读取台本...</div>';
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出 CSV</a><button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><form id="scriptSettingsForm" class="detail-form"><label class="field wide"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-primary" type="submit">保存台本名称</button></div></form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都会作为独立生成单元保存。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${detail.items.map((item, index) => `<div class="script-line" data-script-item><span class="line-number">${String(index + 1).padStart(2, "0")}</span><div class="line-fields"><label><span>台词</span><textarea name="text" maxlength="2000">${escapeHtml(item.text)}</textarea></label><label><span>发音</span><textarea name="pronunciation" maxlength="2000">${escapeHtml(item.pronunciation)}</textarea></label></div></div>`).join("")}</div></form></div>`;
+    const models = this.state.config.models.filter((model) => model.available === true);
+    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
+    const voiceId = voices.some((voice) => voice.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0]?.id || "";
+    const modelId = models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0]?.id || "";
+    const canGenerate = Boolean(voiceId && modelId && detail.items.length);
+    const voiceOptions = voices.map((voice) => `<option value="${escapeHtml(voice.id)}"${voice.id === voiceId ? " selected" : ""}>${escapeHtml(voice.name)} · ${voice.enabled_file_count} 条录音</option>`).join("") || '<option value="">暂无可用声音</option>';
+    const modelOptions = models.map((model) => `<option value="${escapeHtml(model.id)}"${model.id === modelId ? " selected" : ""}>${escapeHtml(model.label || model.id)}</option>`).join("") || '<option value="">暂无可用模型</option>';
+    const lines = detail.items.map((item, index) => this.scriptLine(detail.id, item, index, canGenerate)).join("");
+    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出 CSV</a><button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>全部生成和单行生成都会使用这里选中的声音。</p></div><label class="field"><span>声音</span><select data-action="generation-voice" aria-label="生成声音">${voiceOptions}</select></label><label class="field"><span>模型</span><select data-action="generation-model" aria-label="生成模型">${modelOptions}</select></label><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><small class="generation-help">${canGenerate ? `${detail.items.length} 行将加入队列` : "需要先添加可用声音和模型"}</small></section><form id="scriptSettingsForm" class="detail-form"><label class="field wide"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-primary" type="submit">保存台本名称</button></div></form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
+  }
+
+  scriptLine(scriptId, item, index, canGenerate) {
+    const sequence = Number(item.order || index + 1);
+    return `<div class="script-line" data-script-item><div class="line-heading"><span class="line-number">${String(sequence).padStart(2, "0")}</span><button class="button button-quiet button-small" type="button" data-action="generate-line" data-line-number="${sequence}"${canGenerate ? "" : " disabled"}>单个生成</button></div><div class="line-fields"><label><span>台词</span><textarea name="text" maxlength="2000">${escapeHtml(item.text)}</textarea></label><label><span>发音</span><textarea name="pronunciation" maxlength="2000">${escapeHtml(item.pronunciation)}</textarea></label></div>${this.lineResult(scriptId, sequence)}</div>`;
+  }
+
+  lineResult(scriptId, sequence) {
+    const jobs = this.state.jobs.filter((job) => job.script_id === scriptId);
+    for (const job of jobs) {
+      const detail = this.state.jobDetails[job.id];
+      const item = detail?.items?.find((entry) => Number(entry.sequence) === sequence);
+      if (item) {
+        const audio = item.audio_url || item.candidates?.find((candidate) => candidate.audio_url)?.audio_url;
+        return `<div class="line-result"><span class="status-pill ${item.status === "failed" ? "danger" : item.status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(item.status))}</span>${audio ? `<audio controls preload="none" src="${escapeHtml(audio)}"></audio><a class="button button-quiet button-small" href="${escapeHtml(item.download_url || audio)}" download>下载</a>` : `<small>${escapeHtml(item.error || "音频生成后会显示在这里")}</small>`}</div>`;
+      }
+      if (job.total_items > 1) return `<div class="line-result"><span class="status-pill ${job.status === "failed" ? "danger" : job.status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(job.status))}</span></div>`;
+    }
+    return "";
   }
 
   renderVoice() {
+    const focus = this.captureVoiceFocus();
     const selected = this.state.voices.find((item) => item.id === this.state.selectedVoiceId);
-    const list = this.state.voices.map((voice) => `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`).join("") || '<p class="empty-list">尚未创建声音</p>';
-    const detail = selected ? this.voiceDetail(selected) : '<div class="empty-panel"><div><strong>选择或创建一个声音</strong>生成任务中可以选择一个或多个声音进行对比。</div></div>';
-    byId("voiceContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">VOICE LIBRARY</span><h1>声音与参考录音</h1><p>声音属于当前项目，生成时可以一次选择多个声音对比。</p></div><button class="button button-primary" type="button" data-action="open-voice">创建声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个资产</small></div></header><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    const query = String(this.state.voiceSearchQuery || "").trim().toLowerCase();
+    const voices = query ? this.state.voices.filter((voice) => String(voice.search_text || `${voice.name} ${voice.notes}`).toLowerCase().includes(query)) : this.state.voices;
+    const list = voices.map((voice) => `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`).join("") || (query && this.state.voices.length ? '<p class="empty-list">没有匹配的声音</p>' : '<p class="empty-list">尚未创建声音</p>');
+    const detail = selected ? this.voiceDetail(selected) : '<div class="empty-panel"><div><strong>选择或创建一个声音</strong>声音库中的可用录音可以在台本页直接使用。</div></div>';
+    byId("voiceContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">VOICE LIBRARY</span><h1>声音库</h1><p>维护项目里的参考录音，生成时从这里选择声音。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    this.restoreVoiceFocus(focus);
     if (selected) void this.loadVoiceDetail(selected.id);
+  }
+
+  captureVoiceFocus() {
+    const active = document.activeElement;
+    if (active?.id !== "voiceSearch") return null;
+    return { start: active.selectionStart, end: active.selectionEnd };
+  }
+
+  restoreVoiceFocus(focus) {
+    if (!focus) return;
+    const search = document.querySelector("#voiceSearch");
+    if (!search) return;
+    search.focus({ preventScroll: true });
+    if (Number.isInteger(focus.start)) search.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
   }
 
   async loadVoiceDetail(id) {
@@ -204,29 +247,17 @@ class WorkstationApp {
     return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">VOICE DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.enabled_file_count}/${detail.file_count} 条启用录音 · ${formatBytes(detail.size_bytes)}</p></div></header><form id="voiceSettingsForm" class="detail-form"><label class="field"><span>声音名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>说明</span><textarea name="notes" maxlength="500">${escapeHtml(detail.notes)}</textarea></label><div class="form-actions"><button class="button button-primary" type="submit">保存声音信息</button></div></form><div class="voice-detail-grid"><div><div class="editor-toolbar"><div><h3>参考录音</h3><p>启用的录音可作为生成参考。</p></div></div><div class="voice-files">${files}</div></div><form id="voiceAppendForm" class="voice-append"><label><span>追加参考录音</span><input name="files" type="file" accept="audio/*" multiple required></label><button class="button button-quiet" type="submit">追加录音</button></form></div></div>`;
   }
 
-  renderGeneration() {
-    const selected = this.state.jobs.find((item) => item.id === this.state.selectedJobId);
-    const models = this.state.config.models.filter((model) => model.available === true);
-    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
-    const voiceChoices = voices.map((voice, index) => `<label class="choice-row"><input type="checkbox" name="voice_ids" value="${escapeHtml(voice.id)}"${index === 0 ? " checked" : ""}><span><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count} 条启用录音</small></span></label>`).join("") || '<p class="empty-list">尚无可用声音</p>';
-    const modelChoices = models.map((model, index) => `<label class="choice-row"><input type="checkbox" name="model_ids" value="${escapeHtml(model.id)}"${index === 0 ? " checked" : ""}><span><strong>${escapeHtml(model.label || model.id)}</strong><small>${escapeHtml(model.id)}</small></span></label>`).join("");
-    const form = this.state.scripts.length && voices.length && models.length ? `<form id="generationForm" class="generation-form work-section"><h3>创建生成任务</h3><label class="field"><span>台本</span><select name="script_id" required>${this.state.scripts.map((script) => `<option value="${escapeHtml(script.id)}">${escapeHtml(script.name)}</option>`).join("")}</select><small>台本只提供台词与发言，声音在这里选择。</small></label><fieldset class="choice-group"><legend>声音（可多选）</legend>${voiceChoices}</fieldset><fieldset class="choice-group"><legend>模型（可多选）</legend>${modelChoices}</fieldset><div class="two-columns"><label class="field"><span>候选数量</span><select name="candidate_count"><option value="2">2</option><option value="3">3</option></select></label><label class="field"><span>名称</span><input name="name" maxlength="80" placeholder="本次生成"></label></div><button class="button button-primary" type="submit">加入生成队列</button><p class="generation-note">每个声音与模型组合会生成独立任务，并共享候选种子，方便试听对比。</p></form>` : '<section class="generation-form work-section"><h3>创建生成任务</h3><p class="generation-note">需要至少一个台本、一个有启用录音的声音和一个可用模型。</p></section>';
-    const history = this.state.jobs.map((job) => `<button class="history-row${job.id === selected?.id ? " active" : ""}" type="button" data-action="select-job" data-id="${escapeHtml(job.id)}"><span><strong>${escapeHtml(job.name)}</strong><small>${escapeHtml(job.script_name)} · ${escapeHtml(job.voice_name)} · ${escapeHtml(job.model_id)} · ${formatDate(job.submitted_at)}</small></span><span class="history-state ${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span></button>`).join("") || '<p class="empty-list">还没有生成任务</p>';
-    byId("generationContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">GENERATION REVIEW</span><h1>生成与审核</h1><p>每次提交保留台本、声音和模型快照；选择候选后再导出正式音频。</p></div><button class="button button-quiet" type="button" data-action="refresh">刷新状态</button></div><div class="generation-layout">${form}<section class="generation-history work-section"><header class="section-heading"><div><h2>生成历史</h2><p>${this.state.jobs.length} 个任务</p></div></header><div class="history-list">${history}</div></section></div><section class="generation-detail work-section">${selected ? this.jobDetail(selected) : '<div class="empty-panel">选择一个生成任务查看候选与导出。</div>'}</section>`;
-    if (selected) void this.loadJobDetail(selected.id);
-  }
-
-  async loadJobDetail(id) {
-    if (this.state.jobDetail?.id === id || this.loadingJob === id) return;
+  async loadJobDetail(id, force = false) {
+    const summary = this.state.jobs.find((job) => job.id === id);
+    const cached = this.state.jobDetails[id];
+    if (!force && cached && (!summary || cached.status === summary.status)) return;
+    if (this.loadingJob === id) return;
     this.loadingJob = id;
-    try { const { job } = await this.api.get(`/api/jobs/${enc(id)}`); if (this.state.selectedJobId === id) { this.state.jobDetail = job; this.renderGeneration(); } } catch (error) { this.toast(error.message, true); } finally { this.loadingJob = null; }
-  }
-
-  jobDetail(job) {
-    const detail = this.state.jobDetail?.id === job.id ? this.state.jobDetail : null;
-    if (!detail) return '<div class="empty-panel">正在读取任务...</div>';
-    const items = detail.items.map((item) => `<div class="result-line"><div class="result-line-heading"><span>${String(item.sequence).padStart(2, "0")}</span><strong>${escapeHtml(item.text)}</strong><small>${escapeHtml(statusLabel(item.status))}</small></div><div class="candidate-grid">${item.candidates.map((candidate) => `<article class="candidate-card${candidate.accepted ? " accepted" : ""}"><div class="candidate-top"><strong>${escapeHtml(candidate.name || `候选 ${candidate.ordinal}`)}</strong><span>${candidate.accepted ? "已采用" : "待审核"}</span></div>${candidate.audio_url ? `<audio controls preload="none" src="${escapeHtml(candidate.audio_url)}"></audio>` : '<span class="candidate-pending">等待音频生成</span>'}${candidate.audio_url && !candidate.accepted ? `<button class="button button-quiet button-small" type="button" data-action="accept-candidate" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}">采用此版本</button>` : ""}</article>`).join("") || '<span class="candidate-pending">暂无候选</span>'}</div></div>`).join("");
-    return `<div class="section-body"><header class="generation-detail-header"><div><h3>${escapeHtml(detail.name)}</h3><p>${escapeHtml(detail.voice_name)} · ${escapeHtml(detail.model_id)} · ${detail.completed_items}/${detail.total_items} 段完成</p></div><div class="job-actions">${detail.status === "completed" ? `<a class="button button-quiet button-small" href="${escapeHtml(detail.download_url)}">下载全部</a>` : ""}${detail.can_export ? `<a class="button button-primary button-small" href="${escapeHtml(detail.export_url)}">正式导出</a>` : ""}</div></header><div class="generation-progress"><span style="width:${Math.max(0, Math.min(100, Number(detail.progress || 0)))}%"></span></div><div class="result-list">${items}</div></div>`;
+    try {
+      const { job } = await this.api.get(`/api/jobs/${enc(id)}`);
+      this.state.jobDetails[id] = job;
+      if (this.state.selectedScriptId === job.script_id && !document.activeElement?.closest?.("form")) this.renderScript();
+    } catch (error) { this.toast(error.message, true); } finally { this.loadingJob = null; }
   }
 
   renderProject() {
@@ -258,11 +289,11 @@ class WorkstationApp {
       const { jobs } = await this.api.get(`/api/jobs?limit=100&project_id=${enc(projectId)}`);
       if (this.state.project?.id !== projectId) return;
       this.state.jobs = jobs;
-      this.state.selectedJobId = jobs.some((job) => job.id === this.state.selectedJobId) ? this.state.selectedJobId : jobs[0]?.id || null;
-      this.state.jobDetail = null;
-      this.renderOverview();
-      this.renderGeneration();
-      byId("queueSummary").textContent = jobs.some((job) => ["queued", "running"].includes(job.status)) ? "处理中" : "空闲";
+      this.renderScript();
+      const scriptJobs = jobs.filter((job) => job.script_id === this.state.selectedScriptId);
+      for (const job of scriptJobs.slice(0, 12)) void this.loadJobDetail(job.id);
+      const activeJobs = jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
+      byId("queueSummary").textContent = activeJobs ? `${activeJobs} 个处理中` : "空闲";
       byId("workerDot").className = jobs.some((job) => job.status === "running") ? "online" : "";
     } catch (_) {
       // The manual refresh action reports request errors without repeating toasts.
@@ -299,21 +330,26 @@ class WorkstationApp {
       if (action === "open-voice") this.openDialog("voiceDialog");
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
       if (action === "select-script") { this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.renderScript({ focusScriptId: button.dataset.id }); }
-      if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.renderVoice(); }
-      if (action === "select-job") { this.state.selectedJobId = button.dataset.id; this.state.jobDetail = null; this.renderGeneration(); }
+      if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.renderVoice(); this.renderScript(); }
+      if (action === "generate-all") await this.generateScript();
+      if (action === "generate-line") await this.generateScript(Number(button.dataset.lineNumber));
       if (action === "delete-script") await this.deleteScript();
-      if (action === "accept-candidate") await this.acceptCandidate(button.dataset.itemId, button.dataset.candidateId);
       if (action === "remove-member") await this.removeMember(button.dataset.memberId);
     } catch (error) { this.toast(error.message, true); }
   }
 
   input(event) {
     const input = event.target;
-    if (input.id !== "scriptSearch") return;
-    const previousQuery = this.state.scriptSearchQuery;
-    this.state.scriptSearchQuery = input.value;
-    const cleared = !input.value.trim() && previousQuery.trim();
-    this.renderScript(cleared ? { focusScriptId: this.state.selectedScriptId } : {});
+    if (input.id === "scriptSearch") {
+      const previousQuery = this.state.scriptSearchQuery;
+      this.state.scriptSearchQuery = input.value;
+      const cleared = !input.value.trim() && previousQuery.trim();
+      this.renderScript(cleared ? { focusScriptId: this.state.selectedScriptId } : {});
+    }
+    if (input.id === "voiceSearch") {
+      this.state.voiceSearchQuery = input.value;
+      this.renderVoice();
+    }
   }
 
   async change(event) {
@@ -322,6 +358,8 @@ class WorkstationApp {
       if (input.dataset.action === "file-enabled") await this.updateVoiceFile(input.dataset.fileId, { enabled: input.checked });
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
+      if (input.dataset.action === "generation-voice") { this.state.selectedVoiceId = input.value; this.renderScript(); }
+      if (input.dataset.action === "generation-model") { this.state.selectedModelId = input.value; this.renderScript(); }
     } catch (error) { this.toast(error.message, true); }
   }
 
@@ -337,22 +375,52 @@ class WorkstationApp {
       if (form.id === "scriptItemsForm") await this.saveScriptItems(form);
       if (form.id === "voiceSettingsForm") await this.saveVoiceSettings(form);
       if (form.id === "voiceAppendForm") await this.appendVoiceFiles(form);
-      if (form.id === "generationForm") await this.createJob(form);
       if (form.id === "projectSettingsForm") await this.saveProject(form);
       if (form.id === "memberAddForm") await this.addMember(form);
     } catch (error) { this.toast(error.message, true); }
   }
 
-  async createProject(form) { const { project } = await this.api.post("/api/projects", { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.projects.push(project); form.reset(); byId("projectDialog").close(); await this.selectProject(project.id, true); this.showView("overview"); this.toast("项目已创建"); }
+  async createProject(form) { const { project } = await this.api.post("/api/projects", { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.projects.push(project); form.reset(); byId("projectDialog").close(); await this.selectProject(project.id, true); this.showView("script"); this.toast("项目已创建"); }
   async createScript(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { script } = await this.api.postForm("/api/scripts", data); this.state.scripts.unshift(script); this.state.selectedScriptId = script.id; this.state.scriptDetail = null; form.reset(); byId("scriptUploadFileName").textContent = "选择台本文件"; byId("scriptDialog").close(); this.render(); this.showView("script"); this.toast("台本已导入"); }
   async createVoice(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { voice } = await this.api.postForm("/api/voices", data); this.state.voices.unshift(voice); this.state.selectedVoiceId = voice.id; this.state.voiceDetail = null; form.reset(); byId("voiceFileName").textContent = "选择参考录音"; byId("voiceDialog").close(); this.render(); this.showView("voice"); this.toast("声音已创建"); }
   async saveScriptSettings(form) { const id = this.state.selectedScriptId; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name: form.name.value.trim() }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("台本名称已保存"); }
-  async saveScriptItems(form) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); this.renderScript(); this.toast("台词与发音已保存"); }
+  async saveScriptItems(form, options = {}) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
   async saveVoiceSettings(form) { const id = this.state.selectedVoiceId; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
   async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoice(); this.toast("参考录音已追加"); }
   async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoice(); this.toast("录音设置已更新"); }
-  async createJob(form) { const data = new FormData(form); const voiceIds = data.getAll("voice_ids"); const modelIds = data.getAll("model_ids"); if (!voiceIds.length || !modelIds.length) { this.toast("请至少选择一个声音和一个模型", true); return; } data.delete("voice_ids"); data.set("voice_ids", JSON.stringify(voiceIds)); data.delete("model_ids"); data.set("model_id", modelIds[0]); data.set("model_ids", JSON.stringify(modelIds.slice(1))); data.set("project_id", this.state.project.id); data.set("generation_settings", "{}"); const result = await this.api.postForm("/api/jobs", data); this.state.jobs.unshift(...(result.jobs || [result.job])); this.state.selectedJobId = result.job.id; this.state.jobDetail = null; form.reset(); this.render(); this.toast(`${result.jobs?.length || 1} 个任务已加入生成队列`); }
-  async acceptCandidate(itemId, candidateId) { await this.api.post(`/api/jobs/${enc(this.state.selectedJobId)}/items/${enc(itemId)}/accept`, { candidate_id: candidateId }); this.state.jobDetail = null; await this.loadJobDetail(this.state.selectedJobId); this.toast("候选已采用"); }
+  async generateScript(lineNumber = null) {
+    const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
+    const models = this.state.config.models.filter((model) => model.available === true);
+    const voice = this.state.voices.find((item) => item.id === this.state.selectedVoiceId && item.enabled_file_count)
+      || this.state.voices.find((item) => item.enabled_file_count);
+    const model = models.find((item) => item.id === this.state.selectedModelId) || models[0];
+    if (!script || !voice || !model) { this.toast("请先添加可用声音并选择模型", true); return; }
+    this.state.selectedVoiceId = voice.id;
+    const form = byId("scriptItemsForm");
+    if (form) await this.saveScriptItems(form, { notify: false, rerender: false });
+    const data = new FormData();
+    data.set("project_id", this.state.project.id);
+    data.set("script_id", script.id);
+    data.set("voice_id", voice.id);
+    data.set("voice_ids", JSON.stringify([voice.id]));
+    data.set("model_id", model.id);
+    data.set("model_ids", "[]");
+    data.set("candidate_count", "1");
+    data.set("reference_emotion", "all");
+    data.set("generation_settings", "{}");
+    data.set("name", lineNumber === null ? script.name : `${script.name} · 第 ${lineNumber} 行`);
+    if (lineNumber !== null) data.set("line_number", String(lineNumber));
+    const result = await this.api.postForm("/api/jobs", data);
+    const jobs = result.jobs || [result.job];
+    this.state.jobs.unshift(...jobs);
+    for (const job of jobs) this.state.jobDetails[job.id] = null;
+    this.renderScript();
+    const activeJobs = this.state.jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
+    byId("queueSummary").textContent = `${activeJobs} 个处理中`;
+    byId("workerDot").className = "online";
+    this.toast(lineNumber === null ? "全部台词已加入生成队列" : `第 ${lineNumber} 行已加入生成队列`);
+    for (const job of jobs) void this.loadJobDetail(job.id, true);
+  }
   async saveProject(form) { const { project } = await this.api.patch(`/api/projects/${enc(this.state.project.id)}`, { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.project = project; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
   async addMember(form) { await this.api.post(`/api/projects/${enc(this.state.project.id)}/members`, { username: form.username.value.trim() }); form.reset(); await this.refreshProjectAndMembers(); this.toast("成员已添加"); }
   async removeMember(memberId) { if (!window.confirm("确定移除该成员吗？")) return; await this.api.delete(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`); await this.refreshProjectAndMembers(); this.toast("成员已移除"); }
