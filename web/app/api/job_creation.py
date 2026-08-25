@@ -25,6 +25,7 @@ class JobCreationService:
         self,
         *,
         requested_voice_id: str,
+        voice_ids_json: str,
         model_id: str,
         model_ids_json: str,
         script_id: str,
@@ -34,26 +35,27 @@ class JobCreationService:
         generation_settings_json: str,
         base_seed: int | None,
     ) -> list[dict[str, Any]]:
+        model_id = model_id.strip()
         emotion = self._emotion(reference_emotion)
         model_ids = self._model_ids(model_id, model_ids_json)
+        voice_ids = self._voice_ids(requested_voice_id, voice_ids_json)
         self._validate_request(model_ids, name, candidate_count)
         primary_settings = self._settings(model_id, generation_settings_json)
         self._validate_seed(base_seed, 1)
         selected_script = self._script(script_id)
-        configured_voice_id = self._configured_voice(
-            selected_script,
-            requested_voice_id,
-        )
-        self._validate_voice(configured_voice_id, emotion)
+        self._validate_voices(voice_ids, emotion)
         items = ScriptStorage(self._services).load_items(selected_script)
         self._validate_seed(base_seed, len(items) * candidate_count)
         effective_seed = self._shared_seed(
-            base_seed, len(model_ids), len(items) * candidate_count
+            base_seed,
+            len(model_ids) * len(voice_ids),
+            len(items) * candidate_count,
         )
         jobs = self._create_jobs(
             str(selected_script["id"]),
-            configured_voice_id,
+            voice_ids,
             model_ids,
+            model_id.strip(),
             items,
             name.strip() or str(selected_script["name"]),
             candidate_count,
@@ -68,8 +70,9 @@ class JobCreationService:
     def _create_jobs(
         self,
         script_id: str,
-        voice_id: str,
+        voice_ids: list[str],
         model_ids: list[str],
+        primary_model_id: str,
         items: list[ScriptItem],
         base_name: str,
         candidate_count: int,
@@ -78,34 +81,41 @@ class JobCreationService:
         base_seed: int | None,
     ) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
-        for index, model_id in enumerate(model_ids):
+        for model_id in model_ids:
             settings = (
                 primary_settings
-                if index == 0
+                if model_id == primary_model_id
                 else self._services.profiles.generation_settings(model_id)
             )
-            job_id = self._services.database.jobs.create(
-                self._user_id,
-                script_id,
-                voice_id,
-                model_id,
-                items,
-                candidate_count=candidate_count,
-                reference_emotion=emotion,
-                generation_settings=settings,
-                base_seed=base_seed,
-                project_id=self._project_id,
-                created_by=self._user_id,
-            )
-            self._services.database.jobs.rename(
-                job_id,
-                self._job_name(base_name, model_id, len(model_ids)),
-                self._user_id,
-            )
-            job = self._services.database.jobs.get(job_id)
-            if not job:  # pragma: no cover
-                raise HTTPException(status_code=500, detail="任务创建后未找到")
-            jobs.append(JobPresenter(self._services).payload(job))
+            for voice_id in voice_ids:
+                job_id = self._services.database.jobs.create(
+                    self._user_id,
+                    script_id,
+                    voice_id,
+                    model_id,
+                    items,
+                    candidate_count=candidate_count,
+                    reference_emotion=emotion,
+                    generation_settings=settings,
+                    base_seed=base_seed,
+                    project_id=self._project_id,
+                    created_by=self._user_id,
+                )
+                self._services.database.jobs.rename(
+                    job_id,
+                    self._job_name(
+                        base_name,
+                        voice_id,
+                        model_id,
+                        len(voice_ids),
+                        len(model_ids),
+                    ),
+                    self._user_id,
+                )
+                job = self._services.database.jobs.get(job_id)
+                if not job:  # pragma: no cover
+                    raise HTTPException(status_code=500, detail="任务创建后未找到")
+                jobs.append(JobPresenter(self._services).payload(job))
         return jobs
 
     def _validate_request(
@@ -121,17 +131,21 @@ class JobCreationService:
         for model_id in model_ids:
             self._validate_model(model_id)
 
+    def _validate_voices(self, voice_ids: list[str], emotion: str) -> None:
+        for voice_id in voice_ids:
+            self._validate_voice(voice_id, emotion)
+
     def _validate_voice(self, voice_id: str, emotion: str) -> None:
         voice = self._services.database.voices.get(voice_id)
         if not voice or str(voice.get("project_id") or "") != self._project_id:
-            raise HTTPException(status_code=404, detail="找不到台本配置的声音库")
+            raise HTTPException(status_code=404, detail="找不到所选声音库")
         if int(voice.get("enabled_file_count") or 0) < 1:
-            raise HTTPException(status_code=422, detail="台本配置的声音库没有启用的录音")
+            raise HTTPException(status_code=422, detail="所选声音库没有启用的录音")
         if emotion == "all":
             return
         files = self._services.database.voices.list_files(voice_id)
         if not any(item.get("emotion_tag") == emotion for item in files):
-            raise HTTPException(status_code=422, detail="台本配置的声音库没有启用该语气分组的录音")
+            raise HTTPException(status_code=422, detail="所选声音库没有启用该语气分组的录音")
 
     def _validate_model(self, model_id: str) -> None:
         try:
@@ -154,22 +168,6 @@ class JobCreationService:
             raise HTTPException(status_code=404, detail="找不到台本")
         return script
 
-    @staticmethod
-    def _configured_voice(script: dict[str, Any], requested_voice_id: str) -> str:
-        configured = str(script.get("default_voice_id") or "").strip()
-        if not configured:
-            raise HTTPException(
-                status_code=422,
-                detail="台本尚未配置声音，请先到台本库完成配置",
-            )
-        requested = requested_voice_id.strip()
-        if requested and requested != configured:
-            raise HTTPException(
-                status_code=422,
-                detail="声音由台本库配置，不能在生成时覆盖",
-            )
-        return configured
-
     def _settings(self, model_id: str, value: str) -> dict[str, float | int]:
         try:
             requested = json.loads(value) if value.strip() else {}
@@ -189,9 +187,28 @@ class JobCreationService:
             not isinstance(item, str) for item in parsed
         ):
             raise HTTPException(status_code=422, detail="对比模型必须是模型 ID 数组")
-        result = list(dict.fromkeys([primary, *parsed]))
-        if not primary or len(result) > 4:
+        result = list(
+            dict.fromkeys(item.strip() for item in [primary, *parsed] if item.strip())
+        )
+        if not result or len(result) > 4:
             raise HTTPException(status_code=422, detail="每次请选择 1-4 个模型")
+        return result
+
+    @staticmethod
+    def _voice_ids(primary: str, value: str) -> list[str]:
+        try:
+            parsed = json.loads(value) if value.strip() else []
+        except json.JSONDecodeError as error:
+            raise HTTPException(status_code=422, detail="对比声音格式错误") from error
+        if not isinstance(parsed, list) or any(
+            not isinstance(item, str) for item in parsed
+        ):
+            raise HTTPException(status_code=422, detail="对比声音必须是声音库 ID 数组")
+        result = list(
+            dict.fromkeys(item.strip() for item in [primary, *parsed] if item.strip())
+        )
+        if not result or len(result) > 4:
+            raise HTTPException(status_code=422, detail="每次请选择 1-4 个声音库")
         return result
 
     @staticmethod
@@ -214,15 +231,26 @@ class JobCreationService:
 
     @staticmethod
     def _shared_seed(
-        requested: int | None, model_count: int, required_seeds: int
+        requested: int | None, comparison_count: int, required_seeds: int
     ) -> int | None:
-        if requested is not None or model_count == 1:
+        if requested is not None or comparison_count == 1:
             return requested
         maximum = 2_147_483_647 - max(0, required_seeds - 1)
         return secrets.randbelow(maximum + 1)
 
-    def _job_name(self, base: str, model_id: str, model_count: int) -> str:
-        if model_count == 1:
-            return base[:80]
-        label = str(self._services.profiles.model(model_id).get("label") or model_id)
-        return f"{base} · {label}"[:80]
+    def _job_name(
+        self,
+        base: str,
+        voice_id: str,
+        model_id: str,
+        voice_count: int,
+        model_count: int,
+    ) -> str:
+        labels = [base]
+        if voice_count > 1:
+            voice = self._services.database.voices.get(voice_id) or {}
+            labels.append(str(voice.get("name") or voice_id))
+        if model_count > 1:
+            model = self._services.profiles.model(model_id)
+            labels.append(str(model.get("label") or model_id))
+        return " · ".join(labels)[:80]

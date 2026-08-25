@@ -300,6 +300,7 @@ def initialize_schema(database: SQLiteConnection) -> None:
         _add_column_if_missing(
             connection, "jobs", "created_by", "TEXT NOT NULL DEFAULT ''"
         )
+        _migrate_project_member_roles(connection)
         connection.executescript(
             """
             CREATE INDEX IF NOT EXISTS idx_jobs_project_submitted
@@ -327,6 +328,36 @@ def _add_column_if_missing(
     }
     if column not in columns:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
+def _migrate_project_member_roles(connection: sqlite3.Connection) -> None:
+    """Make projects.owner_id the single source of truth for ownership."""
+    connection.execute(
+        """
+        UPDATE project_members
+        SET role=CASE WHEN role='admin' THEN 'admin' ELSE 'member' END
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO project_members(
+            project_id, user_id, role, added_by, joined_at
+        )
+        SELECT id, owner_id, 'owner', owner_id, created_at
+        FROM projects
+        """
+    )
+    connection.execute(
+        """
+        UPDATE project_members
+        SET role='owner'
+        WHERE EXISTS (
+            SELECT 1 FROM projects
+            WHERE projects.id=project_members.project_id
+              AND projects.owner_id=project_members.user_id
+        )
+        """
+    )
 
 
 def _backfill_candidates(connection: sqlite3.Connection) -> None:

@@ -203,46 +203,37 @@ def test_clone_only_upload_queue_play_and_download_workflow(app_client) -> None:
     assert "postprocess_queue" not in client.get("/api/health").json()
 
 
-def test_script_library_binding_controls_job_voice(app_client) -> None:
+def test_script_library_keeps_voice_selection_in_generation(app_client) -> None:
     client, _ = app_client
-    first_voice = _create_voice(client, "first voice")
     second_voice = _create_voice(client, "second voice")
     uploaded = client.post(
         "/api/scripts",
-        data={"default_voice_id": first_voice["id"]},
         files={"file": ("bound.txt", "绑定台词 | mo-la\n", "text/plain")},
     )
 
     assert uploaded.status_code == 201
     script = uploaded.json()["script"]
-    assert script["default_voice_id"] == first_voice["id"]
+    assert "default_voice_id" not in script
     detail = client.get(f"/api/scripts/{script['id']}").json()["script"]
     assert detail["items"][0]["text"] == "绑定台词"
 
     updated = client.patch(
         f"/api/scripts/{script['id']}",
-        json={"name": "已配置台本", "default_voice_id": second_voice["id"]},
+        json={"name": "已配置台本"},
     )
     assert updated.status_code == 200
-    assert updated.json()["script"]["default_voice_id"] == second_voice["id"]
+    assert updated.json()["script"]["name"] == "已配置台本"
 
     created = client.post(
         "/api/jobs",
-        data={"model_id": "test_model", "script_id": script["id"]},
+        data={
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "voice_id": second_voice["id"],
+        },
     )
     assert created.status_code == 201
     assert created.json()["job"]["voice_id"] == second_voice["id"]
-
-    rejected = client.post(
-        "/api/jobs",
-        data={
-            "voice_id": first_voice["id"],
-            "model_id": "test_model",
-            "script_id": script["id"],
-        },
-    )
-    assert rejected.status_code == 422
-    assert rejected.json()["detail"] == "声音由台本库配置，不能在生成时覆盖"
 
 
 def test_script_items_round_trip_export_import_and_edit(app_client) -> None:
@@ -287,7 +278,11 @@ def test_script_and_job_delete_preserve_voice_library(app_client) -> None:
     script = _create_script(client, "deletion.txt", "要删除的台词 | mo-la\n")
     created = client.post(
         "/api/jobs",
-        data={"model_id": "test_model", "script_id": script["id"]},
+        data={
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "voice_id": voice["id"],
+        },
     )
     assert created.status_code == 201
     job = wait_for_job(client, created.json()["job"]["id"])
@@ -301,7 +296,7 @@ def test_script_and_job_delete_preserve_voice_library(app_client) -> None:
     assert services.database.voices.get(voice["id"]) is not None
 
 
-def test_script_upload_requires_usable_voice(app_client) -> None:
+def test_script_upload_does_not_require_voice(app_client) -> None:
     client, services = app_client
     before = services.database.monitoring.counts()["scripts"]
 
@@ -310,40 +305,30 @@ def test_script_upload_requires_usable_voice(app_client) -> None:
         files={"file": ("unbound.txt", "未绑定台词 | mo-la\n", "text/plain")},
     )
 
-    assert response.status_code == 422
-    assert services.database.monitoring.counts()["scripts"] == before
+    assert response.status_code == 201
+    script = response.json()["script"]
+    assert "default_voice_id" not in script
+    assert services.database.monitoring.counts()["scripts"] == before + 1
 
-    admin = services.database.auth.get_by_username("admin")
-    project_id = services.database.projects.default_for_user(str(admin["id"]))
-    empty_voice_id = services.database.voices.create(
-        "empty voice",
-        str(admin["id"]),
-        "",
-        project_id=str(project_id),
-    )
     response = client.post(
         "/api/scripts",
-        data={"default_voice_id": empty_voice_id},
         files={"file": ("unusable.txt", "不可用台词 | mo-la\n", "text/plain")},
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "所选声音库没有启用的录音"
-    assert services.database.monitoring.counts()["scripts"] == before
+    assert response.status_code == 201
+    assert services.database.monitoring.counts()["scripts"] == before + 2
 
-    usable_voice = _create_voice(client, "usable script voice")
     response = client.post(
         "/api/scripts",
-        data={"default_voice_id": usable_voice["id"]},
         files={"file": (f"{'x' * 81}.txt", "过长名称 | mo-la\n", "text/plain")},
     )
 
     assert response.status_code == 422
     assert response.json()["detail"] == "台本名称需为 1-80 个字符"
-    assert services.database.monitoring.counts()["scripts"] == before
+    assert services.database.monitoring.counts()["scripts"] == before + 2
 
 
-def test_job_rejects_script_without_configured_voice(app_client) -> None:
+def test_job_requires_explicit_voice_selection(app_client) -> None:
     client, services = app_client
     voice = _create_voice(client, "legacy script voice")
     uploaded = client.post(
@@ -352,19 +337,13 @@ def test_job_rejects_script_without_configured_voice(app_client) -> None:
         files={"file": ("unbound.txt", "未绑定台词 | mo-la\n", "text/plain")},
     )
     script = uploaded.json()["script"]
-    with sqlite3.connect(services.settings.database_path) as connection:
-        connection.execute(
-            "UPDATE scripts SET default_voice_id=NULL WHERE id=?",
-            (script["id"],),
-        )
-
     response = client.post(
         "/api/jobs",
         data={"model_id": "test_model", "script_id": script["id"]},
     )
 
     assert response.status_code == 422
-    assert "台本尚未配置声音" in response.json()["detail"]
+    assert "请选择 1-4 个声音库" in response.json()["detail"]
 
 
 def test_regenerate_accept_and_export_clone_candidate(app_client) -> None:
@@ -499,7 +478,10 @@ def test_create_jobs_compare_models_with_shared_seeds_and_model_defaults(
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
 
     with TestClient(application) as client:
-        login_as_admin(client, application.state.services)
+        user = login_as_admin(client, application.state.services)
+        application.state.services.database.projects.create(
+            str(user["id"]), "多模型测试项目", ""
+        )
         voice = _create_voice(client, "comparison voice")
         script = _create_script(
             client,
@@ -557,7 +539,10 @@ def test_create_jobs_auto_shares_seed_and_rejects_unavailable_model(
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
 
     with TestClient(application) as client:
-        login_as_admin(client, application.state.services)
+        user = login_as_admin(client, application.state.services)
+        application.state.services.database.projects.create(
+            str(user["id"]), "多模型测试项目", ""
+        )
         voice = _create_voice(client, "automatic seed voice")
         script = _create_script(client, "automatic-seed.txt", "台词 | mo-la\n")
         response = client.post(

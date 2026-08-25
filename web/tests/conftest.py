@@ -150,7 +150,10 @@ def app_client(settings_factory):
     settings = settings_factory()
     application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
     with TestClient(application) as client:
-        login_as_admin(client, application.state.services)
+        user = login_as_admin(client, application.state.services)
+        application.state.services.database.projects.create(
+            str(user["id"]), "测试项目", "API 测试项目"
+        )
         yield client, application.state.services
 
 

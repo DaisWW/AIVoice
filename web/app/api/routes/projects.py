@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
-from ..schemas import MemberCreate, ProjectCreate, ProjectUpdate
+from ..schemas import MemberCreate, MemberRoleUpdate, ProjectCreate, ProjectUpdate
 
 
 router = APIRouter(prefix="/api")
@@ -141,14 +141,54 @@ def remove_member(
     return {"ok": True}
 
 
+@router.patch("/projects/{project_id}/members/{member_id}")
+def update_member_role(
+    project_id: str,
+    member_id: str,
+    changes: MemberRoleUpdate,
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    project = require_project(services, user, project_id, manage=True)
+    if str(project["owner_id"]) == member_id:
+        raise HTTPException(status_code=409, detail="项目所有者的权限不能修改")
+    try:
+        updated = services.database.projects.update_member_role(
+            project_id, member_id, changes.role
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if not updated:
+        raise HTTPException(status_code=404, detail="该账户不是项目成员")
+    services.database.audit.record(
+        "project.member_role_updated",
+        actor=user,
+        target_type="user",
+        target_id=member_id,
+        project_id=project_id,
+        ip_address=_ip(request),
+        details={"role": changes.role},
+    )
+    member = next(
+        (
+            item
+            for item in services.database.projects.members(project_id)
+            if str(item["id"]) == member_id
+        ),
+        None,
+    )
+    return {"member": member} if member else {"member": None}
+
+
 def _project_payload(
     services: ServicesDep, project: dict[str, Any], user: dict[str, Any]
 ) -> dict[str, Any]:
     role = services.database.projects.role(str(project["id"]), str(user["id"]))
     return {
         **project,
-        "member_role": role,
-        "can_manage": role == "owner",
+        "project_role": role,
+        "can_manage": role in {"owner", "admin"},
     }
 
 

@@ -35,8 +35,8 @@ def require_project(
     role = services.database.projects.role(project_id, str(user["id"]))
     if not role:
         raise HTTPException(status_code=404, detail="找不到项目")
-    if manage and role != "owner":
-        raise HTTPException(status_code=403, detail="只有项目负责人可以管理成员")
+    if manage and role not in {"owner", "admin"}:
+        raise HTTPException(status_code=403, detail="只有项目管理员可以管理项目")
     return project
 
 

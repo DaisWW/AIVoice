@@ -17,7 +17,6 @@ SCRIPT_FIELDS = (
     "owner_id",
     "project_id",
     "source_kind",
-    "default_voice_id",
     "item_count",
     "created_at",
 )

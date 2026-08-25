@@ -26,29 +26,27 @@ class ProjectRepository:
             existing = connection.execute(
                 "SELECT 1 FROM projects WHERE id=?", (LEGACY_PROJECT_ID,)
             ).fetchone()
-            any_project = connection.execute(
-                "SELECT 1 FROM projects LIMIT 1"
-            ).fetchone()
-            if not existing and any_project and not unassigned:
+            if not existing and not unassigned:
                 return
             timestamp = utc_now()
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO projects(
-                    id, name, description, owner_id, status, created_at, updated_at
-                ) VALUES (?, '历史项目', '升级前已有的声音库、台本与生成记录', ?,
-                          'active', ?, ?)
-                """,
-                (LEGACY_PROJECT_ID, owner_id, timestamp, timestamp),
-            )
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO project_members(
-                    project_id, user_id, role, added_by, joined_at
-                ) VALUES (?, ?, 'owner', ?, ?)
-                """,
-                (LEGACY_PROJECT_ID, owner_id, owner_id, timestamp),
-            )
+            if not existing:
+                connection.execute(
+                    """
+                    INSERT INTO projects(
+                        id, name, description, owner_id, status, created_at, updated_at
+                    ) VALUES (?, '历史项目', '升级前已有的声音库、台本与生成记录', ?,
+                              'active', ?, ?)
+                    """,
+                    (LEGACY_PROJECT_ID, owner_id, timestamp, timestamp),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO project_members(
+                        project_id, user_id, role, added_by, joined_at
+                    ) VALUES (?, ?, 'owner', ?, ?)
+                    """,
+                    (LEGACY_PROJECT_ID, owner_id, owner_id, timestamp),
+                )
             for table in legacy_tables:
                 connection.execute(
                     f"UPDATE {table} SET project_id=? WHERE COALESCE(project_id, '')=''",
@@ -184,7 +182,7 @@ class ProjectRepository:
                 FROM project_members pm
                 JOIN users u ON u.id=pm.user_id
                 WHERE pm.project_id=?
-                ORDER BY CASE pm.role WHEN 'owner' THEN 0 ELSE 1 END,
+                ORDER BY CASE pm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,
                          u.display_name COLLATE NOCASE
                 """,
                 (project_id,),
@@ -214,5 +212,23 @@ class ProjectRepository:
             cursor = connection.execute(
                 "DELETE FROM project_members WHERE project_id=? AND user_id=?",
                 (project_id, user_id),
+            )
+        return cursor.rowcount == 1
+
+    def update_member_role(self, project_id: str, user_id: str, role: str) -> bool:
+        if role not in {"admin", "member"}:
+            raise ValueError("不支持的项目权限")
+        with self._database.write() as connection:
+            project = connection.execute(
+                "SELECT owner_id FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if project and str(project["owner_id"]) == user_id:
+                raise ValueError("项目所有者的权限不能修改")
+            cursor = connection.execute(
+                """
+                UPDATE project_members SET role=?
+                WHERE project_id=? AND user_id=?
+                """,
+                (role, project_id, user_id),
             )
         return cursor.rowcount == 1

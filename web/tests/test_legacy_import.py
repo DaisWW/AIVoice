@@ -14,19 +14,14 @@ from app.profiles import Profiles
 from conftest import make_wav_bytes
 
 
-def test_legacy_project_initializes_fresh_database_once(settings_factory) -> None:
+def test_legacy_project_is_not_created_without_legacy_assets(settings_factory) -> None:
     database, admin = _database_with_admin(settings_factory)
 
     database.projects.ensure_legacy_project(str(admin["id"]))
     database.projects.ensure_legacy_project(str(admin["id"]))
 
-    legacy = database.projects.get(LEGACY_PROJECT_ID)
-    assert legacy is not None
-    assert legacy["owner_id"] == admin["id"]
-    assert database.projects.role(LEGACY_PROJECT_ID, str(admin["id"])) == "owner"
-    assert [
-        item["id"] for item in database.projects.list_for_user(str(admin["id"]))
-    ] == [LEGACY_PROJECT_ID]
+    assert database.projects.get(LEGACY_PROJECT_ID) is None
+    assert database.projects.list_for_user(str(admin["id"])) == []
 
 
 def test_legacy_project_is_not_recreated_after_modern_project_exists(
@@ -46,8 +41,12 @@ def test_legacy_project_claims_unassigned_assets(settings_factory) -> None:
     voice_id = database.voices.create("旧声音", str(admin["id"]), "")
 
     database.projects.ensure_legacy_project(str(admin["id"]))
+    database.projects.ensure_legacy_project(str(admin["id"]))
 
-    assert database.projects.get(LEGACY_PROJECT_ID) is not None
+    legacy = database.projects.get(LEGACY_PROJECT_ID)
+    assert legacy is not None
+    assert legacy["owner_id"] == admin["id"]
+    assert database.projects.role(LEGACY_PROJECT_ID, str(admin["id"])) == "owner"
     assert database.voices.get(voice_id)["project_id"] == LEGACY_PROJECT_ID
 
 

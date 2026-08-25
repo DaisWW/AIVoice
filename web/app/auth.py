@@ -20,7 +20,7 @@ SESSION_DAYS = 14
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
-_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,32}$")
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -113,7 +113,7 @@ class AuthService:
         username = username.strip()
         display_name = display_name.strip()
         if not _USERNAME_RE.fullmatch(username):
-            raise AuthError("用户名需为 3-32 位字母、数字、点、下划线或短横线")
+            raise AuthError("用户名需为 3-32 位字母、数字、@、点、下划线或短横线")
         if not display_name or len(display_name) > 60:
             raise AuthError("显示名称需为 1-60 个字符")
         validate_password(password)

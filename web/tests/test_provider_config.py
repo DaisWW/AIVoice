@@ -36,6 +36,8 @@ def _admin_client(
         json={"username": "admin", "password": ADMIN_PASSWORD},
     )
     assert response.status_code == 200
+    user = response.json()["user"]
+    application.state.services.database.projects.create(str(user["id"]), "供应商测试项目", "")
     return client, application
 
 

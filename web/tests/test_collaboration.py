@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -78,14 +79,15 @@ def test_admin_account_status_revokes_sessions(settings_factory) -> None:
         created = admin.post(
             "/api/admin/users",
             json={
-                "username": "studio.member",
+                "username": "studio.member@example.com",
                 "display_name": "协作成员",
                 "password": "1",
             },
         )
         assert created.status_code == 201
         user = created.json()["user"]
-        assert _login(member, "studio.member", "1").status_code == 200
+        assert user["username"] == "studio.member@example.com"
+        assert _login(member, "studio.member@example.com", "1").status_code == 200
         assert member.get("/api/admin/overview").status_code == 403
 
         disabled = admin.patch(
@@ -93,13 +95,13 @@ def test_admin_account_status_revokes_sessions(settings_factory) -> None:
         )
         assert disabled.status_code == 200
         assert member.get("/api/auth/session").status_code == 401
-        assert _login(member, "studio.member", "1").status_code == 401
+        assert _login(member, "studio.member@example.com", "1").status_code == 401
 
         enabled = admin.patch(
             f"/api/admin/users/{user['id']}/status", json={"status": "active"}
         )
         assert enabled.status_code == 200
-        assert _login(member, "studio.member", "1").status_code == 200
+        assert _login(member, "studio.member@example.com", "1").status_code == 200
         changed = member.post(
             "/api/auth/change-password",
             json={
@@ -179,9 +181,10 @@ def test_project_member_sharing_isolation_and_admin_visibility(
 
         cross_project_voice = bob.patch(
             f"/api/scripts/{script_id}",
-            json={"name": "shared", "default_voice_id": beta_voice["id"]},
+            json={"name": "shared"},
         )
-        assert cross_project_voice.status_code == 404
+        assert cross_project_voice.status_code == 200
+        assert cross_project_voice.json()["script"]["name"] == "shared"
 
         script = services.database.scripts.get(script_id)
         assert script
@@ -192,6 +195,7 @@ def test_project_member_sharing_isolation_and_admin_visibility(
                 "project_id": beta["id"],
                 "model_id": "test_model",
                 "script_id": script_id,
+                "voice_id": beta_voice["id"],
             },
         )
         assert cross_project_job.status_code == 404
@@ -261,7 +265,7 @@ def test_system_admin_workspace_uses_project_membership(
         assert added.status_code == 201
 
         joined = admin.get(f"/api/projects/{project['id']}").json()["project"]
-        assert joined["member_role"] == "member"
+        assert joined["project_role"] == "member"
         assert joined["can_manage"] is False
         assert (
             admin.post(
@@ -272,8 +276,144 @@ def test_system_admin_workspace_uses_project_membership(
         )
 
         owned = _create_project(admin, "管理员的成员项目")
-        assert owned["member_role"] == "owner"
+        assert owned["project_role"] == "owner"
         assert owned["can_manage"] is True
+
+
+def test_project_admin_manages_members_but_not_the_owner(settings_factory) -> None:
+    application = create_app(
+        settings_factory(), engine_factory=FakeEngine, seed_legacy=False
+    )
+
+    with (
+        TestClient(application) as system_admin,
+        TestClient(application) as owner,
+        TestClient(application) as project_admin,
+        TestClient(application) as member,
+    ):
+        services = application.state.services
+        login_as_admin(system_admin, services)
+        owner_user = _create_user(
+            system_admin, "project.owner", "项目所有者", "owner-password-123"
+        )
+        admin_user = _create_user(
+            system_admin, "project.admin", "项目管理员", "admin-password-123"
+        )
+        member_user = _create_user(
+            system_admin, "project.member", "项目成员", "member-password-123"
+        )
+        assert _login(owner, "project.owner", "owner-password-123").status_code == 200
+        assert (
+            _login(project_admin, "project.admin", "admin-password-123").status_code
+            == 200
+        )
+        assert (
+            _login(member, "project.member", "member-password-123").status_code == 200
+        )
+
+        project = _create_project(owner, "管理员协作项目")
+        project_id = project["id"]
+        assert (
+            owner.post(
+                f"/api/projects/{project_id}/members",
+                json={"username": admin_user["username"]},
+            ).status_code
+            == 201
+        )
+        promoted = owner.patch(
+            f"/api/projects/{project_id}/members/{admin_user['id']}",
+            json={"role": "admin"},
+        )
+        assert promoted.status_code == 200
+        assert promoted.json()["member"]["role"] == "admin"
+
+        admin_project = project_admin.get(f"/api/projects/{project_id}").json()[
+            "project"
+        ]
+        assert admin_project["project_role"] == "admin"
+        assert admin_project["can_manage"] is True
+        assert (
+            project_admin.post(
+                f"/api/projects/{project_id}/members",
+                json={"username": member_user["username"]},
+            ).status_code
+            == 201
+        )
+        assert (
+            member.patch(
+                f"/api/projects/{project_id}/members/{admin_user['id']}",
+                json={"role": "member"},
+            ).status_code
+            == 403
+        )
+        assert (
+            project_admin.patch(
+                f"/api/projects/{project_id}/members/{owner_user['id']}",
+                json={"role": "member"},
+            ).status_code
+            == 409
+        )
+        assert (
+            project_admin.delete(
+                f"/api/projects/{project_id}/members/{owner_user['id']}"
+            ).status_code
+            == 409
+        )
+        assert (
+            project_admin.patch(
+                f"/api/projects/{project_id}/members/{member_user['id']}",
+                json={"role": "reviewer"},
+            ).status_code
+            == 422
+        )
+
+
+def test_project_role_migration_restores_canonical_owner(settings_factory) -> None:
+    settings = settings_factory()
+    application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
+
+    with TestClient(application):
+        services = application.state.services
+        owner, _ = services.auth.create_user("owner", "Owner", "owner-password-123")
+        ghost, _ = services.auth.create_user("ghost", "Ghost", "ghost-password-123")
+        reviewer, _ = services.auth.create_user(
+            "reviewer", "Reviewer", "reviewer-password-123"
+        )
+        project = services.database.projects.create(str(owner["id"]), "迁移项目", "")
+        with sqlite3.connect(settings.database_path) as connection:
+            connection.execute(
+                "DELETE FROM project_members WHERE project_id=? AND user_id=?",
+                (project["id"], owner["id"]),
+            )
+            connection.execute(
+                """
+                INSERT INTO project_members(project_id, user_id, role, added_by, joined_at)
+                VALUES (?, ?, 'member', ?, ?), (?, ?, 'owner', ?, ?),
+                       (?, ?, 'reviewer', ?, ?)
+                """,
+                (
+                    project["id"],
+                    owner["id"],
+                    owner["id"],
+                    project["created_at"],
+                    project["id"],
+                    ghost["id"],
+                    owner["id"],
+                    project["created_at"],
+                    project["id"],
+                    reviewer["id"],
+                    owner["id"],
+                    project["created_at"],
+                ),
+            )
+
+        services.database.initialize()
+
+        assert services.database.projects.role(project["id"], owner["id"]) == "owner"
+        assert services.database.projects.role(project["id"], ghost["id"]) == "member"
+        assert (
+            services.database.projects.role(project["id"], reviewer["id"]) == "member"
+        )
 
 
 def test_admin_control_room_exposes_insights_assets_and_project_detail(

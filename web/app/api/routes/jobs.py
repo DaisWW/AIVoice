@@ -30,8 +30,9 @@ def create_job(
     user: CurrentUser,
     services: ServicesDep,
     request: Request,
-    # Legacy clients may confirm the binding, but can never override it.
+    # `voice_id` remains accepted for single-voice clients.
     voice_id: Annotated[str, Form()] = "",
+    voice_ids: Annotated[str, Form()] = "",
     script_id: Annotated[str, Form()] = "",
     name: Annotated[str, Form()] = "",
     candidate_count: Annotated[int, Form()] = 2,
@@ -44,6 +45,7 @@ def create_job(
     selected = resolve_project_id(services, user, project_id)
     jobs = JobCreationService(services, str(user["id"]), selected).create(
         requested_voice_id=voice_id,
+        voice_ids_json=voice_ids,
         model_id=model_id,
         model_ids_json=model_ids,
         script_id=script_id,

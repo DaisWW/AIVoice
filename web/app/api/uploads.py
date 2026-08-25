@@ -42,7 +42,7 @@ class ScriptStorage:
         upload: UploadFile,
         owner_id: str,
         project_id: str,
-        default_voice_id: str,
+        default_voice_id: str | None = None,
     ) -> tuple[str, list[ScriptItem]]:
         self._validate_extension(upload.filename or "")
         try:

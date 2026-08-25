@@ -14,7 +14,7 @@ class PasswordChange(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_.@-]+$")
     display_name: str = Field(min_length=1, max_length=60)
     password: str = Field(min_length=1, max_length=128)
 
@@ -41,6 +41,10 @@ class MemberCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
 
 
+class MemberRoleUpdate(BaseModel):
+    role: Literal["admin", "member"]
+
+
 class JobRename(BaseModel):
     name: str
 
@@ -58,7 +62,6 @@ class VoiceFileUpdate(BaseModel):
 
 class ScriptUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    default_voice_id: str = Field(min_length=1, max_length=80)
 
 
 class ScriptItemUpdate(BaseModel):
