@@ -361,9 +361,9 @@
 
 .health-summary {
   display: grid;
-  gap: 1px;
-  padding: 12px 18px 8px;
-  background: var(--line);
+  gap: 0;
+  padding: 10px 22px 14px;
+  background: transparent;
 }
 
 .health-summary > div {
@@ -371,8 +371,10 @@
   grid-template-columns: 8px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
-  padding: 8px 0;
-  background: rgba(17, 21, 29, .8);
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
 }
 
 .health-summary strong,
@@ -387,8 +389,8 @@
 }
 
 .health-summary small {
-  padding: 8px 18px 12px;
-  background: rgba(17, 21, 29, .8);
+  padding: 12px 0 0 17px;
+  background: transparent;
   color: var(--muted);
   font-size: 8px;
 }

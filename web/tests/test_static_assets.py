@@ -195,3 +195,14 @@ def test_admin_jobs_show_named_project_voice_and_model_identities() -> None:
     assert "identityCell(job.voice_name, job.voice_id)" in javascript
     assert "identityCell(job.model_label, job.model_id)" in javascript
     assert "model.availability_reason" in javascript
+
+
+def test_admin_health_rows_share_the_card_content_alignment() -> None:
+    content = (STATIC_ROOT / "admin.html").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "admin.css").read_text(encoding="utf-8")
+
+    assert "admin.css?v=20260826.4" in content
+    assert "padding: 10px 22px 14px;" in stylesheet
+    assert "padding: 12px 0 0 17px;" in stylesheet
+    assert ".health-summary > div" in stylesheet
+    assert "border-bottom: 1px solid var(--line);" in stylesheet
