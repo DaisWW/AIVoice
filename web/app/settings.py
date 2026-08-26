@@ -72,6 +72,10 @@ class Settings:
     def provider_config_path(self) -> Path:
         return self.data_root / "provider-settings.json"
 
+    @property
+    def text_model_config_path(self) -> Path:
+        return self.data_root / "text-model-settings.json"
+
     def ensure_directories(self) -> None:
         for path in (
             self.data_root,

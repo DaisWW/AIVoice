@@ -12,7 +12,12 @@ from ..access import project_script, resolve_project_id
 from ..audit import record_action
 from ..dependencies import CurrentUser, ServicesDep
 from ..payloads import script_detail_payload, script_payload
-from ..schemas import ScriptItemsUpdate, ScriptUpdate
+from ..schemas import (
+    PromptSuggestionRequest,
+    ScriptItemsUpdate,
+    ScriptUpdate,
+    TextGenerationRequest,
+)
 from ..uploads import ScriptStorage
 
 
@@ -85,7 +90,12 @@ def update_script(
     name = changes.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="台本名称不能为空")
-    if not services.database.scripts.update(script_id, name):
+    prompt = (
+        changes.prompt
+        if changes.prompt is not None
+        else str(script.get("prompt") or "")
+    )
+    if not services.database.scripts.update(script_id, name, prompt):
         raise HTTPException(status_code=404, detail="找不到台本")
     updated = services.database.scripts.get(script_id)
     if not updated:  # pragma: no cover - guarded by the update above
@@ -101,6 +111,68 @@ def update_script(
         details={"name": name},
     )
     return {"script": script_payload(updated)}
+
+
+@router.post("/{script_id}/prompt-suggestion")
+def suggest_script_prompt(
+    script_id: str,
+    changes: PromptSuggestionRequest,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+) -> dict[str, Any]:
+    script = project_script(services, script_id, user)
+    project = services.database.projects.get(str(script["project_id"])) or {}
+    try:
+        suggestion = services.text_generation.suggest_prompt(
+            scope="script",
+            project_prompt=str(project.get("prompt") or ""),
+            script_prompt=str(script.get("prompt") or ""),
+            goal=changes.goal,
+        )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "script.prompt_suggested",
+        actor=user,
+        target_type="script",
+        target_id=script_id,
+        project_id=str(script["project_id"]),
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"suggestion": suggestion}
+
+
+@router.post("/{script_id}/generate-text")
+def generate_script_text(
+    script_id: str,
+    changes: TextGenerationRequest,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+) -> dict[str, Any]:
+    script = project_script(services, script_id, user)
+    project = services.database.projects.get(str(script["project_id"])) or {}
+    try:
+        lines = services.text_generation.generate_lines(
+            project_prompt=str(project.get("prompt") or ""),
+            script_prompt=str(script.get("prompt") or ""),
+            instruction=changes.instruction,
+            line_count=changes.line_count,
+            model_id=changes.model_id,
+        )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "script.text_generated",
+        actor=user,
+        target_type="script",
+        target_id=script_id,
+        project_id=str(script["project_id"]),
+        ip_address=request.client.host if request.client else "",
+        details={"line_count": len(lines)},
+    )
+    return {"lines": lines}
 
 
 @router.put("/{script_id}/items")

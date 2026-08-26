@@ -12,10 +12,39 @@ from fastapi import APIRouter, HTTPException, Request
 from ...auth import AuthError, public_user
 from ..dependencies import AdminUser, ServicesDep
 from ..payloads import JobPresenter
-from ..schemas import PasswordReset, UserCreate, UserStatusUpdate
+from ..schemas import PasswordReset, TextModelUpdate, UserCreate, UserStatusUpdate
 
 
 router = APIRouter(prefix="/api/admin")
+
+
+@router.get("/text-model")
+def get_text_model(_: AdminUser, services: ServicesDep) -> dict[str, Any]:
+    return {"text_model": services.text_generation.admin()}
+
+
+@router.patch("/text-model")
+def update_text_model(
+    changes: TextModelUpdate,
+    request: Request,
+    admin: AdminUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    try:
+        payload = services.text_generation.update(changes.model_dump())
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    services.database.audit.record(
+        "admin.text_model_updated",
+        actor=admin,
+        target_type="text_model",
+        target_id="default",
+        ip_address=_ip(request),
+        details={"enabled": changes.enabled, "model": changes.model},
+    )
+    return {"text_model": payload}
+
+
 _STORAGE_CACHE: dict[str, tuple[float, int]] = {}
 _STORAGE_CACHE_LOCK = Lock()
 _STORAGE_CACHE_TTL = 15.0

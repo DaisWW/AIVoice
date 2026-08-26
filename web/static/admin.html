@@ -185,6 +185,23 @@
             <p id="miniMaxEnrollmentSummary" class="settings-note">尚无云端克隆缓存</p>
             <footer><button id="testMiniMax" class="quiet-button" type="button">检测连接</button><button id="saveMiniMax" class="primary-button" type="submit">保存配置</button></footer>
           </form>
+          <form id="textModelSettingsForm" class="settings-card">
+            <header><div><span class="section-kicker">TEXT GENERATION</span><h3>台词文本模型</h3></div><span id="textModelStatus" class="provider-status">未配置</span></header>
+            <label class="settings-switch"><input id="textModelEnabled" type="checkbox"><span>允许项目成员生成台词和提示词建议</span></label>
+            <div class="settings-fields two-column-settings">
+              <label><span>模型名称</span><input id="textModelLabel" maxlength="100" required></label>
+              <label><span>协议</span><select id="textModelProtocol"><option value="responses">Responses</option><option value="chat_completions">Chat Completions</option></select></label>
+              <label><span>API 地址</span><input id="textModelBaseUrl" type="url" placeholder="https://example.com/v1"></label>
+              <label><span>模型 ID</span><input id="textModelId" maxlength="150" placeholder="gpt-5.6-sol"></label>
+              <label><span>API Key</span><input id="textModelApiKey" type="password" maxlength="500" autocomplete="off"></label>
+              <label><span>请求超时（秒）</span><input id="textModelTimeout" type="number" min="10" max="600" required></label>
+              <label><span>最大输出 token</span><input id="textModelMaxTokens" type="number" min="128" max="32000" required></label>
+              <label><span>温度</span><input id="textModelTemperature" type="number" min="0" max="2" step="0.1" required></label>
+            </div>
+            <div class="settings-options"><label><input id="textModelClearKey" type="checkbox"> 清除 API Key</label></div>
+            <p class="settings-note">API Key 只保存在服务器运行数据目录，普通用户只能看到模型是否可用。地址可填写主机或带 `/v1` 的 OpenAI 兼容入口。</p>
+            <footer><button id="saveTextModel" class="primary-button" type="submit">保存文本模型</button></footer>
+          </form>
           <section class="settings-card"><header><div><span class="section-kicker">LOCAL MODELS</span><h3>本地克隆能力</h3></div></header><div id="localModelStatus" class="local-model-status"></div></section>
         </div>
       </section>

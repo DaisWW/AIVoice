@@ -308,6 +308,43 @@ class JobRepository:
             ).fetchone()
         return dict(row) if row else None
 
+    def delete_item(
+        self, job_id: str, item_id: str
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool]:
+        """Delete one script line and return its artifacts plus job state."""
+        with self._database.write() as connection:
+            item = connection.execute(
+                "SELECT * FROM job_items WHERE job_id=? AND id=?",
+                (job_id, item_id),
+            ).fetchone()
+            if not item:
+                return None, [], False
+            candidates = connection.execute(
+                "SELECT * FROM job_item_candidates WHERE job_item_id=?",
+                (item_id,),
+            ).fetchall()
+            cursor = connection.execute(
+                "DELETE FROM job_items WHERE job_id=? AND id=?",
+                (job_id, item_id),
+            )
+            if cursor.rowcount != 1:  # pragma: no cover - guarded by the transaction
+                return None, [], False
+            remaining = connection.execute(
+                "SELECT COUNT(*) AS total, COALESCE(SUM(status='completed'), 0) AS completed "
+                "FROM job_items WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+            if int(remaining["total"]):
+                connection.execute(
+                    "UPDATE jobs SET total_items=?, completed_items=? WHERE id=?",
+                    (int(remaining["total"]), int(remaining["completed"]), job_id),
+                )
+                job_deleted = False
+            else:
+                connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+                job_deleted = True
+        return dict(item), [dict(row) for row in candidates], job_deleted
+
     def set_running(self, job_id: str) -> None:
         with self._database.write() as connection:
             connection.execute(

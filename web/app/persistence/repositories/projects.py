@@ -56,20 +56,23 @@ class ProjectRepository:
                 "UPDATE jobs SET created_by=client_id WHERE created_by=''"
             )
 
-    def create(self, owner_id: str, name: str, description: str) -> dict[str, Any]:
+    def create(
+        self, owner_id: str, name: str, description: str, prompt: str = ""
+    ) -> dict[str, Any]:
         project_id = f"project-{uuid.uuid4().hex[:12]}"
         timestamp = utc_now()
         with self._database.write() as connection:
             connection.execute(
                 """
                 INSERT INTO projects(
-                    id, name, description, owner_id, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'active', ?, ?)
+                    id, name, description, prompt, owner_id, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
                 """,
                 (
                     project_id,
                     name.strip(),
                     description.strip(),
+                    prompt.strip(),
                     owner_id,
                     timestamp,
                     timestamp,
@@ -92,13 +95,21 @@ class ProjectRepository:
         rows = self._list("WHERE p.id=?", (project_id,))
         return rows[0] if rows else None
 
-    def update(self, project_id: str, name: str, description: str) -> bool:
+    def update(
+        self, project_id: str, name: str, description: str, prompt: str = ""
+    ) -> bool:
         with self._database.write() as connection:
             cursor = connection.execute(
                 """
-                UPDATE projects SET name=?, description=?, updated_at=? WHERE id=?
+                UPDATE projects SET name=?, description=?, prompt=?, updated_at=? WHERE id=?
                 """,
-                (name.strip(), description.strip(), utc_now(), project_id),
+                (
+                    name.strip(),
+                    description.strip(),
+                    prompt.strip(),
+                    utc_now(),
+                    project_id,
+                ),
             )
         return cursor.rowcount == 1
 

@@ -51,6 +51,7 @@ def config(_: CurrentUser, services: ServicesDep) -> dict[str, Any]:
         "generation_defaults": generation_defaults(),
         "voice_requirements": f"真人模板支持 {AUDIO_FORMAT_LABEL}，上传后自动转为单声道 48 kHz WAV。建议无背景音乐、每条 3-15 秒，至少上传 2 条。",
         "output_description": "直接输出所选声音克隆模型原音，不做降噪、变调、EQ、压缩、混响或响度处理。",
+        "text_model": services.text_generation.public(),
         "script_format": {
             "txt_markdown": "角色标签 | mo——la，na？↗",
             "tab": "角色标签<TAB>mo——la，na？↗",

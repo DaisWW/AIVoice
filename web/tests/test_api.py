@@ -296,6 +296,109 @@ def test_script_and_job_delete_preserve_voice_library(app_client) -> None:
     assert services.database.voices.get(voice["id"]) is not None
 
 
+def test_delete_single_job_item_removes_audio_and_job(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "single item deletion voice")
+    script = _create_script(client, "single-item.txt", "要删除的台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": "2",
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    item = job["items"][0]
+    paths = [
+        Path(services.database.jobs.item(created["id"], item["id"])[field])
+        for field in ("audio_path", "raw_audio_path")
+        if services.database.jobs.item(created["id"], item["id"])[field]
+    ]
+    paths.extend(
+        Path(services.database.candidates.get(candidate["id"])[field])
+        for candidate in item["candidates"]
+        for field in ("audio_path", "raw_audio_path")
+        if services.database.candidates.get(candidate["id"])[field]
+    )
+    assert all(path.is_file() for path in paths)
+
+    response = client.delete(f"/api/jobs/{created['id']}/items/{item['id']}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/jobs/{created['id']}").status_code == 404
+    assert all(not path.exists() for path in set(paths))
+    assert services.database.candidates.get(item["candidates"][0]["id"]) is None
+    assert not (services.settings.job_root / created["id"]).exists()
+
+
+def test_delete_batch_job_item_preserves_other_lines(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "batch item deletion voice")
+    script = _create_script(
+        client,
+        "batch-item.txt",
+        "保留的台词 | mo-la\n要删除的台词 | gu-la\n",
+    )
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    retained, deleted = job["items"]
+    retained_audio = Path(
+        services.database.jobs.item(created["id"], retained["id"])["audio_path"]
+    )
+    deleted_audio = Path(
+        services.database.jobs.item(created["id"], deleted["id"])["audio_path"]
+    )
+    archive = client.get(job["download_url"])
+    assert archive.status_code == 200
+    archive_path = services.settings.export_root / f"{created['id']}.zip"
+    assert archive_path.is_file()
+
+    response = client.delete(f"/api/jobs/{created['id']}/items/{deleted['id']}")
+
+    assert response.status_code == 204
+    remaining = client.get(f"/api/jobs/{created['id']}")
+    assert remaining.status_code == 200
+    payload = remaining.json()["job"]
+    assert payload["total_items"] == 1
+    assert payload["completed_items"] == 1
+    assert [item["id"] for item in payload["items"]] == [retained["id"]]
+    assert client.get(payload["items"][0]["audio_url"]).status_code == 200
+    assert retained_audio.is_file()
+    assert not deleted_audio.exists()
+    assert not archive_path.exists()
+    assert services.database.jobs.item(created["id"], deleted["id"]) is None
+
+
+def test_delete_running_job_item_is_rejected(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "running item deletion voice")
+    script = _create_script(client, "running-item.txt", "稍后删除 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    item = services.database.jobs.items(created["id"])[0]
+    services.database.jobs.set_running(created["id"])
+
+    response = client.delete(f"/api/jobs/{created['id']}/items/{item['id']}")
+
+    assert response.status_code == 409
+    assert "处理完成" in response.json()["detail"]
+
+
 def test_script_upload_does_not_require_voice(app_client) -> None:
     client, services = app_client
     before = services.database.monitoring.counts()["scripts"]

@@ -30,11 +30,13 @@ class PasswordReset(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=500)
+    prompt: str = Field(default="", max_length=12000)
 
 
 class ProjectUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=500)
+    prompt: str | None = Field(default=None, max_length=12000)
 
 
 class MemberCreate(BaseModel):
@@ -62,6 +64,33 @@ class VoiceFileUpdate(BaseModel):
 
 class ScriptUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    prompt: str | None = Field(default=None, max_length=12000)
+
+
+class PromptSuggestionRequest(BaseModel):
+    goal: str = Field(default="", max_length=2000)
+
+
+class TextGenerationRequest(BaseModel):
+    instruction: str = Field(default="", max_length=4000)
+    line_count: int = Field(default=5, ge=1, le=100)
+    model_id: str = Field(default="", max_length=64)
+
+
+class TextModelUpdate(BaseModel):
+    enabled: bool = False
+    label: str = Field(default="文本台词模型", min_length=1, max_length=100)
+    base_url: str = Field(default="", max_length=500)
+    api_key: str | None = Field(default=None, max_length=500)
+    clear_api_key: bool = False
+    model: str = Field(default="", max_length=150)
+    protocol: Literal["responses", "chat_completions"] = "responses"
+    reasoning_effort: Literal[
+        "", "none", "minimal", "low", "medium", "high", "max"
+    ] = ""
+    timeout_seconds: int = Field(default=180, ge=10, le=600)
+    max_output_tokens: int = Field(default=4000, ge=128, le=32000)
+    temperature: float = Field(default=0.7, ge=0, le=2)
 
 
 class ScriptItemUpdate(BaseModel):

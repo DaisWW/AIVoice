@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
     owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
@@ -99,6 +100,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     owner_id TEXT NOT NULL,
     project_id TEXT NOT NULL DEFAULT '',
     source_kind TEXT NOT NULL,
+    prompt TEXT NOT NULL DEFAULT '',
     default_voice_id TEXT,
     default_effect_id TEXT,
     item_count INTEGER NOT NULL,
@@ -293,6 +295,12 @@ def initialize_schema(database: SQLiteConnection) -> None:
         )
         _add_column_if_missing(
             connection, "scripts", "project_id", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "projects", "prompt", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "scripts", "prompt", "TEXT NOT NULL DEFAULT ''"
         )
         _add_column_if_missing(
             connection, "jobs", "project_id", "TEXT NOT NULL DEFAULT ''"

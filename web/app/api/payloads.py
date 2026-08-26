@@ -18,6 +18,7 @@ SCRIPT_FIELDS = (
     "owner_id",
     "project_id",
     "source_kind",
+    "prompt",
     "item_count",
     "created_at",
 )
@@ -25,7 +26,7 @@ SCRIPT_FIELDS = (
 
 def script_payload(script: dict[str, Any]) -> dict[str, Any]:
     return {
-        **{field: script[field] for field in SCRIPT_FIELDS},
+        **{field: script.get(field, "") for field in SCRIPT_FIELDS},
         "search_text": search_text(script["name"], script["original_name"]),
     }
 

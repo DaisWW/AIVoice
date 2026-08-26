@@ -23,6 +23,10 @@ export class ProviderController {
       this.#saveMiniMax();
     });
     $("#testMiniMax").addEventListener("click", () => this.#testMiniMax());
+    $("#textModelSettingsForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.#saveTextModel();
+    });
   }
 
   async ensureLoaded() {
@@ -31,10 +35,54 @@ export class ProviderController {
       const payload = await this.#api.get("/api/admin/providers");
       this.#renderElevenLabs(payload.providers.elevenlabs);
       this.#renderMiniMax(payload.providers.minimax);
+      const textModel = await this.#api.get("/api/admin/text-model");
+      this.#renderTextModel(textModel.text_model);
       this.#loaded = true;
     } catch (error) {
       this.#shell.toast(error.message, true);
     }
+  }
+
+  async #saveTextModel() {
+    const button = $("#saveTextModel");
+    setButtonBusy(button, true);
+    try {
+      const result = await this.#api.patch("/api/admin/text-model", {
+        enabled: $("#textModelEnabled").checked,
+        label: $("#textModelLabel").value,
+        base_url: $("#textModelBaseUrl").value,
+        api_key: $("#textModelApiKey").value || null,
+        clear_api_key: $("#textModelClearKey").checked,
+        model: $("#textModelId").value,
+        protocol: $("#textModelProtocol").value,
+        reasoning_effort: "",
+        timeout_seconds: Number($("#textModelTimeout").value),
+        max_output_tokens: Number($("#textModelMaxTokens").value),
+        temperature: Number($("#textModelTemperature").value),
+      });
+      this.#renderTextModel(result.text_model);
+      this.#shell.toast("文本模型配置已保存");
+    } catch (error) {
+      this.#shell.toast(error.message, true);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  #renderTextModel(config) {
+    $("#textModelEnabled").checked = config.enabled;
+    $("#textModelLabel").value = config.label || "文本台词模型";
+    $("#textModelBaseUrl").value = config.base_url || "";
+    $("#textModelId").value = config.model || "";
+    $("#textModelProtocol").value = config.protocol || "responses";
+    $("#textModelApiKey").value = "";
+    $("#textModelApiKey").placeholder = config.has_api_key ? "已保存；留空则保持不变" : "尚未配置";
+    $("#textModelClearKey").checked = false;
+    $("#textModelTimeout").value = config.timeout_seconds || 180;
+    $("#textModelMaxTokens").value = config.max_output_tokens || 4000;
+    $("#textModelTemperature").value = config.temperature ?? 0.7;
+    $("#textModelStatus").textContent = config.enabled ? (config.configured ? "已启用" : "缺少配置") : "已停用";
+    $("#textModelStatus").className = `provider-status ${config.enabled && config.configured ? "available" : ""}`;
   }
 
   renderLocalModels() {

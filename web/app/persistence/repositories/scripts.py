@@ -59,11 +59,11 @@ class ScriptRepository:
             ).fetchone()
         return dict(row) if row else None
 
-    def update(self, script_id: str, name: str) -> bool:
+    def update(self, script_id: str, name: str, prompt: str) -> bool:
         with self._database.write() as connection:
             cursor = connection.execute(
-                "UPDATE scripts SET name=? WHERE id=?",
-                (name.strip(), script_id),
+                "UPDATE scripts SET name=?, prompt=? WHERE id=?",
+                (name.strip(), prompt.strip(), script_id),
             )
         return cursor.rowcount == 1
 

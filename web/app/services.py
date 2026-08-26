@@ -12,6 +12,7 @@ from .profiles import Profiles
 from .provider_config import ProviderConfigStore
 from .queue_worker import JobQueue
 from .settings import Settings
+from .text_generation import TextGenerationService, TextModelConfigStore
 
 
 EngineFactory = Callable[[Settings, Profiles, ProviderConfigStore], Any]
@@ -37,6 +38,7 @@ class ApplicationServices:
         self._provider_config: ProviderConfigStore | None = None
         self._engine: Any | None = None
         self._job_queue: JobQueue | None = None
+        self._text_generation: TextGenerationService | None = None
 
     @property
     def database(self) -> Database:
@@ -74,6 +76,12 @@ class ApplicationServices:
             raise RuntimeError("Application services are not initialized")
         return self._job_queue
 
+    @property
+    def text_generation(self) -> TextGenerationService:
+        if self._text_generation is None:
+            raise RuntimeError("Application services are not initialized")
+        return self._text_generation
+
     def initialize(self) -> None:
         with self._initialize_lock:
             if self._database is not None:
@@ -88,6 +96,9 @@ class ApplicationServices:
             database.candidates.recover_interrupted()
             profiles = Profiles.load(self.settings.profiles_path)
             provider_config = ProviderConfigStore(self.settings.provider_config_path)
+            text_generation = TextGenerationService(
+                TextModelConfigStore(self.settings.text_model_config_path)
+            )
             if self._seed_legacy:
                 LegacyImporter(database, self.settings.root).run()
                 database.projects.ensure_legacy_project(str(admin["id"]))
@@ -96,6 +107,7 @@ class ApplicationServices:
             self._auth = auth
             self._profiles = profiles
             self._provider_config = provider_config
+            self._text_generation = text_generation
             self._engine = engine
             self._job_queue = JobQueue(self.settings, database, engine)
 

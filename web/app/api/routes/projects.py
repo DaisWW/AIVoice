@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
-from ..schemas import MemberCreate, MemberRoleUpdate, ProjectCreate, ProjectUpdate
+from ..schemas import (
+    MemberCreate,
+    MemberRoleUpdate,
+    ProjectCreate,
+    ProjectUpdate,
+    PromptSuggestionRequest,
+)
 from ...search import search_text
 
 
@@ -29,7 +35,10 @@ def create_project(
     services: ServicesDep,
 ) -> dict[str, Any]:
     name, description = _project_fields(changes.name, changes.description)
-    project = services.database.projects.create(str(user["id"]), name, description)
+    prompt = changes.prompt.strip()
+    project = services.database.projects.create(
+        str(user["id"]), name, description, prompt
+    )
     services.database.audit.record(
         "project.created",
         actor=user,
@@ -50,6 +59,35 @@ def get_project(
     return {"project": _project_payload(services, project, user)}
 
 
+@router.post("/projects/{project_id}/prompt-suggestion")
+def suggest_project_prompt(
+    project_id: str,
+    changes: PromptSuggestionRequest,
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, str]:
+    project = require_project(services, user, project_id, manage=True)
+    try:
+        suggestion = services.text_generation.suggest_prompt(
+            scope="project",
+            project_prompt=str(project.get("prompt") or ""),
+            script_prompt="",
+            goal=changes.goal,
+        )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "project.prompt_suggested",
+        actor=user,
+        target_type="project",
+        target_id=project_id,
+        project_id=project_id,
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"suggestion": suggestion}
+
+
 @router.patch("/projects/{project_id}")
 def update_project(
     project_id: str,
@@ -60,7 +98,12 @@ def update_project(
 ) -> dict[str, Any]:
     project = require_project(services, user, project_id, manage=True)
     name, description = _project_fields(changes.name, changes.description)
-    services.database.projects.update(project_id, name, description)
+    prompt = (
+        str(changes.prompt).strip()
+        if changes.prompt is not None
+        else str(project.get("prompt") or "")
+    )
+    services.database.projects.update(project_id, name, description, prompt)
     refreshed = services.database.projects.get(project_id) or project
     services.database.audit.record(
         "project.updated",
