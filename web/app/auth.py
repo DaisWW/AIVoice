@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .login_protection import LoginRateLimiter
 from .persistence.database import Database
 
 
@@ -42,9 +43,15 @@ class AuthError(ValueError):
 
 
 class AuthService:
-    def __init__(self, database: Database, data_root: Path) -> None:
+    def __init__(
+        self,
+        database: Database,
+        data_root: Path,
+        login_limiter: LoginRateLimiter | None = None,
+    ) -> None:
         self._database = database
         self._data_root = data_root
+        self._login_limiter = login_limiter or LoginRateLimiter()
         self.bootstrap_password: str | None = None
 
     def ensure_bootstrap_admin(self) -> dict[str, Any]:
@@ -72,14 +79,19 @@ class AuthService:
             LOGGER.warning("已生成初始管理员凭据，请查看 %s", hint)
         return admin
 
-    def authenticate(self, username: str, password: str) -> dict[str, Any]:
+    def authenticate(
+        self, username: str, password: str, ip_address: str = ""
+    ) -> dict[str, Any]:
+        self._login_limiter.check(ip_address, username)
         user = self._database.auth.get_by_username(username)
         if (
             not user
             or user["status"] != "active"
             or not verify_password(password, str(user["password_hash"]))
         ):
+            self._login_limiter.record_failure(ip_address, username)
             raise AuthError("用户名或密码不正确")
+        self._login_limiter.record_success(ip_address, username)
         self._database.auth.note_login(str(user["id"]))
         return self._database.auth.get_user(str(user["id"])) or user
 

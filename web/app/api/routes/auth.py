@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from ...auth import AuthError, SESSION_COOKIE, public_user
+from ...login_protection import LoginRateLimitError
 from ..dependencies import CurrentUser, ServicesDep
 from ..schemas import LoginRequest, PasswordChange
 
@@ -16,19 +17,36 @@ router = APIRouter(prefix="/api/auth")
 def login(
     changes: LoginRequest, request: Request, response: Response, services: ServicesDep
 ) -> dict[str, Any]:
+    ip_address = _ip(request)
     try:
-        user = services.auth.authenticate(changes.username, changes.password)
+        user = services.auth.authenticate(
+            changes.username,
+            changes.password,
+            ip_address,
+        )
+    except LoginRateLimitError as error:
+        services.database.audit.record(
+            "auth.login_throttled",
+            ip_address=ip_address,
+            success=False,
+            details={"username": changes.username.strip()[:64]},
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=str(error),
+            headers={"Retry-After": str(error.retry_after)},
+        ) from error
     except AuthError as error:
         services.database.audit.record(
             "auth.login_failed",
-            ip_address=_ip(request),
+            ip_address=ip_address,
             success=False,
             details={"username": changes.username.strip()[:64]},
         )
         raise HTTPException(status_code=401, detail=str(error)) from error
     token = services.auth.create_session(
         user,
-        _ip(request),
+        ip_address,
         request.headers.get("user-agent", ""),
     )
     response.set_cookie(
@@ -43,7 +61,7 @@ def login(
     services.database.audit.record(
         "auth.login",
         actor=user,
-        ip_address=_ip(request),
+        ip_address=ip_address,
     )
     return {"user": public_user(user)}
 

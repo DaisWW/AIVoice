@@ -1,6 +1,8 @@
 import { ApiClient } from "./core/api-client.js";
 import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { escapeHtml, setButtonBusy } from "./core/dom.js";
+import { safeResourceUrl } from "./core/url.js?v=20260826.1";
+import { GenerationConfigurationController } from "./generation/configuration-controller.js?v=20260826.1";
 
 const byId = (id) => document.getElementById(id);
 const enc = (value) => encodeURIComponent(value);
@@ -17,8 +19,11 @@ class WorkstationApp {
     this.api = new ApiClient();
     this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
+    this.generation = new GenerationConfigurationController(this.state, {
+      storePosition: () => this.storePosition(),
+      toast: (message, error = false) => this.toast(message, error),
+    });
     this.requestVersion = 0;
-    this.generationConfigurationSequence = 0;
     this.toastTimer = null;
     this.loadingJobIds = new Set();
   }
@@ -39,9 +44,9 @@ class WorkstationApp {
     document.addEventListener("submit", (event) => this.submit(event));
     document.addEventListener("change", (event) => this.change(event));
     document.addEventListener("input", (event) => this.input(event));
-    document.addEventListener("keydown", (event) => this.keydown(event));
-    document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".generation-dropdown-options")) this.closeGenerationDropdowns(); }, true);
-    window.addEventListener("resize", () => this.closeGenerationDropdowns());
+    document.addEventListener("keydown", (event) => this.generation.handleKeydown(event));
+    document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".generation-dropdown-options")) this.generation.closeDropdowns(); }, true);
+    window.addEventListener("resize", () => this.generation.closeDropdowns());
     document.addEventListener("play", (event) => this.pauseOtherAudio(event.target), true);
     byId("scriptUploadFile").addEventListener("change", (event) => { byId("scriptUploadFileName").textContent = event.target.files[0]?.name || "选择台本文件"; });
     byId("voiceFiles").addEventListener("change", (event) => { byId("voiceFileName").textContent = event.target.files.length ? `${event.target.files.length} 条参考录音` : "选择参考录音"; });
@@ -159,19 +164,7 @@ class WorkstationApp {
       const generationConfigurations = previousProjectId === id
         ? this.state.generationConfigurations
         : savedPosition.generationConfigurations;
-      const usableVoiceIds = new Set(usableVoices.map((voice) => voice.id));
-      const availableModelIds = new Set(models.map((model) => model.id));
-      this.state.generationConfigurations = Array.isArray(generationConfigurations)
-        ? generationConfigurations.flatMap((configuration) => {
-          if (!configuration || !usableVoiceIds.has(configuration.voiceId) || !availableModelIds.has(configuration.modelId)) return [];
-          return [{
-            id: String(++this.generationConfigurationSequence),
-            voiceId: configuration.voiceId,
-            modelId: configuration.modelId,
-            candidateCount: Math.min(4, Math.max(1, Number(configuration.candidateCount) || 1)),
-          }];
-        })
-        : [];
+      this.generation.restore(generationConfigurations, usableVoices, models);
       this.storeProjectId(id);
       this.state.currentView = restoredView;
       this.renderProjectSelect();
@@ -358,7 +351,8 @@ class WorkstationApp {
     const action = selected
       ? `<button class="button button-quiet button-small" type="button" data-action="clear-generation-selection" data-sequence="${escapeHtml(item.sequence)}">取消采纳</button>`
       : `<button class="button button-primary button-small" type="button" data-action="select-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}" data-sequence="${escapeHtml(item.sequence)}"${candidate.status === "completed" ? "" : " disabled"}>采纳</button>`;
-    const audio = candidate.audio_url ? `<audio controls preload="none" src="${escapeHtml(candidate.audio_url)}"></audio>` : `<small class="candidate-pending">${escapeHtml(candidate.error || "候选生成后会显示在这里")}</small>`;
+    const audioUrl = safeResourceUrl(candidate.audio_url);
+    const audio = audioUrl ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>` : `<small class="candidate-pending">${escapeHtml(candidate.error || "候选生成后会显示在这里")}</small>`;
     const badge = selected ? "<span>已采纳</span>" : `<span>${escapeHtml(statusLabel(candidate.status))}</span>`;
     return `<article class="line-history-candidate${selected ? " selected" : ""}"><div class="candidate-top"><strong>${escapeHtml(candidate.name || `候选 ${candidate.ordinal}`)}</strong>${badge}</div><div class="candidate-media">${audio}${action}</div></article>`;
   }
@@ -431,7 +425,10 @@ class WorkstationApp {
     const detail = this.state.voiceDetail?.id === voice.id ? this.state.voiceDetail : null;
     if (!detail) return '<div class="empty-panel">正在读取声音...</div>';
     const emotions = this.state.config.reference_emotions || [];
-    const files = detail.files.map((file) => `<div class="voice-file-row"><div class="voice-file-name"><strong>${escapeHtml(file.original_name)}</strong><small>${formatBytes(file.size_bytes)} · ${file.quality?.grade || "待检测"}</small></div><audio controls preload="none" src="${escapeHtml(file.audio_url)}"></audio><div class="voice-file-controls"><select data-action="file-emotion" data-file-id="${escapeHtml(file.id)}">${emotions.map((emotion) => `<option value="${escapeHtml(emotion.id)}"${emotion.id === file.emotion_tag ? " selected" : ""}>${escapeHtml(emotion.label)}</option>`).join("")}</select><label class="switch"><input type="checkbox" data-action="file-enabled" data-file-id="${escapeHtml(file.id)}"${file.enabled ? " checked" : ""}>启用</label></div></div>`).join("") || '<p class="empty-list">没有参考录音</p>';
+    const files = detail.files.map((file) => {
+      const audioUrl = safeResourceUrl(file.audio_url);
+      return `<div class="voice-file-row"><div class="voice-file-name"><strong>${escapeHtml(file.original_name)}</strong><small>${formatBytes(file.size_bytes)} · ${file.quality?.grade || "待检测"}</small></div>${audioUrl ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>` : '<small class="candidate-pending">音频地址不可用</small>'}<div class="voice-file-controls"><select data-action="file-emotion" data-file-id="${escapeHtml(file.id)}">${emotions.map((emotion) => `<option value="${escapeHtml(emotion.id)}"${emotion.id === file.emotion_tag ? " selected" : ""}>${escapeHtml(emotion.label)}</option>`).join("")}</select><label class="switch"><input type="checkbox" data-action="file-enabled" data-file-id="${escapeHtml(file.id)}"${file.enabled ? " checked" : ""}>启用</label></div></div>`;
+    }).join("") || '<p class="empty-list">没有参考录音</p>';
     return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">VOICE DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.enabled_file_count}/${detail.file_count} 条启用录音 · ${formatBytes(detail.size_bytes)}</p></div></header><form id="voiceSettingsForm" class="detail-form"><label class="field"><span>声音名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>说明</span><textarea name="notes" maxlength="500">${escapeHtml(detail.notes)}</textarea></label><div class="form-actions"><button class="button button-primary" type="submit">保存声音信息</button></div></form><div class="voice-detail-grid"><div><div class="editor-toolbar"><div><h3>参考录音</h3><p>启用的录音可作为生成参考。</p></div></div><div class="voice-files">${files}</div></div><form id="voiceAppendForm" class="voice-append"><label><span>追加参考录音</span><input name="files" type="file" accept="audio/*" multiple required></label><button class="button button-quiet" type="submit">追加录音</button></form></div></div>`;
   }
 
@@ -498,7 +495,7 @@ class WorkstationApp {
   }
 
   async click(event) {
-    if (!event.target.closest(".generation-dropdown")) this.closeGenerationDropdowns();
+    this.generation.handleDocumentClick(event);
     const closeButton = event.target.closest("[data-close-dialog]");
     if (closeButton) {
       byId(closeButton.dataset.closeDialog).close();
@@ -513,6 +510,7 @@ class WorkstationApp {
     if (!button) return;
     const action = button.dataset.action;
     try {
+      if (this.generation.handleAction(action, button)) return;
       if (action === "view") this.showView(button.dataset.viewTarget);
       if (action === "open-project-dialog") this.openDialog("projectDialog");
       if (action === "open-script") this.openDialog("scriptDialog");
@@ -520,15 +518,9 @@ class WorkstationApp {
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
       if (action === "select-script") { this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); }
       if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
-      if (action === "generate-all") this.openGenerationDialog(null);
-      if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
       if (action === "rewrite-line") await this.runBusy(button, () => this.rewriteScriptLine(button));
       if (action === "adopt-line-rewrite") this.adoptLineRewrite(button);
       if (action === "discard-line-rewrite") this.discardLineRewrite(button);
-      if (action === "add-generation-configuration") this.addGenerationConfiguration();
-      if (action === "remove-generation-configuration") this.removeGenerationConfiguration(button.dataset.configurationId);
-      if (action === "toggle-generation-dropdown") this.toggleGenerationDropdown(button);
-      if (action === "select-generation-dropdown-option") this.selectGenerationDropdownOption(button);
       if (action === "select-generation") await this.selectGeneration(button.dataset);
       if (action === "clear-generation-selection") await this.clearGenerationSelection(Number(button.dataset.sequence));
       if (action === "export-script-audio") this.exportScriptAudio(button.dataset.scope);
@@ -568,7 +560,7 @@ class WorkstationApp {
       this.state.voiceSearchQuery = input.value;
       this.renderVoice({ listOnly: true });
     }
-    if (input.dataset.action === "generation-dropdown-search") this.filterGenerationDropdown(input);
+    this.generation.handleInput(input);
   }
 
   captureScriptItemDraft(row) {
@@ -589,178 +581,6 @@ class WorkstationApp {
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
     } catch (error) { this.toast(error.message, true); }
-  }
-
-  keydown(event) {
-    if (event.key !== "Escape") return;
-    const dropdown = event.target.closest?.(".generation-dropdown");
-    if (!dropdown || dropdown.querySelector(".generation-dropdown-panel")?.hidden) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const trigger = dropdown.querySelector(".generation-dropdown-trigger");
-    this.closeGenerationDropdowns();
-    trigger?.focus();
-  }
-
-  openGenerationDialog(lineNumber = null) {
-    const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
-    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
-    const models = this.state.config.models.filter((model) => model.available === true);
-    if (!script || !voices.length || !models.length) {
-      this.toast("请先添加可用声音并配置可用模型", true);
-      return;
-    }
-    const validVoiceIds = new Set(voices.map((voice) => voice.id));
-    const validModelIds = new Set(models.map((model) => model.id));
-    this.state.generationRequest = { lineNumber };
-    this.state.generationConfigurations = this.state.generationConfigurations.filter((configuration) => validVoiceIds.has(configuration.voiceId) && validModelIds.has(configuration.modelId));
-    if (!this.state.generationConfigurations.length) {
-      this.state.generationConfigurations.push({
-        id: String(++this.generationConfigurationSequence),
-        voiceId: validVoiceIds.has(this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id,
-        modelId: validModelIds.has(this.state.selectedModelId) ? this.state.selectedModelId : models[0].id,
-        candidateCount: 1,
-      });
-    }
-    byId("generationOptionsTitle").textContent = lineNumber === null ? "全部生成" : `第 ${lineNumber} 行生成`;
-    this.renderGenerationConfigurations();
-    this.storePosition();
-    this.openDialog("generationOptionsDialog");
-  }
-
-  generationVoiceLabels(voices) {
-    const nameCounts = voices.reduce((counts, voice) => counts.set(voice.name, (counts.get(voice.name) || 0) + 1), new Map());
-    return new Map(voices.map((voice) => [voice.id, nameCounts.get(voice.name) > 1 ? `${voice.name} · ${voice.id.slice(0, 6)}` : voice.name]));
-  }
-
-  generationDropdown(configuration, index, field, selectedValue, options, placeholder) {
-    const selected = options.find((option) => String(option.value) === String(selectedValue));
-    const name = `${field}-${configuration.id}`;
-    return `<div class="generation-dropdown" data-generation-dropdown="${escapeHtml(name)}"><button class="generation-dropdown-trigger" type="button" data-action="toggle-generation-dropdown" aria-haspopup="listbox" aria-expanded="false" aria-controls="generation-dropdown-panel-${escapeHtml(name)}" aria-label="第 ${index + 1} 条配置的${escapeHtml(field)}"><span>${escapeHtml(selected?.label || placeholder)}</span><span class="generation-dropdown-chevron" aria-hidden="true">⌄</span></button><div id="generation-dropdown-panel-${escapeHtml(name)}" class="generation-dropdown-panel" hidden><input class="generation-dropdown-search" type="search" autocomplete="off" placeholder="搜索${escapeHtml(field)}" data-action="generation-dropdown-search" aria-label="搜索第 ${index + 1} 条配置的${escapeHtml(field)}"><div class="generation-dropdown-options" role="listbox" aria-label="第 ${index + 1} 条配置的${escapeHtml(field)}选项">${options.map((option) => `<button class="generation-dropdown-option${String(option.value) === String(selectedValue) ? " selected" : ""}" type="button" role="option" aria-selected="${String(option.value) === String(selectedValue)}" data-action="select-generation-dropdown-option" data-configuration-id="${escapeHtml(configuration.id)}" data-field="${escapeHtml(field)}" data-value="${escapeHtml(option.value)}" data-search-text="${escapeHtml(`${option.label} ${option.description || ""}`.toLocaleLowerCase())}"><strong>${escapeHtml(option.label)}</strong>${option.description ? `<small>${escapeHtml(option.description)}</small>` : ""}<span class="generation-dropdown-check" aria-hidden="true">✓</span></button>`).join("")}</div><p class="generation-dropdown-empty" hidden>没有匹配项</p></div></div>`;
-  }
-
-  toggleGenerationDropdown(trigger) {
-    const dropdown = trigger.closest(".generation-dropdown");
-    const panel = dropdown?.querySelector(".generation-dropdown-panel");
-    if (!dropdown || !panel) return;
-    const opening = panel.hidden;
-    this.closeGenerationDropdowns(dropdown);
-    panel.hidden = !opening;
-    trigger.setAttribute("aria-expanded", String(opening));
-    if (!opening) return;
-    const search = panel.querySelector(".generation-dropdown-search");
-    search.value = "";
-    this.filterGenerationDropdown(search);
-    this.positionGenerationDropdown(trigger, panel);
-    search.focus();
-  }
-
-  positionGenerationDropdown(trigger, panel) {
-    const rect = trigger.getBoundingClientRect();
-    const margin = 10;
-    const width = Math.min(Math.max(rect.width, 250), window.innerWidth - margin * 2);
-    const left = Math.min(Math.max(rect.left, margin), window.innerWidth - width - margin);
-    panel.style.width = `${width}px`;
-    panel.style.left = `${left}px`;
-    panel.style.right = "auto";
-    panel.style.top = `${rect.bottom + 6}px`;
-    panel.style.bottom = "auto";
-    const panelHeight = panel.getBoundingClientRect().height;
-    const spaceBelow = window.innerHeight - rect.bottom - margin;
-    const spaceAbove = rect.top - margin;
-    const openAbove = panelHeight > spaceBelow && spaceAbove > spaceBelow;
-    const available = Math.max(100, (openAbove ? spaceAbove : spaceBelow) - 12);
-    panel.querySelector(".generation-dropdown-options").style.maxHeight = `${Math.max(70, available - 55)}px`;
-    if (openAbove) {
-      panel.style.top = "auto";
-      panel.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-    }
-  }
-
-  closeGenerationDropdowns(except = null) {
-    document.querySelectorAll(".generation-dropdown").forEach((dropdown) => {
-      if (dropdown === except) return;
-      const panel = dropdown.querySelector(".generation-dropdown-panel");
-      const trigger = dropdown.querySelector(".generation-dropdown-trigger");
-      if (panel) panel.hidden = true;
-      trigger?.setAttribute("aria-expanded", "false");
-    });
-  }
-
-  filterGenerationDropdown(input) {
-    const panel = input.closest(".generation-dropdown-panel");
-    if (!panel) return;
-    const query = input.value.trim().toLocaleLowerCase();
-    let visible = 0;
-    panel.querySelectorAll(".generation-dropdown-option").forEach((option) => {
-      option.hidden = Boolean(query) && !option.dataset.searchText.includes(query);
-      if (!option.hidden) visible += 1;
-    });
-    panel.querySelector(".generation-dropdown-empty").hidden = visible > 0;
-  }
-
-  selectGenerationDropdownOption(option) {
-    const configuration = this.state.generationConfigurations.find((item) => item.id === option.dataset.configurationId);
-    if (!configuration) return;
-    if (option.dataset.field === "原声") configuration.voiceId = option.dataset.value;
-    if (option.dataset.field === "模型") configuration.modelId = option.dataset.value;
-    if (option.dataset.field === "条数") configuration.candidateCount = Math.min(4, Math.max(1, Number(option.dataset.value) || 1));
-    this.storePosition();
-    this.renderGenerationConfigurations();
-  }
-
-  renderGenerationConfigurations(focusId = null) {
-    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
-    const models = this.state.config.models.filter((model) => model.available === true);
-    const voiceLabels = this.generationVoiceLabels(voices);
-    const voiceOptions = voices.map((voice) => ({ value: voice.id, label: voiceLabels.get(voice.id), description: `${voice.enabled_file_count} 条可用录音` }));
-    const modelOptions = models.map((model) => ({ value: model.id, label: model.label || model.id, description: model.engine || model.id }));
-    const countOptions = [1, 2, 3, 4].map((count) => ({ value: String(count), label: `${count} 条`, description: "每行候选" }));
-    byId("generationConfigurationList").innerHTML = this.state.generationConfigurations.length
-      ? this.state.generationConfigurations.map((configuration, index) => {
-        const voice = voices.find((item) => item.id === configuration.voiceId);
-        const model = models.find((item) => item.id === configuration.modelId);
-        return `<div class="generation-configuration" data-generation-configuration="${escapeHtml(configuration.id)}"><span class="generation-configuration-index">${String(index + 1).padStart(2, "0")}</span><div class="generation-configuration-field"><span>原声</span>${this.generationDropdown(configuration, index, "原声", configuration.voiceId, voiceOptions, "选择原声")}<small>${voice ? `${voice.enabled_file_count} 条可用录音` : "请选择原声"}</small></div><div class="generation-configuration-field"><span>模型</span>${this.generationDropdown(configuration, index, "模型", configuration.modelId, modelOptions, "选择模型")}<small>${escapeHtml(model?.engine || model?.id || "请选择模型")}</small></div><div class="generation-configuration-field generation-count-field"><span>条数</span>${this.generationDropdown(configuration, index, "条数", String(configuration.candidateCount), countOptions, "选择条数")}<small>每行候选</small></div><button class="icon-button generation-configuration-remove" type="button" data-action="remove-generation-configuration" data-configuration-id="${escapeHtml(configuration.id)}" title="移除这条配置" aria-label="移除第 ${index + 1} 条生成配置">×</button></div>`;
-      }).join("")
-      : `<div class="generation-configuration-empty"><strong>还没有生成配置</strong><span>点击“＋ 添加生成”开始组装。</span></div>`;
-    this.updateGenerationCombinationCount();
-    if (focusId) byId("generationConfigurationList").querySelector(`[data-generation-configuration="${focusId}"] .generation-dropdown-trigger`)?.focus();
-  }
-
-  addGenerationConfiguration() {
-    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
-    const models = this.state.config.models.filter((model) => model.available === true);
-    if (!voices.length || !models.length) return;
-    const previous = this.state.generationConfigurations.at(-1);
-    const id = String(++this.generationConfigurationSequence);
-    this.state.generationConfigurations.push({
-      id,
-      voiceId: voices.some((voice) => voice.id === previous?.voiceId) ? previous.voiceId : (voices.some((voice) => voice.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id),
-      modelId: models.some((model) => model.id === previous?.modelId) ? previous.modelId : (models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0].id),
-      candidateCount: previous?.candidateCount || 1,
-    });
-    this.storePosition();
-    this.renderGenerationConfigurations(id);
-  }
-
-  removeGenerationConfiguration(id) {
-    this.state.generationConfigurations = this.state.generationConfigurations.filter((configuration) => configuration.id !== id);
-    this.storePosition();
-    this.renderGenerationConfigurations();
-  }
-
-  updateGenerationCombinationCount() {
-    const voices = new Set(this.state.voices.filter((voice) => voice.enabled_file_count).map((voice) => voice.id));
-    const models = new Set(this.state.config.models.filter((model) => model.available === true).map((model) => model.id));
-    const complete = this.state.generationConfigurations.filter((configuration) => voices.has(configuration.voiceId) && models.has(configuration.modelId));
-    const candidates = complete.reduce((total, configuration) => total + configuration.candidateCount, 0);
-    const incomplete = this.state.generationConfigurations.length - complete.length;
-    const lineNumber = this.state.generationRequest?.lineNumber;
-    const target = lineNumber === null || lineNumber === undefined ? "整个台本" : `第 ${lineNumber} 行`;
-    byId("generationCombinationCount").textContent = this.state.generationConfigurations.length
-      ? `${target} · ${this.state.generationConfigurations.length} 条生成配置 · 每行共 ${candidates} 条候选${incomplete ? ` · ${incomplete} 条待完善` : ""}`
-      : "请点击“＋ 添加生成”添加至少一条配置";
-    byId("generationSubmitButton").disabled = !this.state.generationConfigurations.length || incomplete > 0;
   }
 
   async submit(event) {
@@ -792,15 +612,10 @@ class WorkstationApp {
   async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoice(); this.toast("参考录音已追加"); }
   async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoice(); this.toast("录音设置已更新"); }
   async submitGenerationOptions() {
-    const lineNumber = this.state.generationRequest?.lineNumber ?? null;
-    const configurations = this.state.generationConfigurations.map((configuration) => ({ ...configuration }));
-    if (!configurations.length || configurations.some((configuration) => !configuration.voiceId || !configuration.modelId)) {
-      this.toast("请完善至少一条生成配置", true);
-      return;
-    }
-    if (!await this.generateScript(lineNumber, configurations)) return;
-    byId("generationOptionsDialog").close();
-    this.state.generationRequest = null;
+    const submission = this.generation.submission();
+    if (!submission) return;
+    if (!await this.generateScript(submission.lineNumber, submission.configurations)) return;
+    this.generation.finish();
   }
 
   async generateScript(lineNumber = null, configurations = []) {

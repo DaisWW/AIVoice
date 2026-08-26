@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 
+MAX_SCRIPT_ITEMS = 3000
+
+
 @dataclass(frozen=True)
 class ScriptItem:
     order: int

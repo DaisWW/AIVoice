@@ -29,6 +29,7 @@ class ApplicationServices:
     ) -> None:
         self.settings = settings
         self.export_lock = threading.Lock()
+        self.script_write_lock = threading.Lock()
         self._engine_factory = engine_factory
         self._seed_legacy = seed_legacy
         self._initialize_lock = threading.Lock()

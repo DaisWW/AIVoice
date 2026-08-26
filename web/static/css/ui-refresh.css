@@ -899,7 +899,7 @@ body.admin-page .auth-view {
   --auth-ink: var(--ink);
   --auth-muted: var(--muted);
   --auth-line: var(--line-strong);
-  --auth-accent: var(--accent);
+  --auth-accent: #8fa3ff;
   grid-template-columns: minmax(0, 1fr) minmax(430px, 520px);
   background: var(--bg);
 }
@@ -1232,6 +1232,20 @@ body.admin-page .toast {
   body.workstation-page .queue-topbar {
     min-width: 64px;
   }
+
+  body.workstation-page .workflow-link span:last-child {
+    display: inline;
+  }
+}
+
+@media (min-width: 1241px) and (max-width: 1600px) {
+  body.workstation-page .auth-rail {
+    padding-inline: clamp(48px, 6vw, 88px);
+  }
+
+  body.workstation-page .auth-rail h1 {
+    font-size: clamp(38px, 3.6vw, 52px);
+  }
 }
 
 @media (max-width: 1120px) {
@@ -1271,6 +1285,17 @@ body.admin-page .toast {
 
   body.admin-page .admin-shell {
     grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  body.admin-page .admin-nav button {
+    gap: 2px;
+  }
+
+  body.admin-page .admin-nav button span {
+    display: block;
+    font-size: 9px;
+    line-height: 1;
+    white-space: nowrap;
   }
 }
 

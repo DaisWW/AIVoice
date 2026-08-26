@@ -87,7 +87,9 @@ def test_admin_username_pattern_accepts_email_style_username() -> None:
 
 
 def test_generation_form_only_lists_explicitly_available_models() -> None:
-    content = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    content = (
+        STATIC_ROOT / "js" / "generation" / "configuration-controller.js"
+    ).read_text(encoding="utf-8")
 
     assert (
         "this.state.config.models.filter((model) => model.available === true)"
@@ -97,17 +99,18 @@ def test_generation_form_only_lists_explicitly_available_models() -> None:
 
 def test_generation_form_uses_searchable_configuration_rows() -> None:
     content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
-    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    javascript = (
+        STATIC_ROOT / "js" / "generation" / "configuration-controller.js"
+    ).read_text(encoding="utf-8")
+    app = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
 
     assert 'id="generationConfigurationList"' in content
     assert 'data-action="add-generation-configuration"' in content
     assert 'data-action="generation-dropdown-search"' in javascript
     assert 'data-action="toggle-generation-dropdown"' in javascript
     assert 'data-action="select-generation-dropdown-option"' in javascript
-    assert (
-        "<select"
-        not in re.search(r"generationDropdown\(.*?\n  }", javascript, re.DOTALL).group()
-    )
+    assert "GenerationConfigurationController" in app
+    assert "<select" not in javascript
     assert '<datalist id="generationVoiceOptions"' not in content
     assert 'id="generationVoiceChoices"' not in content
     assert 'id="generationModelChoices"' not in content
@@ -152,7 +155,7 @@ def test_workstation_login_uses_generated_background_asset() -> None:
     stylesheet = (STATIC_ROOT / "css" / "ui-refresh.css").read_text(encoding="utf-8")
     background = STATIC_ROOT / "assets" / "voice-lab-login-bg.webp"
 
-    assert "ui-refresh.css?v=20260826.3" in content
+    assert "ui-refresh.css?v=20260826.4" in content
     assert 'url("../assets/voice-lab-login-bg.webp")' in stylesheet
     assert background.is_file()
     assert background.stat().st_size > 50_000
@@ -164,7 +167,7 @@ def test_generation_candidate_keeps_only_compact_selection_action() -> None:
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
     assert "workstation.css?v=20260826.16" in content
-    assert "app.js?v=20260826.16" in content
+    assert "app.js?v=20260826.18" in content
     assert '<div class="candidate-media">${audio}${action}</div>' in javascript
     assert 'class="candidate-actions"' not in javascript
     assert "candidate.download_url" not in javascript
@@ -189,7 +192,7 @@ def test_admin_jobs_show_named_project_voice_and_model_identities() -> None:
     content = (STATIC_ROOT / "admin.html").read_text(encoding="utf-8")
     javascript = (STATIC_ROOT / "js" / "admin.js").read_text(encoding="utf-8")
 
-    assert "admin.js?v=20260826.2" in content
+    assert "admin.js?v=20260826.3" in content
     assert '["任务", "项目", "人声", "模型", "状态", "提交时间"]' in javascript
     assert "identityCell(job.project_name, job.project_id)" in javascript
     assert "identityCell(job.voice_name, job.voice_id)" in javascript

@@ -21,6 +21,7 @@ finally {
 $password = [Convert]::ToBase64String($bytes).TrimEnd('=') -replace '\+', '-' -replace '/', '_'
 @(
     "VOICE_LAB_ADMIN_PASSWORD=$password"
+    "VOICE_LAB_PORT=18082"
     "VOICE_LAB_IMAGE=voice-lab:local"
     "VOICE_LAB_BASE_IMAGE=docker.m.daocloud.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime"
     "VOICE_LAB_TORCH_VERSION=2.5.1"
@@ -30,4 +31,7 @@ $password = [Convert]::ToBase64String($bytes).TrimEnd('=') -replace '\+', '-' -r
     "VOICE_LAB_DATA_DIR=./docker-data"
     "VOICE_LAB_INPUT_DIR=./input"
     "VOICE_LAB_OUTPUT_DIR=./output"
+    "VOICE_TEXT_MODEL_BASE_URL="
+    "VOICE_TEXT_MODEL_API_KEY="
+    "VOICE_TEXT_MODEL="
 ) | Set-Content -LiteralPath $resolved -Encoding ascii

@@ -18,9 +18,17 @@ for path in "${required[@]}"; do
   fi
 done
 
-echo "[Voice Lab] starting on ${VOICE_LAB_HOST:-0.0.0.0}:${VOICE_LAB_PORT:-18082}"
-exec python -m uvicorn app.main:app \
-  --app-dir /app/web \
-  --host "${VOICE_LAB_HOST:-0.0.0.0}" \
-  --port "${VOICE_LAB_PORT:-18082}" \
+server=(
+  python -m uvicorn app.main:app
+  --app-dir /app/web
+  --host "${VOICE_LAB_HOST:-0.0.0.0}"
+  --port "${VOICE_LAB_PORT:-18082}"
   --workers 1
+)
+
+echo "[Voice Lab] starting on ${VOICE_LAB_HOST:-0.0.0.0}:${VOICE_LAB_PORT:-18082}"
+if [[ "$(id -u)" -eq 0 ]]; then
+  chown -R voicelab:voicelab /app/web/data
+  exec setpriv --reuid=voicelab --regid=voicelab --init-groups "${server[@]}"
+fi
+exec "${server[@]}"

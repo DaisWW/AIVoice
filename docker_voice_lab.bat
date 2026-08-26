@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Voice Lab Docker - Port 18082
+title Voice Lab Docker
 
 set "ROOT=%~dp0"
 set "PROJECT_ROOT=%ROOT:~0,-1%"
@@ -61,6 +61,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+set "ENV_CREATED=0"
 if not exist "%ENV_FILE%" (
   echo 正在生成系统管理员初始密码...
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%docker\ensure_env.ps1" -Path "%ENV_FILE%"
@@ -68,7 +69,10 @@ if not exist "%ENV_FILE%" (
     echo [ERROR] 无法生成管理员初始密码。
     exit /b 1
   )
+  set "ENV_CREATED=1"
 )
+for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_PORT=" "%ENV_FILE%"') do set "HOST_PORT=%%B"
+if not defined HOST_PORT set "HOST_PORT=18082"
 for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_IMAGE=" "%ENV_FILE%"') do set "IMAGE_NAME=%%B"
 if not defined IMAGE_NAME set "IMAGE_NAME=voice-lab:local"
 
@@ -88,28 +92,30 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoLogo -NoProfile -Command "$deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:18082/api/healthz' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
+powershell.exe -NoLogo -NoProfile -Command "$port='!HOST_PORT!'; $deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri ('http://127.0.0.1:' + $port + '/api/healthz') -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
 if errorlevel 1 (
   echo [ERROR] 服务未在 90 秒内通过健康检查，最近日志如下:
   docker compose --project-directory "%PROJECT_ROOT%" --env-file "%ENV_FILE%" -f "%COMPOSE%" logs --tail=160 voice-lab
   exit /b 1
 )
 
-for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_PASSWORD=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
-if not defined ADMIN_PASSWORD for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_TOKEN=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
+if "!ENV_CREATED!"=="1" (
+  for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_PASSWORD=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
+  if not defined ADMIN_PASSWORD for /f "tokens=1,* delims==" %%A in ('findstr /B "VOICE_LAB_ADMIN_TOKEN=" "%ENV_FILE%"') do set "ADMIN_PASSWORD=%%B"
+)
 echo.
 echo ==================================================
 echo Voice Lab Docker 已就绪
-echo 本机工作台: http://127.0.0.1:18082/
-echo 管理后台:   http://127.0.0.1:18082/admin
+echo 本机工作台: http://127.0.0.1:!HOST_PORT!/
+echo 管理后台:   http://127.0.0.1:!HOST_PORT!/admin
 echo 初始用户名: admin
-echo 初始密码:   !ADMIN_PASSWORD!
-echo 注意: 已有数据库若修改过密码，请使用修改后的密码。
-echo 局域网访问: 使用本机 IPv4 地址加 :18082
+if "!ENV_CREATED!"=="1" echo 初始密码:   !ADMIN_PASSWORD!
+if not "!ENV_CREATED!"=="1" echo 初始密码:   已存在，请使用已保存的管理员密码。
+echo 局域网访问: 使用本机 IPv4 地址加 :!HOST_PORT!
 echo 查看日志:   docker_voice_lab.bat logs
 echo 停止服务:   docker_voice_lab.bat stop
 echo ==================================================
-if not "%VOICE_LAB_NO_BROWSER%"=="1" start "" "http://127.0.0.1:18082/admin"
+if not "%VOICE_LAB_NO_BROWSER%"=="1" start "" "http://127.0.0.1:!HOST_PORT!/admin"
 exit /b 0
 
 :stop

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from ..audio_conversion import (
     AudioNormalizer,
 )
 from ..audio_quality import AudioQualityAnalyzer
-from ..domain import ScriptItem
+from ..domain import MAX_SCRIPT_ITEMS, ScriptItem
 from ..script_parser import (
     SUPPORTED_SCRIPT_EXTENSIONS,
     ScriptFormatError,
@@ -22,7 +23,7 @@ from ..script_parser import (
     parse_file,
 )
 from ..services import ApplicationServices
-from ..storage import ensure_within, safe_filename, save_upload
+from ..storage import ensure_within, read_upload, safe_filename, save_upload
 
 
 class ScriptStorage:
@@ -55,6 +56,7 @@ class ScriptStorage:
         try:
             name = self._script_name(original_name)
             items = await run_in_threadpool(self._parse, path)
+            self._validate_item_count(items)
             script_id = self._services.database.scripts.create(
                 name,
                 original_name,
@@ -76,13 +78,14 @@ class ScriptStorage:
         upload: UploadFile,
     ) -> list[ScriptItem]:
         self._validate_extension(upload.filename or "")
-        content = await upload.read()
         try:
+            content = await read_upload(upload)
             items = await run_in_threadpool(
                 self._parse_content,
                 content,
                 Path(upload.filename or "").suffix,
             )
+            self._validate_item_count(items)
             self.save_items(
                 script,
                 items,
@@ -93,6 +96,8 @@ class ScriptStorage:
             return items
         except ScriptFormatError as error:
             raise HTTPException(status_code=422, detail=f"台本格式错误: {error}") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     def save_items(
         self,
@@ -104,28 +109,34 @@ class ScriptStorage:
         old_path = ensure_within(
             Path(str(script["source_path"])), self._services.settings.root
         )
-        old_path.parent.mkdir(parents=True, exist_ok=True)
-        target = old_path.parent / f"{script['id']}.edited.csv"
-        temporary = target.with_name(f".{target.name}.tmp")
-        had_target = target.exists()
-        try:
-            self._write_csv(temporary, items)
-            temporary.replace(target)
-            updated = self._services.database.scripts.update_source(
-                str(script["id"]),
-                target,
-                len(items),
-                original_name=original_name,
-            )
-            if not updated:
-                raise HTTPException(status_code=404, detail="找不到台本")
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            if target != old_path and not had_target:
+        with self._services.script_write_lock:
+            old_path.parent.mkdir(parents=True, exist_ok=True)
+            target = old_path.parent / f"{script['id']}.edited.csv"
+            operation_id = uuid.uuid4().hex
+            temporary = target.with_name(f".{target.name}.{operation_id}.tmp")
+            backup = target.with_name(f".{target.name}.{operation_id}.bak")
+            try:
+                self._write_csv(temporary, items)
+                if target.exists():
+                    target.replace(backup)
+                temporary.replace(target)
+                updated = self._services.database.scripts.update_source(
+                    str(script["id"]),
+                    target,
+                    len(items),
+                    original_name=original_name,
+                )
+                if not updated:
+                    raise HTTPException(status_code=404, detail="找不到台本")
+            except Exception:
+                temporary.unlink(missing_ok=True)
                 target.unlink(missing_ok=True)
-            raise
-        if old_path != target:
-            old_path.unlink(missing_ok=True)
+                if backup.exists():
+                    backup.replace(target)
+                raise
+            backup.unlink(missing_ok=True)
+            if old_path != target:
+                old_path.unlink(missing_ok=True)
 
     @staticmethod
     def export_csv(items: list[ScriptItem]) -> str:
@@ -159,6 +170,14 @@ class ScriptStorage:
     @staticmethod
     def _parse_content(content: bytes, suffix: str) -> list[ScriptItem]:
         return parse_content(content, suffix)
+
+    @staticmethod
+    def _validate_item_count(items: list[ScriptItem]) -> None:
+        if len(items) > MAX_SCRIPT_ITEMS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"台本最多支持 {MAX_SCRIPT_ITEMS} 条台词",
+            )
 
     @staticmethod
     def _write_csv(path: Path, items: list[ScriptItem]) -> None:

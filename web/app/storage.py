@@ -9,6 +9,7 @@ from fastapi import UploadFile
 
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9\u4e00-\u9fff._-]+")
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def safe_filename(value: str, fallback: str = "upload") -> str:
@@ -25,7 +26,7 @@ async def save_upload(upload: UploadFile, directory: Path) -> tuple[Path, str, i
     total = 0
     try:
         with target.open("wb") as handle:
-            while chunk := await upload.read(1024 * 1024):
+            while chunk := await upload.read(UPLOAD_CHUNK_SIZE):
                 total += len(chunk)
                 if total > MAX_UPLOAD_BYTES:
                     raise ValueError("单个上传文件不能超过 200 MB")
@@ -34,6 +35,18 @@ async def save_upload(upload: UploadFile, directory: Path) -> tuple[Path, str, i
         target.unlink(missing_ok=True)
         raise
     return target, original_name, total
+
+
+async def read_upload(upload: UploadFile) -> bytes:
+    """Read an upload in bounded chunks while enforcing the upload size limit."""
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await upload.read(UPLOAD_CHUNK_SIZE):
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise ValueError("单个上传文件不能超过 200 MB")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def ensure_within(path: Path, root: Path) -> Path:

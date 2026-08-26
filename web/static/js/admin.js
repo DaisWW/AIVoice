@@ -2,6 +2,7 @@ import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { ApiClient } from "./core/api-client.js";
 import { $, escapeHtml, setButtonBusy } from "./core/dom.js";
 import { ProviderController } from "./providers/provider-controller.js?v=20260826.1";
+import { safeResourceUrl } from "./core/url.js?v=20260826.1";
 
 const TITLES = {
   overview: ["SYSTEM OVERVIEW", "系统概览"],
@@ -549,18 +550,24 @@ class AdminApp {
 
   #renderJobDetail(job) {
     $("#adminJobDetailTitle").textContent = job.name;
+    const downloadUrl = safeResourceUrl(job.download_url);
+    const exportUrl = job.can_export ? safeResourceUrl(job.export_url) : "";
     const links = [
-      job.download_url ? `<a href="${escapeHtml(job.download_url)}" download>全部下载</a>` : "",
-      job.can_export ? `<a href="${escapeHtml(job.export_url)}" download>正式导出</a>` : "",
+      downloadUrl ? `<a href="${escapeHtml(downloadUrl)}" download>全部下载</a>` : "",
+      exportUrl ? `<a href="${escapeHtml(exportUrl)}" download>正式导出</a>` : "",
     ].filter(Boolean).join("");
-    const items = (job.items || []).map((item) => [
+    const items = (job.items || []).map((item) => {
+      const audioUrl = safeResourceUrl(item.audio_url);
+      const itemDownloadUrl = safeResourceUrl(item.download_url || item.audio_url);
+      return [
       `<strong>#${item.sequence}</strong><small>${escapeHtml(item.text)}</small>`,
       `<span class="admin-status ${escapeHtml(item.status)}">${escapeHtml(statusLabel(item.status))}</span>${item.error ? `<small>${escapeHtml(item.error)}</small>` : ""}`,
       `${(item.candidates || []).length} 个候选`,
-      item.audio_url
-        ? `<audio controls preload="none" src="${escapeHtml(item.audio_url)}"></audio><a class="table-action" href="${escapeHtml(item.download_url || item.audio_url)}" download>下载</a>`
+      audioUrl
+        ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>${itemDownloadUrl ? `<a class="table-action" href="${escapeHtml(itemDownloadUrl)}" download>下载</a>` : ""}`
         : "暂无音频",
-    ]);
+      ];
+    });
     $("#adminJobDetail").innerHTML = `
       <div class="admin-job-summary">
         <div><span>提交用户</span><strong>${escapeHtml(this.#userLabel(job.client_id))}</strong></div>

@@ -29,7 +29,7 @@ cd C:\Workspace\Git\voice
 .\docker_voice_lab.bat
 ```
 
-首次运行会生成 `docker\voice-lab.env` 中的随机管理员初始密码，并构建镜像。初始用户名为 `admin`；已有数据库若已经修改密码，env 中的值不会重置账户。后续再次运行只执行幂等的 `compose up`，不会迁移数据；代码更新后使用：
+首次运行会生成 `docker\voice-lab.env` 中的随机管理员初始密码，并构建镜像。初始用户名为 `admin`；已有数据库若已经修改密码，env 中的值不会重置账户。只有首次生成 env 时 BAT 会显示初始密码，后续启动不会回显凭据。后续再次运行只执行幂等的 `compose up`，不会迁移数据；代码更新后使用：
 
 ```powershell
 .\docker_voice_lab.bat build
@@ -43,7 +43,9 @@ cd C:\Workspace\Git\voice
 .\docker_voice_lab.bat stop
 ```
 
-管理后台 URL、初始用户名和初始密码会由 BAT 输出，浏览器打开后正常登录；管理员再从后台创建局域网成员账户。局域网用户使用服务器 IPv4 地址加 `:18082`。Windows 防火墙只建议放行 `LocalSubnet` 的 TCP 18082。
+管理后台 URL、初始用户名和（仅首次生成时的）初始密码会由 BAT 输出，浏览器打开后正常登录；管理员再从后台创建局域网成员账户。默认端口为 `18082`，可在 env 设置 `VOICE_LAB_PORT`，BAT 的健康检查和输出会跟随该端口。Windows 防火墙只建议放行实际配置的 TCP 端口。
+
+文本模型也可通过 `VOICE_TEXT_MODEL_BASE_URL`、`VOICE_TEXT_MODEL_API_KEY` 和 `VOICE_TEXT_MODEL` 传入容器；管理员页面保存的配置优先用于后续请求。
 
 ## 镜像与模型
 

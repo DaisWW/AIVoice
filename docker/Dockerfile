@@ -34,6 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -c "import accelerate, conformer, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
     && apt-get purge -y --auto-remove build-essential
 
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN groupadd --gid "${APP_GID}" voicelab \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /usr/sbin/nologin voicelab
+
 COPY . /app
 COPY docker/entrypoint.sh /usr/local/bin/voice-lab-entrypoint
 RUN python -m pip uninstall -y praat-parselmouth pyloudnorm \

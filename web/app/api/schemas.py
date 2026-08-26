@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ..domain import MAX_SCRIPT_ITEMS
+
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
@@ -78,7 +80,7 @@ class TextGenerationRequest(BaseModel):
 
 
 class TextLineRewriteRequest(BaseModel):
-    sequence: int = Field(ge=1, le=3000)
+    sequence: int = Field(ge=1, le=MAX_SCRIPT_ITEMS)
     text: str = Field(min_length=1, max_length=2000)
     pronunciation: str = Field(default="", max_length=2000)
     instruction: str = Field(min_length=1, max_length=4000)
@@ -106,7 +108,7 @@ class ScriptItemUpdate(BaseModel):
 
 
 class ScriptItemsUpdate(BaseModel):
-    items: list[ScriptItemUpdate] = Field(min_length=1, max_length=3000)
+    items: list[ScriptItemUpdate] = Field(min_length=1, max_length=MAX_SCRIPT_ITEMS)
 
 
 class ElevenLabsProviderUpdate(BaseModel):
@@ -157,7 +159,7 @@ class CandidateAccept(BaseModel):
 
 
 class ScriptLineSelectionCreate(BaseModel):
-    sequence: int = Field(ge=1, le=3000)
+    sequence: int = Field(ge=1, le=MAX_SCRIPT_ITEMS)
     job_id: str = Field(min_length=1, max_length=64)
     item_id: str = Field(min_length=1, max_length=64)
     candidate_id: str = Field(min_length=1, max_length=64)

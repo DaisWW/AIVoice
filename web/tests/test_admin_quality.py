@@ -73,9 +73,7 @@ def test_admin_overview_jobs_include_readable_identity(app_client) -> None:
     client, services = app_client
     admin = services.database.auth.get_by_username("admin")
     assert admin
-    project = services.database.projects.create(
-        str(admin["id"]), "动画配音", "任务展示测试"
-    )
+    project = services.database.projects.create(str(admin["id"]), "动画配音", "任务展示测试")
     voice_id = services.database.voices.create(
         "铁匠音色", str(admin["id"]), "", project_id=str(project["id"])
     )
