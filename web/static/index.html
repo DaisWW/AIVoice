@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260825.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.5">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.6">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
@@ -55,6 +55,9 @@
       </nav>
 
       <div class="identity-block">
+        <span id="queueDock" class="queue-indicator queue-topbar" aria-label="生成队列" aria-live="polite" title="生成队列">
+          <i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong>
+        </span>
         <span id="userAvatar" class="user-avatar">U</span>
         <div><strong id="clientId">--</strong><small id="identityRole">项目成员</small></div>
         <a id="adminLink" class="admin-link" href="/admin" hidden>系统后台</a>
@@ -84,9 +87,6 @@
           </section>
         </div>
       </main>
-    </div>
-    <div id="queueDock" class="queue-indicator queue-dock" aria-live="polite">
-      <i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong>
     </div>
   </div>
 
@@ -149,6 +149,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260826.7"></script>
+  <script type="module" src="/assets/js/app.js?v=20260826.8"></script>
 </body>
 </html>

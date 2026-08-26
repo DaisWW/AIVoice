@@ -1,6 +1,6 @@
 import { ApiClient } from "./core/api-client.js";
 import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
-import { escapeHtml } from "./core/dom.js";
+import { escapeHtml, setButtonBusy } from "./core/dom.js";
 
 const byId = (id) => document.getElementById(id);
 const enc = (value) => encodeURIComponent(value);
@@ -209,13 +209,28 @@ class WorkstationApp {
       ? { type: "script", id: options.focusScriptId }
       : this.captureScriptFocus();
     const selected = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
-    const query = String(this.state.scriptSearchQuery || "").trim().toLowerCase();
-    const scripts = query ? this.state.scripts.filter((script) => String(script.search_text || `${script.name} ${script.original_name}`).toLowerCase().includes(query)) : this.state.scripts;
-    const list = scripts.map((script) => `<button class="asset-row${script.id === selected?.id ? " active" : ""}" type="button" data-action="select-script" data-id="${escapeHtml(script.id)}" aria-current="${script.id === selected?.id}"><span class="asset-icon">T</span><span class="asset-copy"><strong>${escapeHtml(script.name)}</strong><small>${script.item_count} 行 · ${formatDate(script.created_at)}</small></span><span class="asset-status">台词</span></button>`).join("") || (query && this.state.scripts.length ? '<p class="empty-list">没有匹配的台本</p>' : '<p class="empty-list">尚未导入台本</p>');
+    const list = this.scriptAssetList();
     const detail = selected ? this.scriptDetail(selected) : '<div class="empty-panel"><div><strong>选择或导入一个台本</strong>上传后可编辑每行台词和发音。</div></div>';
-    byId("scriptContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">SCRIPT WORKSTATION</span><h1>台本</h1><p>选中台本后，直接编辑台词和发音，选择声音并生成音频。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">添加</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    const content = byId("scriptContent");
+    const listElement = content.querySelector(".asset-list");
+    const detailElement = content.querySelector(".detail-panel");
+    if (listElement && detailElement) {
+      listElement.innerHTML = list;
+      const count = content.querySelector(".asset-sidebar-header small");
+      if (count) count.textContent = `${this.state.scripts.length} 个台本`;
+      if (!options.listOnly) detailElement.innerHTML = detail;
+    } else {
+      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">SCRIPT WORKSTATION</span><h1>台本</h1><p>选中台本后，直接编辑台词和发音，选择声音并生成音频。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">添加</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    }
     this.restoreScriptFocus(focus);
     if (selected) void this.loadScriptDetail(selected.id);
+  }
+
+  scriptAssetList() {
+    const selected = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
+    const query = String(this.state.scriptSearchQuery || "").trim().toLowerCase();
+    const scripts = query ? this.state.scripts.filter((script) => String(script.search_text || `${script.name} ${script.original_name}`).toLowerCase().includes(query)) : this.state.scripts;
+    return scripts.map((script) => `<button class="asset-row${script.id === selected?.id ? " active" : ""}" type="button" data-action="select-script" data-id="${escapeHtml(script.id)}" aria-current="${script.id === selected?.id}"><span class="asset-icon">T</span><span class="asset-copy"><strong>${escapeHtml(script.name)}</strong><small>${script.item_count} 行 · ${formatDate(script.created_at)}</small></span><span class="asset-status">台词</span></button>`).join("") || (query && this.state.scripts.length ? '<p class="empty-list">没有匹配的台本</p>' : '<p class="empty-list">尚未导入台本</p>');
   }
 
   captureScriptFocus() {
@@ -231,13 +246,15 @@ class WorkstationApp {
     if (!focus) return;
     if (focus.type === "script") {
       const row = [...document.querySelectorAll('[data-action="select-script"]')].find((item) => item.dataset.id === focus.id);
-      row?.focus();
+      row?.focus({ preventScroll: true });
       return;
     }
     const search = document.querySelector("#scriptSearch");
     if (!search) return;
-    search.focus({ preventScroll: true });
-    if (Number.isInteger(focus.start)) search.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+    if (document.activeElement !== search) {
+      search.focus({ preventScroll: true });
+      if (Number.isInteger(focus.start)) search.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+    }
   }
 
   async loadScriptDetail(id) {
@@ -331,30 +348,53 @@ class WorkstationApp {
     return this.state.jobs.filter((job) => job.script_id === scriptId);
   }
 
-  renderVoice() {
+  renderVoice(options = {}) {
     const focus = this.captureVoiceFocus();
     const selected = this.state.voices.find((item) => item.id === this.state.selectedVoiceId);
-    const query = String(this.state.voiceSearchQuery || "").trim().toLowerCase();
-    const voices = query ? this.state.voices.filter((voice) => String(voice.search_text || `${voice.name} ${voice.notes}`).toLowerCase().includes(query)) : this.state.voices;
-    const list = voices.map((voice) => `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`).join("") || (query && this.state.voices.length ? '<p class="empty-list">没有匹配的声音</p>' : '<p class="empty-list">尚未创建声音</p>');
+    const list = this.voiceAssetList();
     const detail = selected ? this.voiceDetail(selected) : '<div class="empty-panel"><div><strong>选择或创建一个声音</strong>声音库中的可用录音可以在台本页直接使用。</div></div>';
-    byId("voiceContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">VOICE LIBRARY</span><h1>声音库</h1><p>维护项目里的参考录音，生成时从这里选择声音。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    const content = byId("voiceContent");
+    const listElement = content.querySelector(".asset-list");
+    const detailElement = content.querySelector(".detail-panel");
+    if (listElement && detailElement) {
+      listElement.innerHTML = list;
+      const count = content.querySelector(".asset-sidebar-header small");
+      if (count) count.textContent = `${this.state.voices.length} 个声音`;
+      if (!options.listOnly) detailElement.innerHTML = detail;
+    } else {
+      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">VOICE LIBRARY</span><h1>声音库</h1><p>维护项目里的参考录音，生成时从这里选择声音。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+    }
     this.restoreVoiceFocus(focus);
     if (selected) void this.loadVoiceDetail(selected.id);
   }
 
+  voiceAssetList() {
+    const selected = this.state.voices.find((item) => item.id === this.state.selectedVoiceId);
+    const query = String(this.state.voiceSearchQuery || "").trim().toLowerCase();
+    const voices = query ? this.state.voices.filter((voice) => String(voice.search_text || `${voice.name} ${voice.notes}`).toLowerCase().includes(query)) : this.state.voices;
+    return voices.map((voice) => `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`).join("") || (query && this.state.voices.length ? '<p class="empty-list">没有匹配的声音</p>' : '<p class="empty-list">尚未创建声音</p>');
+  }
+
   captureVoiceFocus() {
     const active = document.activeElement;
-    if (active?.id !== "voiceSearch") return null;
-    return { start: active.selectionStart, end: active.selectionEnd };
+    if (active?.id === "voiceSearch") return { type: "search", start: active.selectionStart, end: active.selectionEnd };
+    const row = active?.closest?.('[data-action="select-voice"]');
+    return row ? { type: "voice", id: row.dataset.id } : null;
   }
 
   restoreVoiceFocus(focus) {
     if (!focus) return;
+    if (focus.type === "voice") {
+      const row = [...document.querySelectorAll('[data-action="select-voice"]')].find((item) => item.dataset.id === focus.id);
+      row?.focus({ preventScroll: true });
+      return;
+    }
     const search = document.querySelector("#voiceSearch");
     if (!search) return;
-    search.focus({ preventScroll: true });
-    if (Number.isInteger(focus.start)) search.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+    if (document.activeElement !== search) {
+      search.focus({ preventScroll: true });
+      if (Number.isInteger(focus.start)) search.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+    }
   }
 
   async loadVoiceDetail(id) {
@@ -453,7 +493,7 @@ class WorkstationApp {
       if (action === "open-script") this.openDialog("scriptDialog");
       if (action === "open-voice") this.openDialog("voiceDialog");
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
-      if (action === "select-script") { this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript({ focusScriptId: button.dataset.id }); }
+      if (action === "select-script") { this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); }
       if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "generate-all") this.openGenerationDialog(null);
       if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
@@ -464,8 +504,8 @@ class WorkstationApp {
       if (action === "delete-all-generations") await this.deleteAllGenerations();
       if (action === "delete-script") await this.deleteScript();
       if (action === "remove-member") await this.removeMember(button.dataset.memberId);
-      if (action === "suggest-project-prompt") await this.suggestProjectPrompt();
-      if (action === "suggest-script-prompt") await this.suggestScriptPrompt();
+      if (action === "suggest-project-prompt") await this.runBusy(button, () => this.suggestProjectPrompt());
+      if (action === "suggest-script-prompt") await this.runBusy(button, () => this.suggestScriptPrompt());
       if (action === "adopt-project-prompt") this.adoptProjectPrompt();
       if (action === "adopt-script-prompt") this.adoptScriptPrompt();
       if (action === "adopt-generated-lines") this.adoptGeneratedLines();
@@ -475,14 +515,12 @@ class WorkstationApp {
   input(event) {
     const input = event.target;
     if (input.id === "scriptSearch") {
-      const previousQuery = this.state.scriptSearchQuery;
       this.state.scriptSearchQuery = input.value;
-      const cleared = !input.value.trim() && previousQuery.trim();
-      this.renderScript(cleared ? { focusScriptId: this.state.selectedScriptId } : {});
+      this.renderScript({ listOnly: true });
     }
     if (input.id === "voiceSearch") {
       this.state.voiceSearchQuery = input.value;
-      this.renderVoice();
+      this.renderVoice({ listOnly: true });
     }
   }
 
@@ -553,18 +591,19 @@ class WorkstationApp {
     const form = event.target;
     if (!form.matches("form")) return;
     event.preventDefault();
+    const button = event.submitter;
     try {
       if (form.id === "projectCreateForm") await this.createProject(form);
       if (form.id === "scriptCreateForm") await this.createScript(form);
       if (form.id === "voiceCreateForm") await this.createVoice(form);
-      if (form.id === "scriptSettingsForm") await this.saveScriptSettings(form);
-      if (form.id === "scriptItemsForm") await this.saveScriptItems(form);
+      if (form.id === "scriptSettingsForm") await this.runBusy(button, () => this.saveScriptSettings(form));
+      if (form.id === "scriptItemsForm") await this.runBusy(button, () => this.saveScriptItems(form));
       if (form.id === "voiceSettingsForm") await this.saveVoiceSettings(form);
       if (form.id === "voiceAppendForm") await this.appendVoiceFiles(form);
-      if (form.id === "projectSettingsForm") await this.saveProject(form);
+      if (form.id === "projectSettingsForm") await this.runBusy(button, () => this.saveProject(form));
       if (form.id === "memberAddForm") await this.addMember(form);
-      if (form.id === "generationOptionsForm") await this.submitGenerationOptions(form);
-      if (form.id === "textGenerationForm") await this.generateText(form);
+      if (form.id === "generationOptionsForm") await this.runBusy(button, () => this.submitGenerationOptions(form));
+      if (form.id === "textGenerationForm") await this.runBusy(button, () => this.generateText(form));
     } catch (error) { this.toast(error.message, true); }
   }
 
@@ -699,6 +738,11 @@ class WorkstationApp {
   async refreshProjectAndMembers() { const { project } = await this.api.get(`/api/projects/${enc(this.state.project.id)}`); this.state.project = project; this.merge(this.state.projects, project); this.renderProject(); }
   async deleteScript() { const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId); if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return; await this.api.delete(`/api/scripts/${enc(script.id)}`); this.state.scripts = this.state.scripts.filter((item) => item.id !== script.id); this.state.selectedScriptId = this.state.scripts[0]?.id || null; this.state.scriptDetail = null; this.storePosition(); this.render(); this.toast("台本已删除"); }
   merge(items, value) { const index = items.findIndex((item) => item.id === value.id); if (index >= 0) items[index] = { ...items[index], ...value }; }
+  async runBusy(button, operation) {
+    if (!button) return operation();
+    setButtonBusy(button, true);
+    try { return await operation(); } finally { setButtonBusy(button, false); }
+  }
   openDialog(id) { byId(id).showModal(); }
   toast(message, error = false) { const element = byId("toast"); element.textContent = message; element.classList.toggle("error", error); element.classList.add("show"); clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => element.classList.remove("show"), 3000); }
 }
