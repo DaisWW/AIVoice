@@ -103,7 +103,6 @@ class WorkstationApp {
       };
       sessionStorage.setItem(WORKSTATION_POSITION_KEY, JSON.stringify({
         ...stored,
-        projectId,
         view: this.state.currentView,
         projects,
       }));
@@ -167,7 +166,6 @@ class WorkstationApp {
         : [];
       this.storeProjectId(id);
       this.state.currentView = restoredView;
-      this.storePosition();
       this.renderProjectSelect();
       this.render();
       this.showView(restoredView);
