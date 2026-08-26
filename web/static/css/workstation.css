@@ -508,18 +508,24 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .upload-glyph { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 15px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 22px; }
 .compact-dialog { width: min(420px, calc(100vw - 30px)); }
-.generation-options-dialog { width: min(980px, calc(100vw - 40px)); max-height: min(760px, calc(100dvh - 40px)); }
-.generation-choice-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 18px; }
-.generation-choice-group { min-width: 0; margin: 0; padding: 0; border: 0; }
-.generation-choice-group legend { margin-bottom: 8px; color: var(--ws-ink-soft); font-size: 11px; font-weight: 650; }
-.generation-choice-list { display: grid; max-height: 340px; gap: 6px; overflow-y: auto; }
-.generation-choice { display: flex; min-width: 0; align-items: center; gap: 9px; min-height: 50px; padding: 8px 10px; border: 1px solid var(--ws-line); border-radius: 5px; background: var(--ws-surface-soft); cursor: pointer; }
-.generation-choice:has(input:checked) { border-color: var(--ws-accent); background: var(--ws-accent-soft); }
-.generation-choice input { flex: 0 0 auto; width: 15px; min-width: 15px; height: 15px; min-height: 15px; margin: 0; padding: 0; accent-color: var(--ws-accent); }
-.generation-choice span { min-width: 0; }
-.generation-choice strong, .generation-choice small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.generation-choice strong { color: var(--ws-ink-soft); font-size: 11px; }
-.generation-choice small { margin-top: 4px; color: var(--ws-muted); font-size: 9px; }
+.generation-options-dialog { width: min(920px, calc(100vw - 40px)); max-height: min(760px, calc(100dvh - 40px)); }
+.generation-configuration-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 18px; }
+.generation-configuration-toolbar strong, .generation-configuration-toolbar small { display: block; }
+.generation-configuration-toolbar strong { color: var(--ws-ink-soft); font-size: 12px; }
+.generation-configuration-toolbar small { margin-top: 5px; color: var(--ws-muted); font-size: 10px; }
+.generation-configuration-list { display: grid; max-height: min(390px, 46dvh); gap: 8px; margin-top: 11px; padding-right: 4px; overflow-y: auto; }
+.generation-configuration { display: grid; min-width: 0; grid-template-columns: 34px minmax(190px, 1.35fr) minmax(180px, 1fr) 92px 34px; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--ws-line); border-radius: 7px; background: var(--ws-surface-soft); }
+.generation-configuration:focus-within { border-color: var(--ws-line-strong); background: #13191f; }
+.generation-configuration-index { display: inline-grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 10px; font-weight: 750; }
+.generation-configuration-field { display: grid; min-width: 0; gap: 6px; color: var(--ws-ink-soft); font-size: 10px; font-weight: 650; }
+.generation-configuration-field input, .generation-configuration-field select { width: 100%; min-width: 0; min-height: 40px; padding: 0 11px; border: 1px solid var(--ws-line-strong); border-radius: 6px; background: var(--ws-surface); color: var(--ws-ink); outline: none; }
+.generation-configuration-field input:focus, .generation-configuration-field select:focus { border-color: var(--ws-accent); box-shadow: 0 0 0 3px rgba(200, 240, 107, .11); }
+.generation-configuration-field small { min-width: 0; overflow: hidden; color: var(--ws-muted); font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.generation-count-field select { min-width: 82px; }
+.generation-configuration-remove { align-self: center; color: var(--ws-muted); }
+.generation-configuration-remove:hover { border-color: rgba(255, 125, 134, .45); background: var(--ws-danger-soft); color: var(--ws-danger); }
+.generation-configuration-empty { display: grid; min-height: 125px; place-items: center; align-content: center; gap: 7px; border: 1px dashed var(--ws-line-strong); border-radius: 7px; background: var(--ws-surface-soft); color: var(--ws-muted); font-size: 10px; text-align: center; }
+.generation-configuration-empty strong { color: var(--ws-ink-soft); font-size: 12px; }
 .generation-combination-count { margin: 15px 0 0; padding: 10px 12px; border: 1px solid rgba(110, 212, 209, .22); border-radius: 5px; background: rgba(110, 212, 209, .06); color: var(--ws-cool); font-size: 10px; }
 
 .toast { position: fixed; z-index: 20; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); padding: 12px 15px; border: 1px solid var(--ws-line-strong); border-radius: 6px; background: var(--ws-surface-raised); color: var(--ws-ink-soft); box-shadow: 0 12px 38px rgba(0, 0, 0, .35); font-size: 11px; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .18s ease, transform .18s ease; }
@@ -614,9 +620,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
   .empty-workspace h1 { font-size: 28px; }
 }
 
+@media (max-width: 720px) {
+  .generation-options-dialog { width: min(560px, calc(100vw - 24px)); }
+  .generation-configuration-toolbar { align-items: stretch; flex-direction: column; }
+  .generation-configuration-toolbar .button { align-self: flex-start; }
+  .generation-configuration { grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: start; }
+  .generation-configuration-index { grid-column: 1; grid-row: 1; margin-top: 18px; }
+  .generation-configuration-field { grid-column: 2; }
+  .generation-count-field { max-width: 120px; }
+  .generation-configuration-remove { grid-column: 3; grid-row: 1; margin-top: 18px; }
+}
+
 @media (max-width: 440px) {
-  .generation-choice-columns { grid-template-columns: 1fr; }
-  .generation-choice-list { max-height: 170px; }
   .line-history-row { grid-template-columns: 1fr; }
   .line-history-row > .button { justify-self: start; }
   .line-history-top time { width: 100%; margin-left: 0; }

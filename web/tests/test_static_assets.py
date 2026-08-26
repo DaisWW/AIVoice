@@ -93,3 +93,13 @@ def test_generation_form_only_lists_explicitly_available_models() -> None:
         "this.state.config.models.filter((model) => model.available === true)"
         in content
     )
+
+
+def test_generation_form_uses_searchable_configuration_rows() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="generationConfigurationList"' in content
+    assert 'id="generationVoiceOptions"' in content
+    assert 'data-action="add-generation-configuration"' in content
+    assert 'id="generationVoiceChoices"' not in content
+    assert 'id="generationModelChoices"' not in content

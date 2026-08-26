@@ -449,6 +449,26 @@ def test_job_requires_explicit_voice_selection(app_client) -> None:
     assert "请选择 1-4 个声音库" in response.json()["detail"]
 
 
+def test_create_job_accepts_four_candidates(app_client) -> None:
+    client, _ = app_client
+    voice = _create_voice(client, "four candidate voice")
+    script = _create_script(client, "four-candidates.txt", "four candidates | mo-la\n")
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 4,
+        },
+    )
+
+    assert response.status_code == 201
+    job = wait_for_job(client, response.json()["job"]["id"])
+    assert len(job["items"][0]["candidates"]) == 4
+
+
 def test_regenerate_accept_and_export_clone_candidate(app_client) -> None:
     client, services = app_client
     voice = _create_voice(client, "candidate voice")

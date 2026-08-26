@@ -15,9 +15,10 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationVoiceIds: [], generationModelIds: [], generationCandidateCount: 1, generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.requestVersion = 0;
+    this.generationConfigurationSequence = 0;
     this.toastTimer = null;
     this.loadingJobIds = new Set();
   }
@@ -98,8 +99,7 @@ class WorkstationApp {
         scriptId: this.state.selectedScriptId,
         voiceId: this.state.selectedVoiceId,
         modelId: this.state.selectedModelId,
-        generationVoiceIds: [...this.state.generationVoiceIds],
-        generationModelIds: [...this.state.generationModelIds],
+        generationConfigurations: this.state.generationConfigurations.map(({ voiceId, modelId, candidateCount }) => ({ voiceId, modelId, candidateCount })),
       };
       sessionStorage.setItem(WORKSTATION_POSITION_KEY, JSON.stringify({
         ...stored,
@@ -133,9 +133,7 @@ class WorkstationApp {
         this.state.scriptDetail = null;
         this.state.voiceDetail = null;
         this.state.jobDetails = {};
-        this.state.generationVoiceIds = [];
-        this.state.generationModelIds = [];
-        this.state.generationCandidateCount = 1;
+        this.state.generationConfigurations = [];
         this.state.projectPromptSuggestion = "";
         this.state.projectPromptDraft = null;
         this.state.scriptPromptSuggestion = "";
@@ -151,19 +149,21 @@ class WorkstationApp {
       this.state.selectedVoiceId = usableVoices.some((item) => item.id === savedVoiceId) ? savedVoiceId : usableVoices[0]?.id || this.state.voices[0]?.id || null;
       const models = this.state.config.models.filter((model) => model.available === true);
       this.state.selectedModelId = models.some((model) => model.id === savedModelId) ? savedModelId : models[0]?.id || null;
-      const generationVoiceIds = previousProjectId === id
-        ? this.state.generationVoiceIds
-        : savedPosition.generationVoiceIds;
-      const generationModelIds = previousProjectId === id
-        ? this.state.generationModelIds
-        : savedPosition.generationModelIds;
+      const generationConfigurations = previousProjectId === id
+        ? this.state.generationConfigurations
+        : savedPosition.generationConfigurations;
       const usableVoiceIds = new Set(usableVoices.map((voice) => voice.id));
       const availableModelIds = new Set(models.map((model) => model.id));
-      this.state.generationVoiceIds = Array.isArray(generationVoiceIds)
-        ? [...new Set(generationVoiceIds)].filter((value) => usableVoiceIds.has(value))
-        : [];
-      this.state.generationModelIds = Array.isArray(generationModelIds)
-        ? [...new Set(generationModelIds)].filter((value) => availableModelIds.has(value))
+      this.state.generationConfigurations = Array.isArray(generationConfigurations)
+        ? generationConfigurations.flatMap((configuration) => {
+          if (!configuration || !usableVoiceIds.has(configuration.voiceId) || !availableModelIds.has(configuration.modelId)) return [];
+          return [{
+            id: String(++this.generationConfigurationSequence),
+            voiceId: configuration.voiceId,
+            modelId: configuration.modelId,
+            candidateCount: Math.min(4, Math.max(1, Number(configuration.candidateCount) || 1)),
+          }];
+        })
         : [];
       this.storeProjectId(id);
       this.state.currentView = restoredView;
@@ -283,7 +283,7 @@ class WorkstationApp {
     const exportAll = canExportAll
       ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all">导出全部历史</button>`
       : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all" disabled>导出全部历史</button>`;
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>点击生成时选择声音和模型，可一次创建多种组合。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持多声音和多模型组合` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptSettingsForm" class="detail-form"><label class="field"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>单台本提示词</span><textarea name="prompt" maxlength="12000" placeholder="角色、场景、语气、格式和禁用项。会叠加在项目总体提示词之后。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>提示词由人工维护；AI 建议只生成草稿，不会自动覆盖。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存台本设置</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}</form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>使用项目总体提示词 + 单台本提示词生成草稿，确认后再加入编辑器。</p></div></div><label class="field wide"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：写 5 句，表现角色第一次发现异常时的克制惊讶。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词草稿</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
+    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>按列表组装原声、模型和候选条数，每条配置独立生成。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条组装生成配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptSettingsForm" class="detail-form"><label class="field"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>单台本提示词</span><textarea name="prompt" maxlength="12000" placeholder="角色、场景、语气、格式和禁用项。会叠加在项目总体提示词之后。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>提示词由人工维护；AI 建议只生成草稿，不会自动覆盖。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存台本设置</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}</form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>使用项目总体提示词 + 单台本提示词生成草稿，确认后再加入编辑器。</p></div></div><label class="field wide"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：写 5 句，表现角色第一次发现异常时的克制惊讶。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词草稿</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
   }
 
   promptSuggestion(suggestion, scope) {
@@ -495,6 +495,8 @@ class WorkstationApp {
       if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "generate-all") this.openGenerationDialog(null);
       if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
+      if (action === "add-generation-configuration") this.addGenerationConfiguration();
+      if (action === "remove-generation-configuration") this.removeGenerationConfiguration(button.dataset.configurationId);
       if (action === "select-generation") await this.selectGeneration(button.dataset);
       if (action === "clear-generation-selection") await this.clearGenerationSelection(Number(button.dataset.sequence));
       if (action === "export-script-audio") this.exportScriptAudio(button.dataset.scope);
@@ -526,6 +528,18 @@ class WorkstationApp {
       this.state.voiceSearchQuery = input.value;
       this.renderVoice({ listOnly: true });
     }
+    if (input.dataset.action === "generation-voice") {
+      const configuration = this.state.generationConfigurations.find((item) => item.id === input.dataset.configurationId);
+      const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
+      const labels = this.generationVoiceLabels(voices);
+      const voice = voices.find((item) => labels.get(item.id) === input.value.trim());
+      if (configuration) configuration.voiceId = voice?.id || "";
+      input.setCustomValidity(voice ? "" : "请从列表中选择原声");
+      const help = input.closest(".generation-configuration-field")?.querySelector("small");
+      if (help) help.textContent = voice ? `${voice.enabled_file_count} 条可用录音` : "输入名称搜索并从列表选择";
+      this.storePosition();
+      this.updateGenerationCombinationCount();
+    }
   }
 
   async change(event) {
@@ -534,23 +548,16 @@ class WorkstationApp {
       if (input.dataset.action === "file-enabled") await this.updateVoiceFile(input.dataset.fileId, { enabled: input.checked });
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
-      if (input.dataset.action === "generation-voice-option" || input.dataset.action === "generation-model-option") {
-        const selector = input.dataset.action === "generation-voice-option"
-          ? 'input[data-action="generation-voice-option"]:checked'
-          : 'input[data-action="generation-model-option"]:checked';
-        const values = [...document.querySelectorAll(selector)].map((item) => item.value);
-        if (values.length > 4) {
-          input.checked = false;
-          this.toast("每类最多选择 4 个", true);
-          return;
-        }
-        if (input.dataset.action === "generation-voice-option") this.state.generationVoiceIds = values;
-        else this.state.generationModelIds = values;
+      if (input.dataset.action === "generation-model" || input.dataset.action === "generation-candidate-count") {
+        const configuration = this.state.generationConfigurations.find((item) => item.id === input.dataset.configurationId);
+        if (!configuration) return;
+        if (input.dataset.action === "generation-model") {
+          configuration.modelId = input.value;
+          const model = this.state.config.models.find((item) => item.id === input.value);
+          const help = input.closest(".generation-configuration-field")?.querySelector("small");
+          if (help) help.textContent = model?.engine || model?.id || "请选择模型";
+        } else configuration.candidateCount = Math.min(4, Math.max(1, Number(input.value) || 1));
         this.storePosition();
-        this.updateGenerationCombinationCount();
-      }
-      if (input.id === "generationCandidateCount") {
-        this.state.generationCandidateCount = Math.min(4, Math.max(1, Number(input.value) || 1));
         this.updateGenerationCombinationCount();
       }
     } catch (error) { this.toast(error.message, true); }
@@ -567,28 +574,76 @@ class WorkstationApp {
     const validVoiceIds = new Set(voices.map((voice) => voice.id));
     const validModelIds = new Set(models.map((model) => model.id));
     this.state.generationRequest = { lineNumber };
-    this.state.generationVoiceIds = this.state.generationVoiceIds.filter((id) => validVoiceIds.has(id));
-    this.state.generationModelIds = this.state.generationModelIds.filter((id) => validModelIds.has(id));
-    if (!this.state.generationVoiceIds.length) this.state.generationVoiceIds = [this.state.selectedVoiceId].filter((id) => validVoiceIds.has(id));
-    if (!this.state.generationModelIds.length) this.state.generationModelIds = [this.state.selectedModelId].filter((id) => validModelIds.has(id));
-    if (!this.state.generationVoiceIds.length) this.state.generationVoiceIds = [voices[0].id];
-    if (!this.state.generationModelIds.length) this.state.generationModelIds = [models[0].id];
+    this.state.generationConfigurations = this.state.generationConfigurations.filter((configuration) => validVoiceIds.has(configuration.voiceId) && validModelIds.has(configuration.modelId));
+    if (!this.state.generationConfigurations.length) {
+      this.state.generationConfigurations.push({
+        id: String(++this.generationConfigurationSequence),
+        voiceId: validVoiceIds.has(this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id,
+        modelId: validModelIds.has(this.state.selectedModelId) ? this.state.selectedModelId : models[0].id,
+        candidateCount: 1,
+      });
+    }
     byId("generationOptionsTitle").textContent = lineNumber === null ? "全部生成" : `第 ${lineNumber} 行生成`;
-    byId("generationVoiceChoices").innerHTML = voices.map((voice) => `<label class="generation-choice"><input type="checkbox" data-action="generation-voice-option" value="${escapeHtml(voice.id)}"${this.state.generationVoiceIds.includes(voice.id) ? " checked" : ""}><span><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count} 条可用录音</small></span></label>`).join("");
-    byId("generationModelChoices").innerHTML = models.map((model) => `<label class="generation-choice"><input type="checkbox" data-action="generation-model-option" value="${escapeHtml(model.id)}"${this.state.generationModelIds.includes(model.id) ? " checked" : ""}><span><strong>${escapeHtml(model.label || model.id)}</strong><small>${escapeHtml(model.engine || model.id)}</small></span></label>`).join("");
-    byId("generationCandidateCount").value = String(this.state.generationCandidateCount);
-    this.updateGenerationCombinationCount();
+    this.renderGenerationConfigurations();
+    this.storePosition();
     this.openDialog("generationOptionsDialog");
   }
 
+  generationVoiceLabels(voices) {
+    const nameCounts = voices.reduce((counts, voice) => counts.set(voice.name, (counts.get(voice.name) || 0) + 1), new Map());
+    return new Map(voices.map((voice) => [voice.id, nameCounts.get(voice.name) > 1 ? `${voice.name} · ${voice.id.slice(0, 6)}` : voice.name]));
+  }
+
+  renderGenerationConfigurations(focusId = null) {
+    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
+    const models = this.state.config.models.filter((model) => model.available === true);
+    const voiceLabels = this.generationVoiceLabels(voices);
+    byId("generationVoiceOptions").innerHTML = voices.map((voice) => `<option value="${escapeHtml(voiceLabels.get(voice.id))}" label="${voice.enabled_file_count} 条可用录音"></option>`).join("");
+    byId("generationConfigurationList").innerHTML = this.state.generationConfigurations.length
+      ? this.state.generationConfigurations.map((configuration, index) => {
+        const voice = voices.find((item) => item.id === configuration.voiceId);
+        const model = models.find((item) => item.id === configuration.modelId);
+        return `<div class="generation-configuration" data-generation-configuration="${escapeHtml(configuration.id)}"><span class="generation-configuration-index">${String(index + 1).padStart(2, "0")}</span><label class="generation-configuration-field"><span>原声</span><input type="search" list="generationVoiceOptions" autocomplete="off" required value="${escapeHtml(voice ? voiceLabels.get(voice.id) : "")}" placeholder="输入名称搜索原声" data-action="generation-voice" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的原声"><small>${voice ? `${voice.enabled_file_count} 条可用录音` : "输入名称搜索并从列表选择"}</small></label><label class="generation-configuration-field"><span>模型</span><select required data-action="generation-model" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的模型">${models.map((item) => `<option value="${escapeHtml(item.id)}"${item.id === configuration.modelId ? " selected" : ""}>${escapeHtml(item.label || item.id)}</option>`).join("")}</select><small>${escapeHtml(model?.engine || model?.id || "请选择模型")}</small></label><label class="generation-configuration-field generation-count-field"><span>条数</span><select data-action="generation-candidate-count" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的候选条数">${[1, 2, 3, 4].map((count) => `<option value="${count}"${count === configuration.candidateCount ? " selected" : ""}>${count} 条</option>`).join("")}</select><small>每行候选</small></label><button class="icon-button generation-configuration-remove" type="button" data-action="remove-generation-configuration" data-configuration-id="${escapeHtml(configuration.id)}" title="移除这条配置" aria-label="移除第 ${index + 1} 条生成配置">×</button></div>`;
+      }).join("")
+      : `<div class="generation-configuration-empty"><strong>还没有生成配置</strong><span>点击“＋ 添加生成”开始组装。</span></div>`;
+    this.updateGenerationCombinationCount();
+    if (focusId) byId("generationConfigurationList").querySelector(`[data-configuration-id="${focusId}"][data-action="generation-voice"]`)?.focus();
+  }
+
+  addGenerationConfiguration() {
+    const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
+    const models = this.state.config.models.filter((model) => model.available === true);
+    if (!voices.length || !models.length) return;
+    const previous = this.state.generationConfigurations.at(-1);
+    const id = String(++this.generationConfigurationSequence);
+    this.state.generationConfigurations.push({
+      id,
+      voiceId: voices.some((voice) => voice.id === previous?.voiceId) ? previous.voiceId : (voices.some((voice) => voice.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id),
+      modelId: models.some((model) => model.id === previous?.modelId) ? previous.modelId : (models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0].id),
+      candidateCount: previous?.candidateCount || 1,
+    });
+    this.storePosition();
+    this.renderGenerationConfigurations(id);
+  }
+
+  removeGenerationConfiguration(id) {
+    this.state.generationConfigurations = this.state.generationConfigurations.filter((configuration) => configuration.id !== id);
+    this.storePosition();
+    this.renderGenerationConfigurations();
+  }
+
   updateGenerationCombinationCount() {
-    const voices = this.state.generationVoiceIds.length;
-    const models = this.state.generationModelIds.length;
-    const candidates = this.state.generationCandidateCount;
-    const count = voices * models;
+    const voices = new Set(this.state.voices.filter((voice) => voice.enabled_file_count).map((voice) => voice.id));
+    const models = new Set(this.state.config.models.filter((model) => model.available === true).map((model) => model.id));
+    const complete = this.state.generationConfigurations.filter((configuration) => voices.has(configuration.voiceId) && models.has(configuration.modelId));
+    const candidates = complete.reduce((total, configuration) => total + configuration.candidateCount, 0);
+    const incomplete = this.state.generationConfigurations.length - complete.length;
     const lineNumber = this.state.generationRequest?.lineNumber;
     const target = lineNumber === null || lineNumber === undefined ? "整个台本" : `第 ${lineNumber} 行`;
-    byId("generationCombinationCount").textContent = count ? `${target} · ${voices} 个声音 × ${models} 个模型 = ${count} 个组合，每个组合 ${candidates} 条候选` : "至少选择一个声音和一个模型";
+    byId("generationCombinationCount").textContent = this.state.generationConfigurations.length
+      ? `${target} · ${this.state.generationConfigurations.length} 条生成配置 · 每行共 ${candidates} 条候选${incomplete ? ` · ${incomplete} 条待完善` : ""}`
+      : "请点击“＋ 添加生成”添加至少一条配置";
+    byId("generationSubmitButton").disabled = !this.state.generationConfigurations.length || incomplete > 0;
   }
 
   async submit(event) {
@@ -606,7 +661,7 @@ class WorkstationApp {
       if (form.id === "voiceAppendForm") await this.appendVoiceFiles(form);
       if (form.id === "projectSettingsForm") await this.runBusy(button, () => this.saveProject(form));
       if (form.id === "memberAddForm") await this.addMember(form);
-      if (form.id === "generationOptionsForm") await this.runBusy(button, () => this.submitGenerationOptions(form));
+      if (form.id === "generationOptionsForm") await this.runBusy(button, () => this.submitGenerationOptions());
       if (form.id === "textGenerationForm") await this.runBusy(button, () => this.generateText(form));
     } catch (error) { this.toast(error.message, true); }
   }
@@ -619,51 +674,50 @@ class WorkstationApp {
   async saveVoiceSettings(form) { const id = this.state.selectedVoiceId; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
   async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoice(); this.toast("参考录音已追加"); }
   async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoice(); this.toast("录音设置已更新"); }
-  async submitGenerationOptions(form) {
+  async submitGenerationOptions() {
     const lineNumber = this.state.generationRequest?.lineNumber ?? null;
-    const voiceIds = [...this.state.generationVoiceIds];
-    const modelIds = [...this.state.generationModelIds];
-    if (!voiceIds.length || !modelIds.length) {
-      this.toast("至少选择一个声音和一个模型", true);
+    const configurations = this.state.generationConfigurations.map((configuration) => ({ ...configuration }));
+    if (!configurations.length || configurations.some((configuration) => !configuration.voiceId || !configuration.modelId)) {
+      this.toast("请完善至少一条生成配置", true);
       return;
     }
-    await this.generateScript(lineNumber, voiceIds, modelIds, this.state.generationCandidateCount);
-    form.reset();
+    if (!await this.generateScript(lineNumber, configurations)) return;
     byId("generationOptionsDialog").close();
     this.state.generationRequest = null;
   }
 
-  async generateScript(lineNumber = null, voiceIds = [], modelIds = [], candidateCount = 1) {
+  async generateScript(lineNumber = null, configurations = []) {
     const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const voices = this.state.voices.filter((item) => item.enabled_file_count);
     const models = this.state.config.models.filter((model) => model.available === true);
-    voiceIds = voiceIds.filter((id) => voices.some((voice) => voice.id === id));
-    modelIds = modelIds.filter((id) => models.some((model) => model.id === id));
-    if (!script || !voiceIds.length || !modelIds.length) { this.toast("请至少选择一个可用声音和模型", true); return; }
+    const validConfigurations = configurations.filter((configuration) => voices.some((voice) => voice.id === configuration.voiceId) && models.some((model) => model.id === configuration.modelId));
+    if (!script || !validConfigurations.length || validConfigurations.length !== configurations.length) { this.toast("请检查生成配置中的原声和模型", true); return false; }
     const form = byId("scriptItemsForm");
     if (form) await this.saveScriptItems(form, { notify: false, rerender: false });
-    const data = new FormData();
-    data.set("project_id", this.state.project.id);
-    data.set("script_id", script.id);
-    data.set("voice_id", voiceIds[0]);
-    data.set("voice_ids", JSON.stringify(voiceIds));
-    data.set("model_id", modelIds[0]);
-    data.set("model_ids", JSON.stringify(modelIds));
-    data.set("candidate_count", String(Math.min(4, Math.max(1, Number(candidateCount) || 1))));
-    data.set("reference_emotion", "all");
-    data.set("generation_settings", "{}");
-    data.set("name", lineNumber === null ? script.name : `${script.name} · 第 ${lineNumber} 行`);
-    if (lineNumber !== null) data.set("line_number", String(lineNumber));
-    const result = await this.api.postForm("/api/jobs", data);
-    const jobs = result.jobs || [result.job];
+    const results = await Promise.all(validConfigurations.map((configuration) => {
+      const data = new FormData();
+      data.set("project_id", this.state.project.id);
+      data.set("script_id", script.id);
+      data.set("voice_id", configuration.voiceId);
+      data.set("model_id", configuration.modelId);
+      data.set("candidate_count", String(Math.min(4, Math.max(1, Number(configuration.candidateCount) || 1))));
+      data.set("reference_emotion", "all");
+      data.set("generation_settings", "{}");
+      data.set("name", lineNumber === null ? script.name : `${script.name} · 第 ${lineNumber} 行`);
+      if (lineNumber !== null) data.set("line_number", String(lineNumber));
+      return this.api.postForm("/api/jobs", data);
+    }));
+    const jobs = results.flatMap((result) => result.jobs || [result.job]);
     this.state.jobs.unshift(...jobs);
     for (const job of jobs) this.state.jobDetails[job.id] = null;
     this.renderScript();
     const activeJobs = this.state.jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
     byId("queueSummary").textContent = `${activeJobs} 个处理中`;
     byId("workerDot").className = "online";
-    this.toast(lineNumber === null ? `全部台词已加入生成队列（${jobs.length} 个组合）` : `第 ${lineNumber} 行已加入生成队列（${jobs.length} 个组合）`);
+    const candidateCount = validConfigurations.reduce((total, configuration) => total + configuration.candidateCount, 0);
+    this.toast(lineNumber === null ? `全部台词已加入生成队列（${jobs.length} 个任务，每行 ${candidateCount} 条候选）` : `第 ${lineNumber} 行已加入生成队列（${jobs.length} 个任务，共 ${candidateCount} 条候选）`);
     for (const job of jobs) void this.loadJobDetail(job.id, true);
+    return true;
   }
   async selectGeneration(data) {
     const scriptId = this.state.selectedScriptId;

@@ -128,8 +128,8 @@ class JobCreationService:
     ) -> None:
         if len(name.strip()) > 80:
             raise HTTPException(status_code=422, detail="任务名称不能超过 80 个字符")
-        if candidate_count not in {1, 2, 3}:
-            raise HTTPException(status_code=422, detail="每句候选数量只能选择 1、2 或 3")
+        if candidate_count not in {1, 2, 3, 4}:
+            raise HTTPException(status_code=422, detail="每句候选数量只能选择 1、2、3 或 4")
         for model_id in model_ids:
             self._validate_model(model_id)
 
