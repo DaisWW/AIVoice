@@ -73,6 +73,62 @@ class JobDownloadService:
             filename=f"{safe_filename(display_name)}_正式采用_{job['id']}.zip",
         )
 
+    def script_archive_response(
+        self, script: dict[str, Any], scope: str
+    ) -> FileResponse:
+        if scope not in {"accepted", "all"}:
+            raise HTTPException(status_code=422, detail="导出范围必须是 accepted 或 all")
+        jobs = self._services.database.jobs.list_for_script(str(script["id"]))
+        if any(job["status"] in {"queued", "running"} for job in jobs):
+            raise HTTPException(status_code=409, detail="请等待当前生成任务完成后再导出")
+        selections = {
+            int(row["sequence"]): row
+            for row in self._services.database.selections.list_for_script(
+                str(script["id"])
+            )
+        }
+        candidates = self._services.database.candidates.list_for_script(
+            str(script["id"])
+        )
+        candidate_by_id = {str(row["id"]): row for row in candidates}
+        if scope == "accepted":
+            missing = [
+                sequence
+                for sequence in range(1, int(script["item_count"]) + 1)
+                if sequence not in selections
+            ]
+            if missing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"还有 {len(missing)} 行未采纳，不能导出正式音频",
+                )
+            archive_path = (
+                self._services.settings.export_root / f"{script['id']}-accepted.zip"
+            )
+            filename = f"{safe_filename(str(script['name']))}_已采纳.zip"
+        else:
+            if not any(
+                candidate.get("raw_audio_path") or candidate.get("audio_path")
+                for candidate in candidates
+            ):
+                raise HTTPException(status_code=409, detail="台本尚无可导出的历史音频")
+            archive_path = (
+                self._services.settings.export_root / f"{script['id']}-all.zip"
+            )
+            filename = f"{safe_filename(str(script['name']))}_全部历史.zip"
+        with self._services.export_lock:
+            self._build_script_archive(
+                archive_path,
+                script,
+                scope,
+                selections,
+                candidates,
+                candidate_by_id,
+            )
+        return FileResponse(
+            archive_path, media_type="application/zip", filename=filename
+        )
+
     def _downloadable_items(self, job: dict[str, Any]) -> list[dict[str, Any]]:
         if job["status"] in {"queued", "running"}:
             raise HTTPException(status_code=409, detail="任务结束后才能全部下载")
@@ -150,6 +206,88 @@ class JobDownloadService:
                     "UnityAudioManifest.json",
                     json.dumps(
                         {"version": 1, "jobId": job["id"], "items": manifest},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+            temporary_path.replace(archive_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def _build_script_archive(
+        self,
+        archive_path: Path,
+        script: dict[str, Any],
+        scope: str,
+        selections: dict[int, dict[str, Any]],
+        candidates: list[dict[str, Any]],
+        candidate_by_id: dict[str, dict[str, Any]],
+    ) -> None:
+        temporary_path = archive_path.with_suffix(".zip.tmp")
+        try:
+            manifest: list[dict[str, Any]] = []
+            with zipfile.ZipFile(
+                temporary_path, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                if scope == "accepted":
+                    rows = [
+                        candidate_by_id[str(selections[sequence]["candidate_id"])]
+                        for sequence in sorted(selections)
+                    ]
+                else:
+                    rows = [
+                        candidate
+                        for candidate in candidates
+                        if candidate.get("raw_audio_path")
+                        or candidate.get("audio_path")
+                    ]
+                for candidate in rows:
+                    path = self._clone_path(candidate, "历史音频已不存在")
+                    sequence = int(candidate["sequence"])
+                    if scope == "accepted":
+                        archive_name = f"Audio/{sequence:03d}.wav"
+                    else:
+                        archive_name = (
+                            f"History/{sequence:03d}/{candidate['job_id']}/"
+                            f"{candidate['id']}.wav"
+                        )
+                    archive.write(path, archive_name)
+                    selection = selections.get(sequence)
+                    manifest.append(
+                        {
+                            "sequence": sequence,
+                            "text": candidate["text"],
+                            "pronunciation": candidate["pronunciation"],
+                            "candidateId": candidate["id"],
+                            "jobId": candidate["job_id"],
+                            "voiceId": candidate["voice_id"],
+                            "voiceName": candidate["voice_name"],
+                            "modelId": candidate["model_id"],
+                            "audio": archive_name,
+                            "status": candidate["status"],
+                            "accepted": bool(
+                                selection
+                                and str(selection["candidate_id"])
+                                == str(candidate["id"])
+                            ),
+                            "selectedBy": (
+                                selection.get("selected_by_name") if selection else None
+                            ),
+                            "selectedAt": (
+                                selection.get("selected_at") if selection else None
+                            ),
+                        }
+                    )
+                archive.writestr(
+                    "manifest.json",
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "scope": scope,
+                            "scriptId": script["id"],
+                            "scriptName": script["name"],
+                            "items": manifest,
+                        },
                         ensure_ascii=False,
                         indent=2,
                     ),

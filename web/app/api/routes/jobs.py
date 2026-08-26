@@ -12,7 +12,12 @@ from ..candidate_operations import (
     candidate_audio_response,
     regenerate_candidate,
 )
-from ..cleanup import remove_item_artifacts, remove_job_artifacts, remove_job_exports
+from ..cleanup import (
+    remove_item_artifacts,
+    remove_job_artifacts,
+    remove_job_exports,
+    remove_script_exports,
+)
 from ..dependencies import CurrentUser, ServicesDep
 from ..downloads import JobDownloadService
 from ..job_creation import JobCreationService
@@ -129,6 +134,7 @@ def delete_job(
     if not services.database.jobs.delete(job_id):
         raise HTTPException(status_code=404, detail="找不到任务")
     remove_job_artifacts(services, job_id)
+    remove_script_exports(services, str(job["script_id"]))
     record_action(
         services,
         request,
@@ -171,6 +177,7 @@ def delete_item(
         remove_job_artifacts(services, job_id)
     else:
         remove_job_exports(services, job_id)
+    remove_script_exports(services, str(job["script_id"]))
     record_action(
         services,
         request,

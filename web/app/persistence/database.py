@@ -13,6 +13,7 @@ from .repositories import (
     MonitoringRepository,
     ProjectRepository,
     ScriptRepository,
+    ScriptLineSelectionRepository,
     VoiceRepository,
 )
 from .schema import initialize_schema
@@ -30,6 +31,7 @@ class Database:
         self.audit = AuditRepository(connection)
         self.voices = VoiceRepository(connection)
         self.scripts = ScriptRepository(connection)
+        self.selections = ScriptLineSelectionRepository(connection)
         self.jobs = JobRepository(connection)
         self.candidates = CandidateRepository(connection)
         self.monitoring = MonitoringRepository(connection)

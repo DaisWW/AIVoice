@@ -147,3 +147,10 @@ class CandidateRegenerate(BaseModel):
 
 class CandidateAccept(BaseModel):
     candidate_id: str
+
+
+class ScriptLineSelectionCreate(BaseModel):
+    sequence: int = Field(ge=1, le=3000)
+    job_id: str = Field(min_length=1, max_length=64)
+    item_id: str = Field(min_length=1, max_length=64)
+    candidate_id: str = Field(min_length=1, max_length=64)

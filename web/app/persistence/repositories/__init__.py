@@ -7,6 +7,7 @@ from .legacy import LegacyRepository
 from .monitoring import MonitoringRepository
 from .projects import LEGACY_PROJECT_ID, ProjectRepository
 from .scripts import ScriptRepository
+from .selections import ScriptLineSelectionRepository
 from .voices import VoiceRepository
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "LEGACY_PROJECT_ID",
     "ProjectRepository",
     "ScriptRepository",
+    "ScriptLineSelectionRepository",
     "VoiceRepository",
 ]

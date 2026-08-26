@@ -26,6 +26,15 @@ def remove_job_exports(services: ApplicationServices, job_id: str) -> None:
         archive.unlink(missing_ok=True)
 
 
+def remove_script_exports(services: ApplicationServices, script_id: str) -> None:
+    root = services.settings.root
+    for suffix in ("-accepted.zip", "-all.zip"):
+        archive = ensure_within(
+            services.settings.export_root / f"{script_id}{suffix}", root
+        )
+        archive.unlink(missing_ok=True)
+
+
 def remove_item_artifacts(
     services: ApplicationServices,
     item: dict[str, Any],

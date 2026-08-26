@@ -335,6 +335,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .line-history-media { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .line-history-media audio { width: min(340px, 100%); height: 30px; }
 .line-history-message { color: var(--ws-faint); font-size: 10px; }
+.line-selection-note { color: var(--ws-accent); font-size: 9px; font-weight: 700; }
+.line-history-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; }
+.line-history-candidate { display: grid; gap: 7px; min-width: 0; padding: 9px; border: 1px solid var(--ws-line); border-radius: 5px; background: var(--ws-surface-soft); }
+.line-history-candidate.selected { border-color: rgba(200, 240, 107, .5); background: var(--ws-accent-soft); }
+.line-history-candidate audio { width: 100%; height: 29px; }
+.line-history-candidate .candidate-top span { color: var(--ws-cool); font-size: 9px; font-weight: 700; }
+.candidate-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.candidate-actions .button { flex: 1 1 74px; min-width: 0; }
+.generation-candidate-field { max-width: 220px; margin-top: 17px; }
 
 .prompt-suggestion, .generated-lines-panel, .text-generation-form { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(110, 212, 209, .28); border-radius: 7px; background: rgba(16, 29, 31, .58); }
 .prompt-suggestion > div, .generated-lines-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }

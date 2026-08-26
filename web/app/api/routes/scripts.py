@@ -10,10 +10,13 @@ from ...script_parser import ScriptFormatError, build_script_item
 from ...storage import ensure_within, safe_filename
 from ..access import project_script, resolve_project_id
 from ..audit import record_action
+from ..cleanup import remove_script_exports
 from ..dependencies import CurrentUser, ServicesDep
+from ..downloads import JobDownloadService
 from ..payloads import script_detail_payload, script_payload
 from ..schemas import (
     PromptSuggestionRequest,
+    ScriptLineSelectionCreate,
     ScriptItemsUpdate,
     ScriptUpdate,
     TextGenerationRequest,
@@ -75,7 +78,86 @@ def get_script(
 ) -> dict[str, Any]:
     script = project_script(services, script_id, user)
     items = ScriptStorage(services).load_items(script)
-    return {"script": script_detail_payload(script, items)}
+    payload = script_detail_payload(script, items)
+    payload["selections"] = services.database.selections.list_for_script(script_id)
+    return {"script": payload}
+
+
+@router.get("/{script_id}/selections")
+def list_script_selections(
+    script_id: str,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    project_script(services, script_id, user)
+    return {"selections": services.database.selections.list_for_script(script_id)}
+
+
+@router.post("/{script_id}/selections")
+def select_script_candidate(
+    script_id: str,
+    changes: ScriptLineSelectionCreate,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+) -> dict[str, Any]:
+    script = project_script(services, script_id, user)
+    job = project_job_for_script(services, changes.job_id, script_id, user)
+    item = services.database.jobs.item(changes.job_id, changes.item_id)
+    if not item or int(item["sequence"]) != changes.sequence:
+        raise HTTPException(status_code=404, detail="找不到对应台词行")
+    candidate, _ = JobDownloadService(services).candidate_path(
+        job, changes.item_id, changes.candidate_id
+    )
+    if candidate["status"] != "completed":
+        raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
+    if not services.database.candidates.accept(changes.item_id, changes.candidate_id):
+        raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
+    selection = services.database.selections.upsert(
+        script_id,
+        changes.sequence,
+        changes.job_id,
+        changes.item_id,
+        changes.candidate_id,
+        str(user["id"]),
+    )
+    remove_script_exports(services, script_id)
+    record_action(
+        services,
+        request,
+        user,
+        "script.line_selected",
+        target_type="candidate",
+        target_id=changes.candidate_id,
+        project_id=str(script["project_id"]),
+        details={"script_id": script_id, "sequence": changes.sequence},
+    )
+    return {"selection": selection}
+
+
+@router.delete("/{script_id}/selections/{sequence}", status_code=204)
+def clear_script_selection(
+    script_id: str,
+    sequence: int,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+) -> Response:
+    script = project_script(services, script_id, user)
+    if not services.database.selections.delete(script_id, sequence):
+        raise HTTPException(status_code=404, detail="该台词行尚未采纳音频")
+    remove_script_exports(services, script_id)
+    record_action(
+        services,
+        request,
+        user,
+        "script.line_selection_cleared",
+        target_type="script_line",
+        target_id=f"{script_id}:{sequence}",
+        project_id=str(script["project_id"]),
+        details={"script_id": script_id, "sequence": sequence},
+    )
+    return Response(status_code=204)
 
 
 @router.patch("/{script_id}")
@@ -186,6 +268,8 @@ def update_script_items(
     script = project_script(services, script_id, user)
     items = _build_items(changes)
     ScriptStorage(services).save_items(script, items)
+    services.database.selections.clear_for_script(script_id)
+    remove_script_exports(services, script_id)
     updated = services.database.scripts.get(script_id)
     if not updated:  # pragma: no cover - guarded by update_source
         raise HTTPException(status_code=500, detail="台本保存后未找到")
@@ -199,7 +283,9 @@ def update_script_items(
         project_id=str(script["project_id"]),
         details={"item_count": len(items)},
     )
-    return {"script": script_detail_payload(updated, items)}
+    payload = script_detail_payload(updated, items)
+    payload["selections"] = []
+    return {"script": payload}
 
 
 @router.post("/{script_id}/import")
@@ -212,6 +298,8 @@ async def import_script(
 ) -> dict[str, Any]:
     script = project_script(services, script_id, user)
     items = await ScriptStorage(services).replace_from_upload(script, file)
+    services.database.selections.clear_for_script(script_id)
+    remove_script_exports(services, script_id)
     updated = services.database.scripts.get(script_id)
     if not updated:  # pragma: no cover - guarded by update_source
         raise HTTPException(status_code=500, detail="台本导入后未找到")
@@ -225,7 +313,9 @@ async def import_script(
         project_id=str(script["project_id"]),
         details={"item_count": len(items), "filename": file.filename or ""},
     )
-    return {"script": script_detail_payload(updated, items)}
+    payload = script_detail_payload(updated, items)
+    payload["selections"] = []
+    return {"script": payload}
 
 
 @router.get("/{script_id}/export")
@@ -246,6 +336,17 @@ def export_script(
             )
         },
     )
+
+
+@router.get("/{script_id}/audio-export")
+def export_script_audio(
+    script_id: str,
+    user: CurrentUser,
+    services: ServicesDep,
+    scope: str = "accepted",
+) -> Response:
+    script = project_script(services, script_id, user)
+    return JobDownloadService(services).script_archive_response(script, scope)
 
 
 @router.delete("/{script_id}", status_code=204)
@@ -294,3 +395,16 @@ def _build_items(changes: ScriptItemsUpdate) -> list[ScriptItem]:
                 status_code=422, detail=f"第 {order} 行发音格式错误: {error}"
             ) from error
     return items
+
+
+def project_job_for_script(
+    services: ServicesDep,
+    job_id: str,
+    script_id: str,
+    user: dict[str, Any],
+) -> dict[str, Any]:
+    job = services.database.jobs.get(job_id)
+    if not job or str(job.get("script_id")) != script_id:
+        raise HTTPException(status_code=404, detail="找不到该生成任务")
+    project_script(services, script_id, user)
+    return job

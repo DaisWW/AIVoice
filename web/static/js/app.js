@@ -15,7 +15,7 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationVoiceIds: [], generationModelIds: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationVoiceIds: [], generationModelIds: [], generationCandidateCount: 1, generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.requestVersion = 0;
     this.toastTimer = null;
@@ -135,6 +135,7 @@ class WorkstationApp {
         this.state.jobDetails = {};
         this.state.generationVoiceIds = [];
         this.state.generationModelIds = [];
+        this.state.generationCandidateCount = 1;
         this.state.projectPromptSuggestion = "";
         this.state.projectPromptDraft = null;
         this.state.scriptPromptSuggestion = "";
@@ -253,9 +254,21 @@ class WorkstationApp {
     const canGenerate = Boolean(voices.length && models.length && detail.items.length);
     const generationJobs = this.generationJobsForScript(detail.id);
     const deletableJobs = generationJobs.filter((job) => !["queued", "running"].includes(job.status));
+    const selections = detail.selections || [];
+    const selectedSequences = new Set(selections.map((row) => Number(row.sequence)));
+    const selectedCount = detail.items.filter((item, index) => selectedSequences.has(Number(item.order || index + 1))).length;
+    const hasActiveJobs = generationJobs.some((job) => ["queued", "running"].includes(job.status));
+    const canExportAccepted = !hasActiveJobs && selectedCount === detail.items.length && detail.items.length > 0;
+    const canExportAll = !hasActiveJobs && generationJobs.some((job) => job.status === "completed");
     const lines = detail.items.map((item, index) => this.scriptLine(detail.id, item, index, canGenerate)).join("");
     const pendingLines = this.state.generatedLinesScriptId === detail.id ? this.state.generatedLines : [];
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出 CSV</a><button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>点击生成时选择声音和模型，可一次创建多种组合。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持多声音和多模型组合` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""}</small></section><form id="scriptSettingsForm" class="detail-form"><label class="field"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>单台本提示词</span><textarea name="prompt" maxlength="12000" placeholder="角色、场景、语气、格式和禁用项。会叠加在项目总体提示词之后。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>提示词由人工维护；AI 建议只生成草稿，不会自动覆盖。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存台本设置</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}</form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>使用项目总体提示词 + 单台本提示词生成草稿，确认后再加入编辑器。</p></div></div><label class="field wide"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：写 5 句，表现角色第一次发现异常时的克制惊讶。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词草稿</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
+    const exportAccepted = canExportAccepted
+      ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="accepted">导出已采纳</button>`
+      : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="accepted" disabled>已采纳 ${selectedCount}/${detail.items.length}</button>`;
+    const exportAll = canExportAll
+      ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all">导出全部历史</button>`
+      : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all" disabled>导出全部历史</button>`;
+    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>点击生成时选择声音和模型，可一次创建多种组合。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持多声音和多模型组合` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></section><form id="scriptSettingsForm" class="detail-form"><label class="field"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>单台本提示词</span><textarea name="prompt" maxlength="12000" placeholder="角色、场景、语气、格式和禁用项。会叠加在项目总体提示词之后。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>提示词由人工维护；AI 建议只生成草稿，不会自动覆盖。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存台本设置</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}</form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>使用项目总体提示词 + 单台本提示词生成草稿，确认后再加入编辑器。</p></div></div><label class="field wide"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：写 5 句，表现角色第一次发现异常时的克制惊讶。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词草稿</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
   }
 
   promptSuggestion(suggestion, scope) {
@@ -274,25 +287,39 @@ class WorkstationApp {
 
   lineResult(scriptId, sequence) {
     const jobs = this.generationJobsForScript(scriptId);
+    const selection = (this.state.scriptDetail?.selections || []).find((row) => Number(row.sequence) === sequence);
     const records = [];
     for (const job of jobs) {
       const detail = this.state.jobDetails[job.id];
       const item = detail?.items?.find((entry) => Number(entry.sequence) === sequence);
-      if (item) records.push(this.renderLineHistory(job, item));
-      else if (!detail && Number(job.total_items) > 1) records.push(this.renderLineHistory(job, null));
+      if (item) records.push(this.renderLineHistory(job, item, selection));
+      else if (!detail && Number(job.total_items) > 1) records.push(this.renderLineHistory(job, null, selection));
     }
     if (!records.length) return "";
     return `<section class="line-history" aria-label="第 ${sequence} 行生成历史"><div class="line-history-heading"><span>生成历史</span><small>${records.length} 条</small></div>${records.join("")}</section>`;
   }
 
-  renderLineHistory(job, item) {
+  renderLineHistory(job, item, selection) {
     const status = item?.status || job.status;
-    const audio = item?.audio_url || item?.candidates?.find((candidate) => candidate.accepted || candidate.audio_url)?.audio_url;
     const canDelete = Boolean(item?.id) && !["queued", "running"].includes(status) && !["queued", "running"].includes(job.status);
     const scope = Number(job.total_items) === 1 ? "单条" : "全部";
     const deleteButton = canDelete ? `<button class="button button-danger button-small" type="button" data-action="delete-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}">删除</button>` : "";
-    const media = audio ? `<div class="line-history-media"><audio controls preload="none" src="${escapeHtml(audio)}"></audio><a class="button button-quiet button-small" href="${escapeHtml(item.download_url || audio)}" download>下载</a></div>` : `<small class="line-history-message">${escapeHtml(item?.error || (status === "completed" ? "音频详情暂不可用" : "音频生成后会显示在这里"))}</small>`;
-    return `<article class="line-history-row"><div class="line-history-main"><div class="line-history-top"><span class="status-pill ${status === "failed" ? "danger" : status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(status))}</span><span class="line-history-scope">${scope}</span><time>${escapeHtml(formatDate(job.submitted_at))}</time></div><div class="line-history-meta"><span>声音：${escapeHtml(job.voice_name || job.voice_id || "未指定")}</span><span>模型：${escapeHtml(this.modelLabel(job.model_id))}</span><span class="line-history-id">任务：${escapeHtml(job.id)}</span></div>${media}</div>${deleteButton}</article>`;
+    const candidateCards = item?.candidates?.length
+      ? item.candidates.map((candidate) => this.renderCandidateCard(job, item, candidate, selection)).join("")
+      : `<small class="line-history-message">${escapeHtml(item?.error || (status === "completed" ? "音频详情暂不可用" : "音频生成后会显示在这里"))}</small>`;
+    const selectedHere = selection && selection.job_id === job.id;
+    const selectionNote = selectedHere ? `<span class="line-selection-note">已采纳 · ${escapeHtml(selection.selected_by_name || "项目成员")}</span>` : "";
+    return `<article class="line-history-row"><div class="line-history-main"><div class="line-history-top"><span class="status-pill ${status === "failed" ? "danger" : status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(status))}</span><span class="line-history-scope">${scope}</span>${selectionNote}<time>${escapeHtml(formatDate(job.submitted_at))}</time></div><div class="line-history-meta"><span>声音：${escapeHtml(job.voice_name || job.voice_id || "未指定")}</span><span>模型：${escapeHtml(this.modelLabel(job.model_id))}</span><span class="line-history-id">任务：${escapeHtml(job.id)}</span></div><div class="line-history-candidates">${candidateCards}</div></div>${deleteButton}</article>`;
+  }
+
+  renderCandidateCard(job, item, candidate, selection) {
+    const selected = Boolean(selection && selection.job_id === job.id && selection.item_id === item.id && selection.candidate_id === candidate.id);
+    const action = selected
+      ? `<button class="button button-quiet button-small" type="button" data-action="clear-generation-selection" data-sequence="${escapeHtml(item.sequence)}">取消采纳</button>`
+      : `<button class="button button-primary button-small" type="button" data-action="select-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}" data-sequence="${escapeHtml(item.sequence)}"${candidate.status === "completed" ? "" : " disabled"}>采纳</button>`;
+    const audio = candidate.audio_url ? `<audio controls preload="none" src="${escapeHtml(candidate.audio_url)}"></audio>` : `<small class="candidate-pending">${escapeHtml(candidate.error || "候选生成后会显示在这里")}</small>`;
+    const badge = selected ? "<span>已采纳</span>" : `<span>${escapeHtml(statusLabel(candidate.status))}</span>`;
+    return `<article class="line-history-candidate${selected ? " selected" : ""}"><div class="candidate-top"><strong>${escapeHtml(candidate.name || `候选 ${candidate.ordinal}`)}</strong>${badge}</div>${audio}<div class="candidate-actions">${candidate.download_url ? `<a class="button button-quiet button-small" href="${escapeHtml(candidate.download_url)}" download>下载</a>` : ""}${action}</div></article>`;
   }
 
   modelLabel(modelId) {
@@ -430,6 +457,9 @@ class WorkstationApp {
       if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "generate-all") this.openGenerationDialog(null);
       if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
+      if (action === "select-generation") await this.selectGeneration(button.dataset);
+      if (action === "clear-generation-selection") await this.clearGenerationSelection(Number(button.dataset.sequence));
+      if (action === "export-script-audio") this.exportScriptAudio(button.dataset.scope);
       if (action === "delete-generation") await this.deleteGeneration(button.dataset.jobId, button.dataset.itemId);
       if (action === "delete-all-generations") await this.deleteAllGenerations();
       if (action === "delete-script") await this.deleteScript();
@@ -477,6 +507,10 @@ class WorkstationApp {
         this.storePosition();
         this.updateGenerationCombinationCount();
       }
+      if (input.id === "generationCandidateCount") {
+        this.state.generationCandidateCount = Math.min(4, Math.max(1, Number(input.value) || 1));
+        this.updateGenerationCombinationCount();
+      }
     } catch (error) { this.toast(error.message, true); }
   }
 
@@ -500,6 +534,7 @@ class WorkstationApp {
     byId("generationOptionsTitle").textContent = lineNumber === null ? "全部生成" : `第 ${lineNumber} 行生成`;
     byId("generationVoiceChoices").innerHTML = voices.map((voice) => `<label class="generation-choice"><input type="checkbox" data-action="generation-voice-option" value="${escapeHtml(voice.id)}"${this.state.generationVoiceIds.includes(voice.id) ? " checked" : ""}><span><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count} 条可用录音</small></span></label>`).join("");
     byId("generationModelChoices").innerHTML = models.map((model) => `<label class="generation-choice"><input type="checkbox" data-action="generation-model-option" value="${escapeHtml(model.id)}"${this.state.generationModelIds.includes(model.id) ? " checked" : ""}><span><strong>${escapeHtml(model.label || model.id)}</strong><small>${escapeHtml(model.engine || model.id)}</small></span></label>`).join("");
+    byId("generationCandidateCount").value = String(this.state.generationCandidateCount);
     this.updateGenerationCombinationCount();
     this.openDialog("generationOptionsDialog");
   }
@@ -507,10 +542,11 @@ class WorkstationApp {
   updateGenerationCombinationCount() {
     const voices = this.state.generationVoiceIds.length;
     const models = this.state.generationModelIds.length;
+    const candidates = this.state.generationCandidateCount;
     const count = voices * models;
     const lineNumber = this.state.generationRequest?.lineNumber;
     const target = lineNumber === null || lineNumber === undefined ? "整个台本" : `第 ${lineNumber} 行`;
-    byId("generationCombinationCount").textContent = count ? `${target} · ${voices} 个声音 × ${models} 个模型 = ${count} 个任务` : "至少选择一个声音和一个模型";
+    byId("generationCombinationCount").textContent = count ? `${target} · ${voices} 个声音 × ${models} 个模型 = ${count} 个组合，每个组合 ${candidates} 条候选` : "至少选择一个声音和一个模型";
   }
 
   async submit(event) {
@@ -548,13 +584,13 @@ class WorkstationApp {
       this.toast("至少选择一个声音和一个模型", true);
       return;
     }
-    await this.generateScript(lineNumber, voiceIds, modelIds);
+    await this.generateScript(lineNumber, voiceIds, modelIds, this.state.generationCandidateCount);
     form.reset();
     byId("generationOptionsDialog").close();
     this.state.generationRequest = null;
   }
 
-  async generateScript(lineNumber = null, voiceIds = [], modelIds = []) {
+  async generateScript(lineNumber = null, voiceIds = [], modelIds = [], candidateCount = 1) {
     const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const voices = this.state.voices.filter((item) => item.enabled_file_count);
     const models = this.state.config.models.filter((model) => model.available === true);
@@ -570,7 +606,7 @@ class WorkstationApp {
     data.set("voice_ids", JSON.stringify(voiceIds));
     data.set("model_id", modelIds[0]);
     data.set("model_ids", JSON.stringify(modelIds));
-    data.set("candidate_count", "1");
+    data.set("candidate_count", String(Math.min(4, Math.max(1, Number(candidateCount) || 1))));
     data.set("reference_emotion", "all");
     data.set("generation_settings", "{}");
     data.set("name", lineNumber === null ? script.name : `${script.name} · 第 ${lineNumber} 行`);
@@ -586,6 +622,36 @@ class WorkstationApp {
     this.toast(lineNumber === null ? `全部台词已加入生成队列（${jobs.length} 个组合）` : `第 ${lineNumber} 行已加入生成队列（${jobs.length} 个组合）`);
     for (const job of jobs) void this.loadJobDetail(job.id, true);
   }
+  async selectGeneration(data) {
+    const scriptId = this.state.selectedScriptId;
+    const result = await this.api.post(`/api/scripts/${enc(scriptId)}/selections`, {
+      sequence: Number(data.sequence),
+      job_id: data.jobId,
+      item_id: data.itemId,
+      candidate_id: data.candidateId,
+    });
+    const detail = this.state.scriptDetail;
+    if (detail) {
+      detail.selections = [...(detail.selections || []).filter((row) => Number(row.sequence) !== Number(data.sequence)), result.selection];
+    }
+    this.renderScript();
+    this.toast(`第 ${data.sequence} 行已标记为采纳`);
+  }
+  async clearGenerationSelection(sequence) {
+    await this.api.delete(`/api/scripts/${enc(this.state.selectedScriptId)}/selections/${enc(sequence)}`);
+    const detail = this.state.scriptDetail;
+    if (detail) detail.selections = (detail.selections || []).filter((row) => Number(row.sequence) !== sequence);
+    this.renderScript();
+    this.toast(`第 ${sequence} 行已取消采纳`);
+  }
+  exportScriptAudio(scope) {
+    const detail = this.state.scriptDetail;
+    if (scope === "accepted" && (!detail || (detail.selections || []).length < detail.items.length)) {
+      this.toast("请先为每一行选择采纳音频", true);
+      return;
+    }
+    window.location.href = `/api/scripts/${enc(this.state.selectedScriptId)}/audio-export?scope=${enc(scope)}`;
+  }
   async deleteGeneration(jobId, itemId) {
     const job = this.state.jobs.find((item) => item.id === jobId);
     if (!job || !itemId) return;
@@ -596,6 +662,7 @@ class WorkstationApp {
     await this.api.delete(`/api/jobs/${enc(jobId)}/items/${enc(itemId)}`);
     if (detail?.items) {
       detail.items = detail.items.filter((entry) => entry.id !== itemId);
+      detail.selections = (detail.selections || []).filter((entry) => entry.job_id !== jobId || entry.item_id !== itemId);
       job.total_items = detail.items.length;
       job.completed_items = detail.items.filter((entry) => entry.status === "completed").length;
     }
@@ -614,6 +681,7 @@ class WorkstationApp {
     for (const job of jobs) await this.api.delete(`/api/jobs/${enc(job.id)}`);
     const deletedIds = new Set(jobs.map((job) => job.id));
     this.state.jobs = this.state.jobs.filter((job) => !deletedIds.has(job.id));
+    if (this.state.scriptDetail) this.state.scriptDetail.selections = (this.state.scriptDetail.selections || []).filter((entry) => !deletedIds.has(entry.job_id));
     for (const job of jobs) delete this.state.jobDetails[job.id];
     this.renderScript();
     this.toast(`${jobs.length} 个生成结果已删除`);

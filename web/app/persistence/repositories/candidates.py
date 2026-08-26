@@ -46,6 +46,24 @@ class CandidateRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_for_script(self, script_id: str) -> list[dict[str, Any]]:
+        with self._database.read() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.*, ji.job_id, ji.sequence, ji.accepted_candidate_id,
+                       j.script_id, j.voice_id, j.model_id, j.submitted_at,
+                       v.name AS voice_name
+                FROM job_item_candidates c
+                JOIN job_items ji ON ji.id=c.job_item_id
+                JOIN jobs j ON j.id=ji.job_id
+                JOIN voices v ON v.id=j.voice_id
+                WHERE j.script_id=? AND c.kind='gpt'
+                ORDER BY ji.sequence, j.submitted_at DESC, c.ordinal, c.submitted_at, c.id
+                """,
+                (script_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def get(self, candidate_id: str) -> dict[str, Any] | None:
         return self._get_where("c.id=?", (candidate_id,))
 

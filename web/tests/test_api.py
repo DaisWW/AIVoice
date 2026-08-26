@@ -528,6 +528,108 @@ def test_regenerate_accept_and_export_clone_candidate(app_client) -> None:
     )
 
 
+def test_script_line_selections_mark_collaboration_and_export_history(
+    app_client,
+) -> None:
+    client, _ = app_client
+    voice = _create_voice(client, "selection voice")
+    script = _create_script(
+        client,
+        "selection.txt",
+        "第一句 | mo-la\n第二句 | gu-na\n",
+    )
+    full_job = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "candidate_count": 2,
+        },
+    ).json()["job"]
+    single_job = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+            "line_number": 1,
+            "candidate_count": 1,
+        },
+    ).json()["job"]
+    full = wait_for_job(client, full_job["id"])
+    single = wait_for_job(client, single_job["id"])
+
+    incomplete = client.get(f"/api/scripts/{script['id']}/audio-export?scope=accepted")
+    assert incomplete.status_code == 409
+
+    first_line = single["items"][0]
+    second_line = full["items"][1]
+    selected_first = client.post(
+        f"/api/scripts/{script['id']}/selections",
+        json={
+            "sequence": 1,
+            "job_id": single["id"],
+            "item_id": first_line["id"],
+            "candidate_id": first_line["candidates"][0]["id"],
+        },
+    )
+    assert selected_first.status_code == 200
+    assert selected_first.json()["selection"]["selected_by_name"] == "系统管理员"
+    selected_second = client.post(
+        f"/api/scripts/{script['id']}/selections",
+        json={
+            "sequence": 2,
+            "job_id": full["id"],
+            "item_id": second_line["id"],
+            "candidate_id": second_line["candidates"][1]["id"],
+        },
+    )
+    assert selected_second.status_code == 200
+
+    detail = client.get(f"/api/scripts/{script['id']}").json()["script"]
+    assert [row["sequence"] for row in detail["selections"]] == [1, 2]
+    assert detail["selections"][1]["candidate_id"] == second_line["candidates"][1]["id"]
+
+    accepted = client.get(f"/api/scripts/{script['id']}/audio-export?scope=accepted")
+    assert accepted.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(accepted.content)) as package:
+        assert package.namelist() == ["Audio/001.wav", "Audio/002.wav", "manifest.json"]
+        manifest = json.loads(package.read("manifest.json"))
+    assert manifest["scope"] == "accepted"
+    assert [item["candidateId"] for item in manifest["items"]] == [
+        first_line["candidates"][0]["id"],
+        second_line["candidates"][1]["id"],
+    ]
+    assert all(item["accepted"] for item in manifest["items"])
+
+    history = client.get(f"/api/scripts/{script['id']}/audio-export?scope=all")
+    assert history.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(history.content)) as package:
+        names = package.namelist()
+        history_manifest = json.loads(package.read("manifest.json"))
+    assert names[-1] == "manifest.json"
+    assert len(history_manifest["items"]) == 5
+    assert sum(item["accepted"] for item in history_manifest["items"]) == 2
+
+    cleared = client.delete(f"/api/scripts/{script['id']}/selections/1")
+    assert cleared.status_code == 204
+    assert client.get(f"/api/scripts/{script['id']}").json()["script"][
+        "selections"
+    ] == [detail["selections"][1]]
+    edited = client.put(
+        f"/api/scripts/{script['id']}/items",
+        json={
+            "items": [
+                {"text": "改过的第一句", "pronunciation": "mo-la"},
+                {"text": "第二句", "pronunciation": "gu-na"},
+            ]
+        },
+    )
+    assert edited.status_code == 200
+    assert edited.json()["script"]["selections"] == []
+
+
 def test_create_job_applies_custom_settings_and_reproducible_seed_sequence(
     app_client,
 ) -> None:

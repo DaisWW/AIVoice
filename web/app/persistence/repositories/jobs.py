@@ -213,6 +213,9 @@ class JobRepository:
     ) -> list[dict[str, Any]]:
         return self._list_where("WHERE j.project_id=?", (project_id,), limit)
 
+    def list_for_script(self, script_id: str, limit: int = 300) -> list[dict[str, Any]]:
+        return self._list_where("WHERE j.script_id=?", (script_id,), limit)
+
     def _list_where(
         self, where: str, parameters: tuple[Any, ...], limit: int
     ) -> list[dict[str, Any]]:

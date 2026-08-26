@@ -182,6 +182,17 @@ CREATE TABLE IF NOT EXISTS job_item_candidates (
     UNIQUE(origin_type, origin_id)
 );
 
+CREATE TABLE IF NOT EXISTS script_line_selections (
+    script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    job_item_id TEXT NOT NULL REFERENCES job_items(id) ON DELETE CASCADE,
+    candidate_id TEXT NOT NULL REFERENCES job_item_candidates(id) ON DELETE CASCADE,
+    selected_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    selected_at TEXT NOT NULL,
+    PRIMARY KEY(script_id, sequence)
+);
+
 CREATE TABLE IF NOT EXISTS job_variants (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
@@ -221,6 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_job_items_job ON job_items(job_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON job_item_candidates(job_item_id, ordinal, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON job_item_candidates(kind, status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_candidates_queue ON job_item_candidates(origin_type, kind, status, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_script_line_selections_script ON script_line_selections(script_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_variants_job_submitted ON job_variants(job_id, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variants_status_submitted ON job_variants(status, submitted_at);
 CREATE INDEX IF NOT EXISTS idx_variant_items_variant ON job_variant_items(variant_id, sequence);
