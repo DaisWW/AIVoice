@@ -39,6 +39,9 @@ class WorkstationApp {
     document.addEventListener("submit", (event) => this.submit(event));
     document.addEventListener("change", (event) => this.change(event));
     document.addEventListener("input", (event) => this.input(event));
+    document.addEventListener("keydown", (event) => this.keydown(event));
+    document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".generation-dropdown-options")) this.closeGenerationDropdowns(); }, true);
+    window.addEventListener("resize", () => this.closeGenerationDropdowns());
     document.addEventListener("play", (event) => this.pauseOtherAudio(event.target), true);
     byId("scriptUploadFile").addEventListener("change", (event) => { byId("scriptUploadFileName").textContent = event.target.files[0]?.name || "选择台本文件"; });
     byId("voiceFiles").addEventListener("change", (event) => { byId("voiceFileName").textContent = event.target.files.length ? `${event.target.files.length} 条参考录音` : "选择参考录音"; });
@@ -472,6 +475,7 @@ class WorkstationApp {
   }
 
   async click(event) {
+    if (!event.target.closest(".generation-dropdown")) this.closeGenerationDropdowns();
     const closeButton = event.target.closest("[data-close-dialog]");
     if (closeButton) {
       byId(closeButton.dataset.closeDialog).close();
@@ -497,6 +501,8 @@ class WorkstationApp {
       if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
       if (action === "add-generation-configuration") this.addGenerationConfiguration();
       if (action === "remove-generation-configuration") this.removeGenerationConfiguration(button.dataset.configurationId);
+      if (action === "toggle-generation-dropdown") this.toggleGenerationDropdown(button);
+      if (action === "select-generation-dropdown-option") this.selectGenerationDropdownOption(button);
       if (action === "select-generation") await this.selectGeneration(button.dataset);
       if (action === "clear-generation-selection") await this.clearGenerationSelection(Number(button.dataset.sequence));
       if (action === "export-script-audio") this.exportScriptAudio(button.dataset.scope);
@@ -528,18 +534,7 @@ class WorkstationApp {
       this.state.voiceSearchQuery = input.value;
       this.renderVoice({ listOnly: true });
     }
-    if (input.dataset.action === "generation-voice") {
-      const configuration = this.state.generationConfigurations.find((item) => item.id === input.dataset.configurationId);
-      const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
-      const labels = this.generationVoiceLabels(voices);
-      const voice = voices.find((item) => labels.get(item.id) === input.value.trim());
-      if (configuration) configuration.voiceId = voice?.id || "";
-      input.setCustomValidity(voice ? "" : "请从列表中选择原声");
-      const help = input.closest(".generation-configuration-field")?.querySelector("small");
-      if (help) help.textContent = voice ? `${voice.enabled_file_count} 条可用录音` : "输入名称搜索并从列表选择";
-      this.storePosition();
-      this.updateGenerationCombinationCount();
-    }
+    if (input.dataset.action === "generation-dropdown-search") this.filterGenerationDropdown(input);
   }
 
   async change(event) {
@@ -548,19 +543,18 @@ class WorkstationApp {
       if (input.dataset.action === "file-enabled") await this.updateVoiceFile(input.dataset.fileId, { enabled: input.checked });
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
-      if (input.dataset.action === "generation-model" || input.dataset.action === "generation-candidate-count") {
-        const configuration = this.state.generationConfigurations.find((item) => item.id === input.dataset.configurationId);
-        if (!configuration) return;
-        if (input.dataset.action === "generation-model") {
-          configuration.modelId = input.value;
-          const model = this.state.config.models.find((item) => item.id === input.value);
-          const help = input.closest(".generation-configuration-field")?.querySelector("small");
-          if (help) help.textContent = model?.engine || model?.id || "请选择模型";
-        } else configuration.candidateCount = Math.min(4, Math.max(1, Number(input.value) || 1));
-        this.storePosition();
-        this.updateGenerationCombinationCount();
-      }
     } catch (error) { this.toast(error.message, true); }
+  }
+
+  keydown(event) {
+    if (event.key !== "Escape") return;
+    const dropdown = event.target.closest?.(".generation-dropdown");
+    if (!dropdown || dropdown.querySelector(".generation-dropdown-panel")?.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const trigger = dropdown.querySelector(".generation-dropdown-trigger");
+    this.closeGenerationDropdowns();
+    trigger?.focus();
   }
 
   openGenerationDialog(lineNumber = null) {
@@ -594,20 +588,98 @@ class WorkstationApp {
     return new Map(voices.map((voice) => [voice.id, nameCounts.get(voice.name) > 1 ? `${voice.name} · ${voice.id.slice(0, 6)}` : voice.name]));
   }
 
+  generationDropdown(configuration, index, field, selectedValue, options, placeholder) {
+    const selected = options.find((option) => String(option.value) === String(selectedValue));
+    const name = `${field}-${configuration.id}`;
+    return `<div class="generation-dropdown" data-generation-dropdown="${escapeHtml(name)}"><button class="generation-dropdown-trigger" type="button" data-action="toggle-generation-dropdown" aria-haspopup="listbox" aria-expanded="false" aria-controls="generation-dropdown-panel-${escapeHtml(name)}" aria-label="第 ${index + 1} 条配置的${escapeHtml(field)}"><span>${escapeHtml(selected?.label || placeholder)}</span><span class="generation-dropdown-chevron" aria-hidden="true">⌄</span></button><div id="generation-dropdown-panel-${escapeHtml(name)}" class="generation-dropdown-panel" hidden><input class="generation-dropdown-search" type="search" autocomplete="off" placeholder="搜索${escapeHtml(field)}" data-action="generation-dropdown-search" aria-label="搜索第 ${index + 1} 条配置的${escapeHtml(field)}"><div class="generation-dropdown-options" role="listbox" aria-label="第 ${index + 1} 条配置的${escapeHtml(field)}选项">${options.map((option) => `<button class="generation-dropdown-option${String(option.value) === String(selectedValue) ? " selected" : ""}" type="button" role="option" aria-selected="${String(option.value) === String(selectedValue)}" data-action="select-generation-dropdown-option" data-configuration-id="${escapeHtml(configuration.id)}" data-field="${escapeHtml(field)}" data-value="${escapeHtml(option.value)}" data-search-text="${escapeHtml(`${option.label} ${option.description || ""}`.toLocaleLowerCase())}"><strong>${escapeHtml(option.label)}</strong>${option.description ? `<small>${escapeHtml(option.description)}</small>` : ""}<span class="generation-dropdown-check" aria-hidden="true">✓</span></button>`).join("")}</div><p class="generation-dropdown-empty" hidden>没有匹配项</p></div></div>`;
+  }
+
+  toggleGenerationDropdown(trigger) {
+    const dropdown = trigger.closest(".generation-dropdown");
+    const panel = dropdown?.querySelector(".generation-dropdown-panel");
+    if (!dropdown || !panel) return;
+    const opening = panel.hidden;
+    this.closeGenerationDropdowns(dropdown);
+    panel.hidden = !opening;
+    trigger.setAttribute("aria-expanded", String(opening));
+    if (!opening) return;
+    const search = panel.querySelector(".generation-dropdown-search");
+    search.value = "";
+    this.filterGenerationDropdown(search);
+    this.positionGenerationDropdown(trigger, panel);
+    search.focus();
+  }
+
+  positionGenerationDropdown(trigger, panel) {
+    const rect = trigger.getBoundingClientRect();
+    const margin = 10;
+    const width = Math.min(Math.max(rect.width, 250), window.innerWidth - margin * 2);
+    const left = Math.min(Math.max(rect.left, margin), window.innerWidth - width - margin);
+    panel.style.width = `${width}px`;
+    panel.style.left = `${left}px`;
+    panel.style.right = "auto";
+    panel.style.top = `${rect.bottom + 6}px`;
+    panel.style.bottom = "auto";
+    const panelHeight = panel.getBoundingClientRect().height;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const openAbove = panelHeight > spaceBelow && spaceAbove > spaceBelow;
+    const available = Math.max(100, (openAbove ? spaceAbove : spaceBelow) - 12);
+    panel.querySelector(".generation-dropdown-options").style.maxHeight = `${Math.max(70, available - 55)}px`;
+    if (openAbove) {
+      panel.style.top = "auto";
+      panel.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+    }
+  }
+
+  closeGenerationDropdowns(except = null) {
+    document.querySelectorAll(".generation-dropdown").forEach((dropdown) => {
+      if (dropdown === except) return;
+      const panel = dropdown.querySelector(".generation-dropdown-panel");
+      const trigger = dropdown.querySelector(".generation-dropdown-trigger");
+      if (panel) panel.hidden = true;
+      trigger?.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  filterGenerationDropdown(input) {
+    const panel = input.closest(".generation-dropdown-panel");
+    if (!panel) return;
+    const query = input.value.trim().toLocaleLowerCase();
+    let visible = 0;
+    panel.querySelectorAll(".generation-dropdown-option").forEach((option) => {
+      option.hidden = Boolean(query) && !option.dataset.searchText.includes(query);
+      if (!option.hidden) visible += 1;
+    });
+    panel.querySelector(".generation-dropdown-empty").hidden = visible > 0;
+  }
+
+  selectGenerationDropdownOption(option) {
+    const configuration = this.state.generationConfigurations.find((item) => item.id === option.dataset.configurationId);
+    if (!configuration) return;
+    if (option.dataset.field === "原声") configuration.voiceId = option.dataset.value;
+    if (option.dataset.field === "模型") configuration.modelId = option.dataset.value;
+    if (option.dataset.field === "条数") configuration.candidateCount = Math.min(4, Math.max(1, Number(option.dataset.value) || 1));
+    this.storePosition();
+    this.renderGenerationConfigurations();
+  }
+
   renderGenerationConfigurations(focusId = null) {
     const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
     const models = this.state.config.models.filter((model) => model.available === true);
     const voiceLabels = this.generationVoiceLabels(voices);
-    byId("generationVoiceOptions").innerHTML = voices.map((voice) => `<option value="${escapeHtml(voiceLabels.get(voice.id))}" label="${voice.enabled_file_count} 条可用录音"></option>`).join("");
+    const voiceOptions = voices.map((voice) => ({ value: voice.id, label: voiceLabels.get(voice.id), description: `${voice.enabled_file_count} 条可用录音` }));
+    const modelOptions = models.map((model) => ({ value: model.id, label: model.label || model.id, description: model.engine || model.id }));
+    const countOptions = [1, 2, 3, 4].map((count) => ({ value: String(count), label: `${count} 条`, description: "每行候选" }));
     byId("generationConfigurationList").innerHTML = this.state.generationConfigurations.length
       ? this.state.generationConfigurations.map((configuration, index) => {
         const voice = voices.find((item) => item.id === configuration.voiceId);
         const model = models.find((item) => item.id === configuration.modelId);
-        return `<div class="generation-configuration" data-generation-configuration="${escapeHtml(configuration.id)}"><span class="generation-configuration-index">${String(index + 1).padStart(2, "0")}</span><label class="generation-configuration-field"><span>原声</span><input type="search" list="generationVoiceOptions" autocomplete="off" required value="${escapeHtml(voice ? voiceLabels.get(voice.id) : "")}" placeholder="输入名称搜索原声" data-action="generation-voice" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的原声"><small>${voice ? `${voice.enabled_file_count} 条可用录音` : "输入名称搜索并从列表选择"}</small></label><label class="generation-configuration-field"><span>模型</span><select required data-action="generation-model" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的模型">${models.map((item) => `<option value="${escapeHtml(item.id)}"${item.id === configuration.modelId ? " selected" : ""}>${escapeHtml(item.label || item.id)}</option>`).join("")}</select><small>${escapeHtml(model?.engine || model?.id || "请选择模型")}</small></label><label class="generation-configuration-field generation-count-field"><span>条数</span><select data-action="generation-candidate-count" data-configuration-id="${escapeHtml(configuration.id)}" aria-label="第 ${index + 1} 条配置的候选条数">${[1, 2, 3, 4].map((count) => `<option value="${count}"${count === configuration.candidateCount ? " selected" : ""}>${count} 条</option>`).join("")}</select><small>每行候选</small></label><button class="icon-button generation-configuration-remove" type="button" data-action="remove-generation-configuration" data-configuration-id="${escapeHtml(configuration.id)}" title="移除这条配置" aria-label="移除第 ${index + 1} 条生成配置">×</button></div>`;
+        return `<div class="generation-configuration" data-generation-configuration="${escapeHtml(configuration.id)}"><span class="generation-configuration-index">${String(index + 1).padStart(2, "0")}</span><div class="generation-configuration-field"><span>原声</span>${this.generationDropdown(configuration, index, "原声", configuration.voiceId, voiceOptions, "选择原声")}<small>${voice ? `${voice.enabled_file_count} 条可用录音` : "请选择原声"}</small></div><div class="generation-configuration-field"><span>模型</span>${this.generationDropdown(configuration, index, "模型", configuration.modelId, modelOptions, "选择模型")}<small>${escapeHtml(model?.engine || model?.id || "请选择模型")}</small></div><div class="generation-configuration-field generation-count-field"><span>条数</span>${this.generationDropdown(configuration, index, "条数", String(configuration.candidateCount), countOptions, "选择条数")}<small>每行候选</small></div><button class="icon-button generation-configuration-remove" type="button" data-action="remove-generation-configuration" data-configuration-id="${escapeHtml(configuration.id)}" title="移除这条配置" aria-label="移除第 ${index + 1} 条生成配置">×</button></div>`;
       }).join("")
       : `<div class="generation-configuration-empty"><strong>还没有生成配置</strong><span>点击“＋ 添加生成”开始组装。</span></div>`;
     this.updateGenerationCombinationCount();
-    if (focusId) byId("generationConfigurationList").querySelector(`[data-configuration-id="${focusId}"][data-action="generation-voice"]`)?.focus();
+    if (focusId) byId("generationConfigurationList").querySelector(`[data-generation-configuration="${focusId}"] .generation-dropdown-trigger`)?.focus();
   }
 
   addGenerationConfiguration() {

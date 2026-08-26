@@ -97,9 +97,17 @@ def test_generation_form_only_lists_explicitly_available_models() -> None:
 
 def test_generation_form_uses_searchable_configuration_rows() -> None:
     content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
 
     assert 'id="generationConfigurationList"' in content
-    assert 'id="generationVoiceOptions"' in content
     assert 'data-action="add-generation-configuration"' in content
+    assert 'data-action="generation-dropdown-search"' in javascript
+    assert 'data-action="toggle-generation-dropdown"' in javascript
+    assert 'data-action="select-generation-dropdown-option"' in javascript
+    assert (
+        "<select"
+        not in re.search(r"generationDropdown\(.*?\n  }", javascript, re.DOTALL).group()
+    )
+    assert '<datalist id="generationVoiceOptions"' not in content
     assert 'id="generationVoiceChoices"' not in content
     assert 'id="generationModelChoices"' not in content

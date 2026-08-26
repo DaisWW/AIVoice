@@ -518,10 +518,27 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .generation-configuration:focus-within { border-color: var(--ws-line-strong); background: #13191f; }
 .generation-configuration-index { display: inline-grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 10px; font-weight: 750; }
 .generation-configuration-field { display: grid; min-width: 0; gap: 6px; color: var(--ws-ink-soft); font-size: 10px; font-weight: 650; }
-.generation-configuration-field input, .generation-configuration-field select { width: 100%; min-width: 0; min-height: 40px; padding: 0 11px; border: 1px solid var(--ws-line-strong); border-radius: 6px; background: var(--ws-surface); color: var(--ws-ink); outline: none; }
-.generation-configuration-field input:focus, .generation-configuration-field select:focus { border-color: var(--ws-accent); box-shadow: 0 0 0 3px rgba(200, 240, 107, .11); }
 .generation-configuration-field small { min-width: 0; overflow: hidden; color: var(--ws-muted); font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.generation-count-field select { min-width: 82px; }
+.generation-dropdown { position: relative; min-width: 0; }
+.generation-dropdown-trigger { display: flex; width: 100%; min-width: 0; min-height: 40px; align-items: center; justify-content: space-between; gap: 9px; padding: 0 11px; border: 1px solid var(--ws-line-strong); border-radius: 6px; background: var(--ws-surface); color: var(--ws-ink); font-size: 11px; font-weight: 650; text-align: left; cursor: pointer; outline: none; }
+.generation-dropdown-trigger > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.generation-dropdown-trigger:hover { border-color: var(--ws-muted); }
+.generation-dropdown-trigger:focus-visible, .generation-dropdown-trigger[aria-expanded="true"] { border-color: var(--ws-accent); box-shadow: 0 0 0 3px rgba(200, 240, 107, .11); }
+.generation-dropdown-chevron { flex: 0 0 auto; color: var(--ws-ink-soft); font-size: 15px; transition: transform .16s ease; }
+.generation-dropdown-trigger[aria-expanded="true"] .generation-dropdown-chevron { transform: rotate(180deg); }
+.generation-dropdown-panel { position: fixed; z-index: 12; max-width: calc(100vw - 20px); padding: 8px; border: 1px solid var(--ws-line-strong); border-radius: 7px; background: var(--ws-surface-raised); box-shadow: 0 14px 38px rgba(0, 0, 0, .45); }
+.generation-dropdown-search { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--ws-line-strong); border-radius: 5px; background: var(--ws-surface-soft); color: var(--ws-ink); font-size: 10px; outline: none; }
+.generation-dropdown-search:focus { border-color: var(--ws-accent); box-shadow: 0 0 0 2px rgba(200, 240, 107, .1); }
+.generation-dropdown-options { display: grid; max-height: 230px; gap: 3px; margin-top: 7px; overflow-y: auto; }
+.generation-dropdown-option { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--ws-ink-soft); text-align: left; cursor: pointer; }
+.generation-dropdown-option:hover, .generation-dropdown-option:focus-visible { background: var(--ws-accent-soft); color: var(--ws-ink); outline: none; }
+.generation-dropdown-option.selected { background: rgba(200, 240, 107, .08); }
+.generation-dropdown-option strong, .generation-dropdown-option small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.generation-dropdown-option strong { font-size: 11px; }
+.generation-dropdown-option small { grid-column: 1; color: var(--ws-muted); font-size: 9px; font-weight: 500; }
+.generation-dropdown-check { display: none; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--ws-accent); font-size: 12px; }
+.generation-dropdown-option.selected .generation-dropdown-check { display: block; }
+.generation-dropdown-empty { margin: 8px 4px 2px; color: var(--ws-muted); font-size: 9px; text-align: center; }
 .generation-configuration-remove { align-self: center; color: var(--ws-muted); }
 .generation-configuration-remove:hover { border-color: rgba(255, 125, 134, .45); background: var(--ws-danger-soft); color: var(--ws-danger); }
 .generation-configuration-empty { display: grid; min-height: 125px; place-items: center; align-content: center; gap: 7px; border: 1px dashed var(--ws-line-strong); border-radius: 7px; background: var(--ws-surface-soft); color: var(--ws-muted); font-size: 10px; text-align: center; }
