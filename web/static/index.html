@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260825.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.3">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.4">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
@@ -124,6 +124,19 @@
     </form>
   </dialog>
 
+  <dialog id="generationOptionsDialog" class="modal-dialog generation-options-dialog">
+    <form id="generationOptionsForm" method="dialog">
+      <header class="dialog-header"><div><span class="eyebrow">GENERATION OPTIONS</span><h2 id="generationOptionsTitle">生成音频</h2></div><button class="icon-button" type="button" data-close-dialog="generationOptionsDialog" title="关闭" aria-label="关闭">×</button></header>
+      <p class="dialog-intro">选择一个或多个声音和模型。每个声音 × 模型组合都会创建独立任务，历史记录不会覆盖。</p>
+      <div class="generation-choice-columns">
+        <fieldset class="generation-choice-group"><legend>声音</legend><div id="generationVoiceChoices" class="generation-choice-list"></div></fieldset>
+        <fieldset class="generation-choice-group"><legend>模型</legend><div id="generationModelChoices" class="generation-choice-list"></div></fieldset>
+      </div>
+      <p id="generationCombinationCount" class="generation-combination-count" aria-live="polite"></p>
+      <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="generationOptionsDialog">取消</button><button class="button button-primary" type="submit">开始生成</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="passwordDialog" class="modal-dialog compact-dialog">
     <form id="passwordForm" method="dialog">
       <header class="dialog-header"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2>设置新密码</h2></div></header>
@@ -135,6 +148,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260826.3"></script>
+  <script type="module" src="/assets/js/app.js?v=20260826.4"></script>
 </body>
 </html>
