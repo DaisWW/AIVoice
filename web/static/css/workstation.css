@@ -515,7 +515,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .generation-choice-list { display: grid; max-height: 340px; gap: 6px; overflow-y: auto; }
 .generation-choice { display: flex; min-width: 0; align-items: center; gap: 9px; min-height: 50px; padding: 8px 10px; border: 1px solid var(--ws-line); border-radius: 5px; background: var(--ws-surface-soft); cursor: pointer; }
 .generation-choice:has(input:checked) { border-color: var(--ws-accent); background: var(--ws-accent-soft); }
-.generation-choice input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--ws-accent); }
+.generation-choice input { flex: 0 0 auto; width: 15px; min-width: 15px; height: 15px; min-height: 15px; margin: 0; padding: 0; accent-color: var(--ws-accent); }
 .generation-choice span { min-width: 0; }
 .generation-choice strong, .generation-choice small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .generation-choice strong { color: var(--ws-ink-soft); font-size: 11px; }
