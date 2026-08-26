@@ -49,6 +49,10 @@ def test_prompt_suggestion_and_text_generation_layer_prompts(app_client) -> None
         def complete(self, config, *, system: str, user: str) -> str:
             del config, system
             self.users.append(user)
+            if "修改要求：" in user:
+                return json.dumps(
+                    {"lines": [{"text": "更克制的新台词", "pronunciation": "更克制的新台词"}]}
+                )
             if "生成" in user:
                 return json.dumps({"lines": [{"text": "新台词一"}, {"text": "新台词二"}]})
             return "完善后的提示词"
@@ -87,6 +91,29 @@ def test_prompt_suggestion_and_text_generation_layer_prompts(app_client) -> None
     ]
     assert "总体设定" in fake.users[-1]
     assert "单台本设定" in fake.users[-1]
+
+    rewritten = client.post(
+        f"/api/scripts/{script_id}/rewrite-line",
+        json={
+            "sequence": 1,
+            "text": "用户刚刚手动修改、尚未保存的台词",
+            "pronunciation": "用户刚刚手动修改、尚未保存的台词",
+            "instruction": "语气更克制",
+        },
+    )
+    assert rewritten.status_code == 200
+    assert rewritten.json()["line"] == {
+        "text": "更克制的新台词",
+        "pronunciation": "更克制的新台词",
+    }
+    assert "总体设定" in fake.users[-1]
+    assert "单台本设定" in fake.users[-1]
+    assert "用户刚刚手动修改、尚未保存的台词" in fake.users[-1]
+    assert "语气更克制" in fake.users[-1]
+
+    unchanged = client.get(f"/api/scripts/{script_id}")
+    assert unchanged.status_code == 200
+    assert unchanged.json()["script"]["items"][0]["text"] == "第一句"
 
 
 def test_admin_text_model_config_masks_key(app_client) -> None:

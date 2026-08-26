@@ -77,6 +77,13 @@ class TextGenerationRequest(BaseModel):
     model_id: str = Field(default="", max_length=64)
 
 
+class TextLineRewriteRequest(BaseModel):
+    sequence: int = Field(ge=1, le=3000)
+    text: str = Field(min_length=1, max_length=2000)
+    pronunciation: str = Field(default="", max_length=2000)
+    instruction: str = Field(min_length=1, max_length=4000)
+
+
 class TextModelUpdate(BaseModel):
     enabled: bool = False
     label: str = Field(default="文本台词模型", min_length=1, max_length=100)

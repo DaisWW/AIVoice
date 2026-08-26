@@ -330,7 +330,7 @@ class TextGenerationService:
             project_prompt=project_prompt,
             script_prompt=script_prompt,
             task=(
-                f"请完善{('项目总体' if scope == 'project' else '单台本')}提示词。"
+                f"请完善{('项目总体' if scope == 'project' else '角色台词特性')}提示词。"
                 f"用户补充目标：{goal.strip() or '无'}"
             ),
         )
@@ -349,7 +349,7 @@ class TextGenerationService:
         if model_id and model_id != config.model:
             raise ValueError("当前只配置了一个文本模型，请使用默认模型")
         system = (
-            "你是专业台词编剧。根据给定的总体规则和台本规则创作中文台词。"
+            "你是专业台词编剧。根据给定的项目级上下文和角色台词特性创作中文台词。"
             '只返回 JSON 对象，格式为 {"lines":[{"text":"台词"}]}，不要 Markdown、编号或额外字段。'
             "每句是可直接交给配音的完整台词，避免解释和舞台指示。"
         )
@@ -361,12 +361,40 @@ class TextGenerationService:
         raw = self.client.complete(config, system=system, user=user)
         return self._parse_lines(raw, line_count)
 
+    def rewrite_line(
+        self,
+        *,
+        project_prompt: str,
+        script_prompt: str,
+        text: str,
+        pronunciation: str,
+        instruction: str,
+    ) -> dict[str, str]:
+        config = self.store.config()
+        system = (
+            "你是专业台词编辑。根据项目级上下文和角色台词特性，只修改用户提供的这一行台词。"
+            '只返回 JSON 对象，格式为 {"lines":[{"text":"修改后的台词","pronunciation":"修改后的发音"}]}，'
+            "不要 Markdown、解释或额外字段。不要改写成多行；发音没有特殊要求时与台词相同。"
+        )
+        user = self._layered_context(
+            project_prompt=project_prompt,
+            script_prompt=script_prompt,
+            task=(
+                f"当前台词：{text.strip()}\n"
+                f"当前发音：{pronunciation.strip() or text.strip()}\n"
+                f"修改要求：{instruction.strip()}\n"
+                "请给出一个修改候选，不要直接替用户做最终决定。"
+            ),
+        )
+        raw = self.client.complete(config, system=system, user=user)
+        return self._parse_lines(raw, 1)[0]
+
     @staticmethod
     def _layered_context(*, project_prompt: str, script_prompt: str, task: str) -> str:
         return (
-            "【项目总体提示词】\n"
+            "【项目级上下文】\n"
             f"{project_prompt.strip() or '（未设置）'}\n\n"
-            "【单台本提示词】\n"
+            "【角色台词特性】\n"
             f"{script_prompt.strip() or '（未设置）'}\n\n"
             "【本次任务】\n"
             f"{task.strip()}"
@@ -398,7 +426,12 @@ class TextGenerationService:
             )
             if not text:
                 continue
-            result.append({"text": text, "pronunciation": text})
+            pronunciation = (
+                str(item.get("pronunciation") or text).strip()
+                if isinstance(item, dict)
+                else text
+            )
+            result.append({"text": text, "pronunciation": pronunciation or text})
         if not result:
             raise RuntimeError("文本模型没有生成有效台词")
         return result

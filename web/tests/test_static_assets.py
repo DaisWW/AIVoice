@@ -111,3 +111,20 @@ def test_generation_form_uses_searchable_configuration_rows() -> None:
     assert '<datalist id="generationVoiceOptions"' not in content
     assert 'id="generationVoiceChoices"' not in content
     assert 'id="generationModelChoices"' not in content
+
+
+def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save() -> (
+    None
+):
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+
+    assert 'data-action="rewrite-line"' in javascript
+    assert 'data-action="adopt-line-rewrite"' in javascript
+    assert 'data-action="discard-line-rewrite"' in javascript
+    assert "rewrite-line`" in javascript
+    assert 'class="button button-primary script-save-floating"' in javascript
+    assert "角色台词特性" in javascript
+    assert "项目级上下文" in javascript
+    assert "本次要求" not in javascript
+    assert ".script-save-floating { position: fixed;" in stylesheet

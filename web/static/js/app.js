@@ -15,7 +15,7 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.requestVersion = 0;
     this.generationConfigurationSequence = 0;
@@ -143,6 +143,9 @@ class WorkstationApp {
         this.state.scriptPromptDraft = null;
         this.state.generatedLines = [];
         this.state.generatedLinesScriptId = null;
+        this.state.lineRewriteSuggestions = {};
+        this.state.lineRewriteInstructions = {};
+        this.state.scriptItemDrafts = {};
       }
       const savedScriptId = previousProjectId === id ? this.state.selectedScriptId : savedPosition.scriptId;
       const savedVoiceId = previousProjectId === id ? this.state.selectedVoiceId : savedPosition.voiceId;
@@ -286,7 +289,7 @@ class WorkstationApp {
     const exportAll = canExportAll
       ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all">导出全部历史</button>`
       : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all" disabled>导出全部历史</button>`;
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>按列表组装原声、模型和候选条数，每条配置独立生成。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条组装生成配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptSettingsForm" class="detail-form"><label class="field"><span>台本名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>单台本提示词</span><textarea name="prompt" maxlength="12000" placeholder="角色、场景、语气、格式和禁用项。会叠加在项目总体提示词之后。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>提示词由人工维护；AI 建议只生成草稿，不会自动覆盖。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存台本设置</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}</form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>使用项目总体提示词 + 单台本提示词生成草稿，确认后再加入编辑器。</p></div></div><label class="field wide"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：写 5 句，表现角色第一次发现异常时的克制惊讶。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词草稿</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>每一行都可以单独编辑和生成。</p></div><button class="button button-primary button-small" type="submit">保存行内容</button></div><div class="script-lines">${lines}</div></form></div>`;
+    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>按列表组装原声、模型和候选条数，每条配置独立生成。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条组装生成配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptSettingsForm" class="detail-form compact-script-settings"><label class="field"><span>台本 / 角色名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-quiet" type="submit">保存名称</button></div></form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>保存当前角色的长期台词特性；生成新台词和单行修改时会自动叠加项目级上下文。</p></div></div><label class="field wide"><span>角色台词特性</span><textarea name="prompt" maxlength="12000" placeholder="例如：说话克制、句子短，不主动解释情绪；遇到质疑时先停顿，再用事实回应。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>这是可长期复用的角色上下文，不是一次性要求。生成前会自动保存；AI 候选不会直接覆盖现有台词。</small></label><div class="character-context-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善角色特性</button><button class="button button-quiet" type="button" data-action="save-character-context">保存角色特性</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}<div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词候选</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>手动编辑或采用 AI 候选后，点击右下角“保存台词”。</p></div></div><div class="script-lines">${lines}</div><button class="button button-primary script-save-floating" type="submit" aria-label="保存全部台词与发音">保存台词</button></form></div>`;
   }
 
   promptSuggestion(suggestion, scope) {
@@ -295,12 +298,26 @@ class WorkstationApp {
   }
 
   generatedLinesPanel(lines) {
-    return `<section class="generated-lines-panel"><header><strong>台词草稿</strong><small>${lines.length} 句 · 尚未加入台本</small></header><ol>${lines.map((line) => `<li>${escapeHtml(line.text)}</li>`).join("")}</ol><button class="button button-quiet button-small" type="button" data-action="adopt-generated-lines">加入台本编辑器</button></section>`;
+    return `<section class="generated-lines-panel"><header><strong>台词候选</strong><small>${lines.length} 句 · 尚未加入台本</small></header><ol>${lines.map((line) => `<li>${escapeHtml(line.text)}</li>`).join("")}</ol><button class="button button-quiet button-small" type="button" data-action="adopt-generated-lines">确认并加入编辑器</button></section>`;
   }
 
   scriptLine(scriptId, item, index, canGenerate) {
     const sequence = Number(item.order || index + 1);
-    return `<div class="script-line" data-script-item><div class="line-heading"><span class="line-number">${String(sequence).padStart(2, "0")}</span><div class="line-actions"><button class="button button-quiet button-small" type="button" data-action="generate-line" data-line-number="${sequence}"${canGenerate ? "" : " disabled"}>单条生成</button></div></div><div class="line-fields"><label><span>台词</span><textarea name="text" maxlength="2000">${escapeHtml(item.text)}</textarea></label><label><span>发音</span><textarea name="pronunciation" maxlength="2000">${escapeHtml(item.pronunciation)}</textarea></label></div>${this.lineResult(scriptId, sequence)}</div>`;
+    const draft = this.state.scriptItemDrafts[scriptId]?.[sequence];
+    const text = draft?.text ?? item.text;
+    const pronunciation = draft?.pronunciation ?? item.pronunciation;
+    const rewriteInstruction = this.state.lineRewriteInstructions[this.lineRewriteKey(scriptId, sequence)] || "";
+    return `<div class="script-line" data-script-item data-line-number="${sequence}"><div class="line-heading"><span class="line-number">${String(sequence).padStart(2, "0")}</span><div class="line-actions"><button class="button button-quiet button-small" type="button" data-action="generate-line" data-line-number="${sequence}"${canGenerate ? "" : " disabled"}>生成音频</button></div></div><div class="line-fields"><label><span>台词</span><textarea name="text" maxlength="2000">${escapeHtml(text)}</textarea></label><label><span>发音</span><textarea name="pronunciation" maxlength="2000">${escapeHtml(pronunciation)}</textarea></label></div><div class="line-rewrite-controls"><label><span>AI 单行修改要求</span><input name="rewrite_instruction" maxlength="4000" value="${escapeHtml(rewriteInstruction)}" placeholder="例如：更克制、缩短到 20 字以内，不改变事实。"></label><button class="button button-quiet button-small" type="button" data-action="rewrite-line" data-line-number="${sequence}">生成修改候选</button></div><div class="line-rewrite-result">${this.lineRewriteSuggestion(scriptId, sequence)}</div>${this.lineResult(scriptId, sequence)}</div>`;
+  }
+
+  lineRewriteKey(scriptId, sequence) {
+    return `${scriptId}:${sequence}`;
+  }
+
+  lineRewriteSuggestion(scriptId, sequence) {
+    const suggestion = this.state.lineRewriteSuggestions[this.lineRewriteKey(scriptId, sequence)];
+    if (!suggestion) return "";
+    return `<section class="line-rewrite-suggestion"><header><strong>AI 修改候选</strong><small>尚未替换当前行</small></header><div class="line-rewrite-preview"><div><span>台词</span><p>${escapeHtml(suggestion.text)}</p></div><div><span>发音</span><p>${escapeHtml(suggestion.pronunciation)}</p></div></div><div class="line-rewrite-actions"><button class="button button-primary button-small" type="button" data-action="adopt-line-rewrite" data-line-number="${sequence}">采用修改</button><button class="button button-quiet button-small" type="button" data-action="discard-line-rewrite" data-line-number="${sequence}">放弃</button></div></section>`;
   }
 
   lineResult(scriptId, sequence) {
@@ -428,7 +445,7 @@ class WorkstationApp {
   renderProject() {
     const project = this.state.project;
     const canManage = project.can_manage;
-    byId("projectContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">PROJECT SETTINGS</span><h1>项目资料与成员</h1><p>项目定义所有台本、声音与生成历史的共享边界。</p></div></div><div class="project-layout"><section class="project-section work-section"><header class="section-heading"><div><h2>项目资料</h2><p>更新名称、说明和所有台本共用的总体提示词</p></div></header>${canManage ? `<form id="projectSettingsForm" class="project-settings-form"><label class="field"><span>项目名称</span><input name="name" value="${escapeHtml(project.name)}" maxlength="80" required></label><label class="field"><span>项目说明</span><textarea name="description" maxlength="500">${escapeHtml(project.description)}</textarea></label><label class="field"><span>项目总体提示词</span><textarea name="prompt" maxlength="12000" placeholder="统一定义世界观、角色基调、语言风格、输出格式和禁用项。">${escapeHtml(this.state.projectPromptDraft ?? project.prompt ?? "")}</textarea><small>所有台本都会继承这段提示词；单台本提示词可进一步收窄。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-project-prompt">让 AI 完善提示词</button><button class="button button-primary" type="submit">保存资料</button></div>${this.promptSuggestion(this.state.projectPromptSuggestion, "project")}</form>` : `<div class="section-body"><p>${escapeHtml(project.description || "暂无项目说明")}</p><div class="readonly-prompt"><strong>项目总体提示词</strong><p>${escapeHtml(project.prompt || "尚未设置")}</p></div></div>`}</section><section class="project-section work-section"><header class="section-heading"><div><h2>成员</h2><p>${project.member_count} 位项目成员</p></div></header><div id="memberList" class="member-list"><p class="empty-list">正在读取成员...</p></div>${canManage ? '<form id="memberAddForm" class="member-add"><span>按用户名添加已由系统管理员创建的账户。</span><div class="inline-form"><input name="username" maxlength="64" required placeholder="member@example.com"><button class="button button-quiet" type="submit">添加成员</button></div></form>' : ""}<p class="project-id-note">PROJECT ID · ${escapeHtml(project.id)}</p></section></div>`;
+    byId("projectContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">项目管理</span><h1>项目资料与成员</h1><p>管理项目范围、共享上下文和参与成员。</p></div></div><div class="project-layout"><section class="project-section work-section"><header class="section-heading"><div><h2>项目资料</h2><p>更新名称、说明和所有角色共用的项目级上下文</p></div></header>${canManage ? `<form id="projectSettingsForm" class="project-settings-form"><label class="field"><span>项目名称</span><input name="name" value="${escapeHtml(project.name)}" maxlength="80" required></label><label class="field"><span>项目说明</span><textarea name="description" maxlength="500">${escapeHtml(project.description)}</textarea></label><label class="field"><span>项目级上下文</span><textarea name="prompt" maxlength="12000" placeholder="统一定义世界观、角色关系、语言风格、输出格式和禁用项。">${escapeHtml(this.state.projectPromptDraft ?? project.prompt ?? "")}</textarea><small>所有角色都会继承这段上下文；每个角色可再保存自己的台词特性。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-project-prompt">让 AI 完善上下文</button><button class="button button-primary" type="submit">保存资料</button></div>${this.promptSuggestion(this.state.projectPromptSuggestion, "project")}</form>` : `<div class="section-body"><p>${escapeHtml(project.description || "暂无项目说明")}</p><div class="readonly-prompt"><strong>项目级上下文</strong><p>${escapeHtml(project.prompt || "尚未设置")}</p></div></div>`}</section><section class="project-section work-section"><header class="section-heading"><div><h2>成员</h2><p>${project.member_count} 位项目成员</p></div></header><div id="memberList" class="member-list"><p class="empty-list">正在读取成员...</p></div>${canManage ? '<form id="memberAddForm" class="member-add"><span>按用户名添加已由系统管理员创建的账户。</span><div class="inline-form"><input name="username" maxlength="64" required placeholder="member@example.com"><button class="button button-quiet" type="submit">添加成员</button></div></form>' : ""}<p class="project-id-note">PROJECT ID · ${escapeHtml(project.id)}</p></section></div>`;
     void this.loadMembers(project.id);
   }
 
@@ -499,6 +516,9 @@ class WorkstationApp {
       if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "generate-all") this.openGenerationDialog(null);
       if (action === "generate-line") this.openGenerationDialog(Number(button.dataset.lineNumber));
+      if (action === "rewrite-line") await this.runBusy(button, () => this.rewriteScriptLine(button));
+      if (action === "adopt-line-rewrite") this.adoptLineRewrite(button);
+      if (action === "discard-line-rewrite") this.discardLineRewrite(button);
       if (action === "add-generation-configuration") this.addGenerationConfiguration();
       if (action === "remove-generation-configuration") this.removeGenerationConfiguration(button.dataset.configurationId);
       if (action === "toggle-generation-dropdown") this.toggleGenerationDropdown(button);
@@ -512,6 +532,7 @@ class WorkstationApp {
       if (action === "remove-member") await this.removeMember(button.dataset.memberId);
       if (action === "suggest-project-prompt") await this.runBusy(button, () => this.suggestProjectPrompt());
       if (action === "suggest-script-prompt") await this.runBusy(button, () => this.suggestScriptPrompt());
+      if (action === "save-character-context") await this.runBusy(button, () => this.saveCharacterContext());
       if (action === "adopt-project-prompt") this.adoptProjectPrompt();
       if (action === "adopt-script-prompt") this.adoptScriptPrompt();
       if (action === "adopt-generated-lines") this.adoptGeneratedLines();
@@ -523,8 +544,15 @@ class WorkstationApp {
     if (input.name === "prompt" && input.closest("#projectSettingsForm")) {
       this.state.projectPromptDraft = input.value;
     }
-    if (input.name === "prompt" && input.closest("#scriptSettingsForm")) {
+    if (input.name === "prompt" && input.closest("#textGenerationForm")) {
       this.state.scriptPromptDraft = input.value;
+    }
+    if (["text", "pronunciation"].includes(input.name) && input.closest("[data-script-item]")) {
+      this.captureScriptItemDraft(input.closest("[data-script-item]"));
+    }
+    if (input.name === "rewrite_instruction" && input.closest("[data-script-item]")) {
+      const sequence = Number(input.closest("[data-script-item]").dataset.lineNumber);
+      this.state.lineRewriteInstructions[this.lineRewriteKey(this.state.selectedScriptId, sequence)] = input.value;
     }
     if (input.id === "scriptSearch") {
       this.state.scriptSearchQuery = input.value;
@@ -535,6 +563,17 @@ class WorkstationApp {
       this.renderVoice({ listOnly: true });
     }
     if (input.dataset.action === "generation-dropdown-search") this.filterGenerationDropdown(input);
+  }
+
+  captureScriptItemDraft(row) {
+    const scriptId = this.state.selectedScriptId;
+    const sequence = Number(row?.dataset.lineNumber);
+    if (!scriptId || !sequence) return;
+    this.state.scriptItemDrafts[scriptId] ||= {};
+    this.state.scriptItemDrafts[scriptId][sequence] = {
+      text: row.querySelector('[name="text"]').value,
+      pronunciation: row.querySelector('[name="pronunciation"]').value,
+    };
   }
 
   async change(event) {
@@ -741,8 +780,8 @@ class WorkstationApp {
   async createProject(form) { const { project } = await this.api.post("/api/projects", { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.projects.push(project); form.reset(); byId("projectDialog").close(); await this.selectProject(project.id, true); this.showView("script"); this.toast("项目已创建"); }
   async createScript(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { script } = await this.api.postForm("/api/scripts", data); this.state.scripts.unshift(script); this.state.selectedScriptId = script.id; this.state.scriptDetail = null; form.reset(); byId("scriptUploadFileName").textContent = "选择台本文件"; byId("scriptDialog").close(); this.render(); this.showView("script"); this.toast("台本已导入"); }
   async createVoice(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { voice } = await this.api.postForm("/api/voices", data); this.state.voices.unshift(voice); this.state.selectedVoiceId = voice.id; this.state.voiceDetail = null; form.reset(); byId("voiceFileName").textContent = "选择参考录音"; byId("voiceDialog").close(); this.render(); this.showView("voice"); this.toast("声音已创建"); }
-  async saveScriptSettings(form) { const id = this.state.selectedScriptId; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name: form.name.value.trim(), prompt: form.prompt.value }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.render(); this.toast("台本设置已保存"); }
-  async saveScriptItems(form, options = {}) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
+  async saveScriptSettings(form) { const id = this.state.selectedScriptId; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name: form.name.value.trim(), prompt: this.currentCharacterContext() }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("名称已保存"); }
+  async saveScriptItems(form, options = {}) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
   async saveVoiceSettings(form) { const id = this.state.selectedVoiceId; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
   async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoice(); this.toast("参考录音已追加"); }
   async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoice(); this.toast("录音设置已更新"); }
@@ -858,10 +897,48 @@ class WorkstationApp {
   async saveProject(form) { const { project } = await this.api.patch(`/api/projects/${enc(this.state.project.id)}`, { name: form.name.value.trim(), description: form.description.value.trim(), prompt: form.prompt.value }); this.state.project = project; this.state.projectPromptSuggestion = ""; this.state.projectPromptDraft = null; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
   async suggestProjectPrompt() { const form = byId("projectSettingsForm"); this.state.projectPromptDraft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/projects/${enc(this.state.project.id)}/prompt-suggestion`, { goal: this.state.projectPromptDraft }); this.state.projectPromptSuggestion = suggestion; this.renderProject(); this.toast("已生成项目提示词建议"); }
   adoptProjectPrompt() { const form = byId("projectSettingsForm"); if (!form || !this.state.projectPromptSuggestion) return; this.state.projectPromptDraft = this.state.projectPromptSuggestion; form.prompt.value = this.state.projectPromptDraft; this.toast("建议已放入编辑框，请保存"); }
-  async suggestScriptPrompt() { const form = byId("scriptSettingsForm"); this.state.scriptPromptDraft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderScript(); this.toast("已生成台本提示词建议"); }
-  adoptScriptPrompt() { const form = byId("scriptSettingsForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入编辑框，请保存"); }
-  async generateText(form) { const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: form.instruction.value, line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderScript(); this.toast(`已生成 ${lines.length} 句台词草稿`); }
-  adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.toast("草稿已加入编辑器，请保存行内容"); }
+  currentCharacterContext() { return byId("textGenerationForm")?.prompt?.value ?? this.state.scriptPromptDraft ?? this.state.scriptDetail?.prompt ?? ""; }
+  async persistCharacterContext(options = {}) { const id = this.state.selectedScriptId; const name = this.state.scriptDetail?.name || ""; const prompt = this.currentCharacterContext(); const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name, prompt }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.state.scriptPromptDraft = null; if (options.clearSuggestion) this.state.scriptPromptSuggestion = ""; return script; }
+  async saveCharacterContext() { await this.persistCharacterContext({ clearSuggestion: true }); this.renderScript(); this.toast("角色台词特性已保存"); }
+  async suggestScriptPrompt() { this.state.scriptPromptDraft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderScript(); this.toast("已生成角色台词特性建议"); }
+  adoptScriptPrompt() { const form = byId("textGenerationForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入角色特性框，请保存"); }
+  async generateText(form) { await this.persistCharacterContext(); const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: "", line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderScript(); this.toast(`已生成 ${lines.length} 句台词候选`); }
+  adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.toast("候选已加入编辑器，请点击保存台词"); }
+  async rewriteScriptLine(button) {
+    const row = button.closest("[data-script-item]");
+    const sequence = Number(button.dataset.lineNumber);
+    const text = row?.querySelector('[name="text"]')?.value || "";
+    const pronunciation = row?.querySelector('[name="pronunciation"]')?.value || "";
+    const instruction = row?.querySelector('[name="rewrite_instruction"]')?.value.trim() || "";
+    if (!text.trim()) { this.toast("当前台词不能为空", true); return; }
+    if (!instruction) { this.toast("请输入这一行的修改要求", true); row?.querySelector('[name="rewrite_instruction"]')?.focus(); return; }
+    this.captureScriptItemDraft(row);
+    await this.persistCharacterContext();
+    const { line } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/rewrite-line`, { sequence, text, pronunciation, instruction });
+    this.state.lineRewriteSuggestions[this.lineRewriteKey(this.state.selectedScriptId, sequence)] = line;
+    const target = row.querySelector(".line-rewrite-result");
+    if (target) target.innerHTML = this.lineRewriteSuggestion(this.state.selectedScriptId, sequence);
+    this.toast(`第 ${sequence} 行已生成修改候选，请确认`);
+  }
+  adoptLineRewrite(button) {
+    const row = button.closest("[data-script-item]");
+    const sequence = Number(button.dataset.lineNumber);
+    const key = this.lineRewriteKey(this.state.selectedScriptId, sequence);
+    const suggestion = this.state.lineRewriteSuggestions[key];
+    if (!row || !suggestion) return;
+    row.querySelector('[name="text"]').value = suggestion.text;
+    row.querySelector('[name="pronunciation"]').value = suggestion.pronunciation;
+    this.captureScriptItemDraft(row);
+    delete this.state.lineRewriteSuggestions[key];
+    row.querySelector(".line-rewrite-result").innerHTML = "";
+    this.toast(`第 ${sequence} 行已采用修改，请保存台词`);
+  }
+  discardLineRewrite(button) {
+    const row = button.closest("[data-script-item]");
+    const sequence = Number(button.dataset.lineNumber);
+    delete this.state.lineRewriteSuggestions[this.lineRewriteKey(this.state.selectedScriptId, sequence)];
+    if (row) row.querySelector(".line-rewrite-result").innerHTML = "";
+  }
   async addMember(form) { await this.api.post(`/api/projects/${enc(this.state.project.id)}/members`, { username: form.username.value.trim() }); form.reset(); await this.refreshProjectAndMembers(); this.toast("成员已添加"); }
   async removeMember(memberId) { if (!window.confirm("确定移除该成员吗？")) return; await this.api.delete(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`); await this.refreshProjectAndMembers(); this.toast("成员已移除"); }
   async updateMemberRole(memberId, role) { await this.api.patch(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`, { role }); await this.loadMembers(this.state.project.id); this.toast("成员角色已更新"); }

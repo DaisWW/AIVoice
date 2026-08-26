@@ -20,6 +20,7 @@ from ..schemas import (
     ScriptItemsUpdate,
     ScriptUpdate,
     TextGenerationRequest,
+    TextLineRewriteRequest,
 )
 from ..uploads import ScriptStorage
 
@@ -255,6 +256,44 @@ def generate_script_text(
         details={"line_count": len(lines)},
     )
     return {"lines": lines}
+
+
+@router.post("/{script_id}/rewrite-line")
+def rewrite_script_line(
+    script_id: str,
+    changes: TextLineRewriteRequest,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+) -> dict[str, Any]:
+    script = project_script(services, script_id, user)
+    project = services.database.projects.get(str(script["project_id"])) or {}
+    text = changes.text.strip()
+    instruction = changes.instruction.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="当前台词不能为空")
+    if not instruction:
+        raise HTTPException(status_code=422, detail="请输入单行修改要求")
+    try:
+        line = services.text_generation.rewrite_line(
+            project_prompt=str(project.get("prompt") or ""),
+            script_prompt=str(script.get("prompt") or ""),
+            text=text,
+            pronunciation=changes.pronunciation,
+            instruction=instruction,
+        )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "script.line_text_suggested",
+        actor=user,
+        target_type="script_line",
+        target_id=f"{script_id}:{changes.sequence}",
+        project_id=str(script["project_id"]),
+        ip_address=request.client.host if request.client else "",
+        details={"sequence": changes.sequence},
+    )
+    return {"line": line}
 
 
 @router.put("/{script_id}/items")
