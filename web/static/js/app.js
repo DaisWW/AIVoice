@@ -205,9 +205,7 @@ class WorkstationApp {
   }
 
   renderScript(options = {}) {
-    const focus = options.focusScriptId
-      ? { type: "script", id: options.focusScriptId }
-      : this.captureScriptFocus();
+    const focus = this.captureScriptFocus();
     const selected = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const list = this.scriptAssetList();
     const detail = selected ? this.scriptDetail(selected) : '<div class="empty-panel"><div><strong>选择或导入一个台本</strong>上传后可编辑每行台词和发音。</div></div>';
@@ -514,6 +512,12 @@ class WorkstationApp {
 
   input(event) {
     const input = event.target;
+    if (input.name === "prompt" && input.closest("#projectSettingsForm")) {
+      this.state.projectPromptDraft = input.value;
+    }
+    if (input.name === "prompt" && input.closest("#scriptSettingsForm")) {
+      this.state.scriptPromptDraft = input.value;
+    }
     if (input.id === "scriptSearch") {
       this.state.scriptSearchQuery = input.value;
       this.renderScript({ listOnly: true });
@@ -591,7 +595,7 @@ class WorkstationApp {
     const form = event.target;
     if (!form.matches("form")) return;
     event.preventDefault();
-    const button = event.submitter;
+    const button = event.submitter || form.querySelector('button[type="submit"]');
     try {
       if (form.id === "projectCreateForm") await this.createProject(form);
       if (form.id === "scriptCreateForm") await this.createScript(form);
@@ -727,9 +731,9 @@ class WorkstationApp {
   }
   async saveProject(form) { const { project } = await this.api.patch(`/api/projects/${enc(this.state.project.id)}`, { name: form.name.value.trim(), description: form.description.value.trim(), prompt: form.prompt.value }); this.state.project = project; this.state.projectPromptSuggestion = ""; this.state.projectPromptDraft = null; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
   async suggestProjectPrompt() { const form = byId("projectSettingsForm"); this.state.projectPromptDraft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/projects/${enc(this.state.project.id)}/prompt-suggestion`, { goal: this.state.projectPromptDraft }); this.state.projectPromptSuggestion = suggestion; this.renderProject(); this.toast("已生成项目提示词建议"); }
-  adoptProjectPrompt() { const form = byId("projectSettingsForm"); if (!form || !this.state.projectPromptSuggestion) return; form.prompt.value = this.state.projectPromptSuggestion; this.toast("建议已放入编辑框，请保存"); }
+  adoptProjectPrompt() { const form = byId("projectSettingsForm"); if (!form || !this.state.projectPromptSuggestion) return; this.state.projectPromptDraft = this.state.projectPromptSuggestion; form.prompt.value = this.state.projectPromptDraft; this.toast("建议已放入编辑框，请保存"); }
   async suggestScriptPrompt() { const form = byId("scriptSettingsForm"); this.state.scriptPromptDraft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderScript(); this.toast("已生成台本提示词建议"); }
-  adoptScriptPrompt() { const form = byId("scriptSettingsForm"); if (!form || !this.state.scriptPromptSuggestion) return; form.prompt.value = this.state.scriptPromptSuggestion; this.toast("建议已放入编辑框，请保存"); }
+  adoptScriptPrompt() { const form = byId("scriptSettingsForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入编辑框，请保存"); }
   async generateText(form) { const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: form.instruction.value, line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderScript(); this.toast(`已生成 ${lines.length} 句台词草稿`); }
   adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.toast("草稿已加入编辑器，请保存行内容"); }
   async addMember(form) { await this.api.post(`/api/projects/${enc(this.state.project.id)}/members`, { username: form.username.value.trim() }); form.reset(); await this.refreshProjectAndMembers(); this.toast("成员已添加"); }
