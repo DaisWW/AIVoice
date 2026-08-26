@@ -1,7 +1,7 @@
 import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { ApiClient } from "./core/api-client.js";
 import { $, escapeHtml, setButtonBusy } from "./core/dom.js";
-import { ProviderController } from "./providers/provider-controller.js";
+import { ProviderController } from "./providers/provider-controller.js?v=20260826.1";
 
 const TITLES = {
   overview: ["SYSTEM OVERVIEW", "系统概览"],
