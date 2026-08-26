@@ -118,6 +118,9 @@ def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save(
 ):
     javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+    refreshed_stylesheet = (STATIC_ROOT / "css" / "ui-refresh.css").read_text(
+        encoding="utf-8"
+    )
 
     assert 'data-action="rewrite-line"' in javascript
     assert 'data-action="adopt-line-rewrite"' in javascript
@@ -128,3 +131,67 @@ def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save(
     assert "项目级上下文" in javascript
     assert "本次要求" not in javascript
     assert ".script-save-floating { position: fixed;" in stylesheet
+    assert (
+        "body.workstation-page .line-rewrite-controls .button {\n  min-height: 44px;"
+        in (refreshed_stylesheet)
+    )
+
+
+def test_system_admin_has_direct_workstation_admin_button() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="adminLink" class="admin-link" href="/admin"' in content
+    assert "管理后台" in content
+    assert 'const isSystemAdmin = user.role === "system_admin";' in javascript
+    assert 'byId("adminLink").hidden = !isSystemAdmin;' in javascript
+
+
+def test_workstation_login_uses_generated_background_asset() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "ui-refresh.css").read_text(encoding="utf-8")
+    background = STATIC_ROOT / "assets" / "voice-lab-login-bg.webp"
+
+    assert "ui-refresh.css?v=20260826.3" in content
+    assert 'url("../assets/voice-lab-login-bg.webp")' in stylesheet
+    assert background.is_file()
+    assert background.stat().st_size > 50_000
+
+
+def test_generation_candidate_keeps_only_compact_selection_action() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+
+    assert "workstation.css?v=20260826.16" in content
+    assert "app.js?v=20260826.16" in content
+    assert '<div class="candidate-media">${audio}${action}</div>' in javascript
+    assert 'class="candidate-actions"' not in javascript
+    assert "candidate.download_url" not in javascript
+    assert ".candidate-media { display: grid;" in stylesheet
+
+
+def test_generation_history_uses_responsive_card_grid() -> None:
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+
+    assert '<div class="line-history-grid">${records.join("")}</div>' in javascript
+    assert ".line-history-grid { display: grid;" in stylesheet
+    assert "repeat(auto-fit, minmax(min(100%, 520px), 1fr))" in stylesheet
+    assert ".line-history-grid .line-history-candidates" in stylesheet
+    assert 'class="icon-button line-history-delete"' in javascript
+    assert 'aria-label="删除这条生成记录"' in javascript
+    assert '${deleteButton}</div><div class="line-history-meta"' in javascript
+    assert ".icon-button.line-history-delete svg" in stylesheet
+
+
+def test_admin_jobs_show_named_project_voice_and_model_identities() -> None:
+    content = (STATIC_ROOT / "admin.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "admin.js").read_text(encoding="utf-8")
+
+    assert "admin.js?v=20260826.2" in content
+    assert '["任务", "项目", "人声", "模型", "状态", "提交时间"]' in javascript
+    assert "identityCell(job.project_name, job.project_id)" in javascript
+    assert "identityCell(job.voice_name, job.voice_id)" in javascript
+    assert "identityCell(job.model_label, job.model_id)" in javascript
+    assert "model.availability_reason" in javascript

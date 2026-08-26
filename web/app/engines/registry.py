@@ -56,7 +56,12 @@ class VoiceEngine:
         required_missing: set[str] = set()
         for profile in self._profiles.all():
             status = self._status(profile).public()
-            statuses[str(profile["id"])] = status
+            model_id = str(profile["id"])
+            statuses[model_id] = {
+                "id": model_id,
+                "label": str(profile.get("label") or model_id),
+                **status,
+            }
             if profile.get("required"):
                 required_missing.update(
                     path

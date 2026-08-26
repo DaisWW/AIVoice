@@ -11,6 +11,7 @@ from app.engines.cosyvoice import CosyVoice3Adapter
 from app.engines.gpt_sovits import GptSovitsAdapter
 from app.engines.qwen_tts import Qwen3TtsAdapter
 from app.engines.registry import VoiceEngine
+from app.profiles import Profiles
 
 
 class _AvailableAdapter:
@@ -41,6 +42,29 @@ def test_registry_respects_explicit_model_disable() -> None:
 
     assert status == ModelStatus(False, False, "暂未开放")
     assert adapter.status_calls == 0
+
+
+def test_registry_model_status_includes_model_identity() -> None:
+    adapter = _AvailableAdapter()
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._profiles = Profiles(
+        {
+            "models": [
+                {
+                    "id": "optional-model",
+                    "label": "Optional Model",
+                    "engine": adapter.engine_id,
+                }
+            ]
+        }
+    )
+    engine._adapters = {adapter.engine_id: adapter}
+
+    model = engine.model_status()["models"]["optional-model"]
+
+    assert model["id"] == "optional-model"
+    assert model["label"] == "Optional Model"
+    assert model["available"] is True
 
 
 def test_gpt_status_tracks_the_loaded_model_version(tmp_path: Path) -> None:

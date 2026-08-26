@@ -195,8 +195,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .identity-block strong { overflow: hidden; color: var(--ws-ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .identity-block small { color: var(--ws-muted); font-size: 10px; }
 .user-avatar { display: inline-grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(200, 240, 107, .3); border-radius: 50%; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 12px; font-weight: 800; }
-.admin-link { padding: 6px 8px; border: 1px solid var(--ws-line); border-radius: 5px; color: var(--ws-muted); font-size: 10px; text-decoration: none; }
-.admin-link:hover { border-color: var(--ws-line-strong); color: var(--ws-ink); }
+.admin-link { display: inline-flex; min-height: 32px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid rgba(200, 240, 107, .34); border-radius: 5px; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 10px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.admin-link:hover { border-color: var(--ws-accent); background: #2d3e22; color: #d8fb82; }
 .logout-button { display: inline-grid; width: 31px; height: 31px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ws-muted); font-size: 16px; cursor: pointer; transform: rotate(45deg); }
 .logout-button:hover { background: var(--ws-surface-raised); color: var(--ws-danger); }
 
@@ -343,11 +343,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .line-history { display: grid; overflow: hidden; margin-top: 3px; border: 1px solid var(--ws-line); border-radius: 6px; background: rgba(13, 17, 21, .38); }
 .line-history-heading { display: flex; align-items: center; justify-content: space-between; min-height: 33px; padding: 0 11px; border-bottom: 1px solid var(--ws-line); color: var(--ws-muted); font-size: 10px; }
 .line-history-heading small { color: var(--ws-faint); font-size: 9px; }
-.line-history-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 11px; border-bottom: 1px solid rgba(40, 49, 58, .7); }
-.line-history-row:last-child { border-bottom: 0; }
+.line-history-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 10px; padding: 10px; }
+.line-history-row { min-width: 0; height: 100%; padding: 11px; border: 1px solid rgba(40, 49, 58, .85); border-radius: 8px; background: rgba(13, 17, 21, .5); }
 .line-history-main { display: grid; min-width: 0; gap: 7px; }
 .line-history-top { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .line-history-top time { margin-left: auto; color: var(--ws-faint); font-size: 9px; }
+.line-history-top .icon-button.line-history-delete { width: 32px; height: 32px; flex: 0 0 auto; border-color: transparent; color: var(--ws-faint); }
+.line-history-top .icon-button.line-history-delete svg { width: 15px; height: 15px; pointer-events: none; }
+.line-history-top .icon-button.line-history-delete:hover { border-color: rgba(255, 125, 134, .42); background: var(--ws-danger-soft); color: var(--ws-danger); }
 .line-history-scope { color: var(--ws-muted); font-size: 9px; }
 .line-history-meta { display: flex; flex-wrap: wrap; gap: 5px 13px; min-width: 0; color: var(--ws-ink-soft); font-size: 10px; }
 .line-history-id { overflow: hidden; color: var(--ws-faint); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
@@ -356,12 +359,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .line-history-message { color: var(--ws-faint); font-size: 10px; }
 .line-selection-note { color: var(--ws-accent); font-size: 9px; font-weight: 700; }
 .line-history-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; }
+.line-history-grid .line-history-candidates { grid-template-columns: minmax(0, 1fr); }
 .line-history-candidate { display: grid; gap: 7px; min-width: 0; padding: 9px; border: 1px solid var(--ws-line); border-radius: 5px; background: var(--ws-surface-soft); }
 .line-history-candidate.selected { border-color: rgba(200, 240, 107, .5); background: var(--ws-accent-soft); }
-.line-history-candidate audio { width: 100%; height: 29px; }
+.candidate-media { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.candidate-media audio { width: 100%; min-width: 0; height: 29px; }
+.candidate-media .candidate-pending { min-width: 0; }
+.candidate-media .button { width: auto; min-width: 76px; min-height: 29px; padding-inline: 14px; }
 .line-history-candidate .candidate-top span { color: var(--ws-cool); font-size: 9px; font-weight: 700; }
-.candidate-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.candidate-actions .button { flex: 1 1 74px; min-width: 0; }
 .generation-candidate-field { max-width: 220px; margin-top: 17px; }
 
 .prompt-suggestion, .generated-lines-panel, .text-generation-form { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(110, 212, 209, .28); border-radius: 7px; background: rgba(16, 29, 31, .58); }
@@ -603,7 +608,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
   .auth-rail h1 { font-size: 30px; }
   .topbar { grid-template-columns: minmax(0, 1fr) auto; }
   .brand { padding: 0 15px; }
-  .brand-copy small, .topbar-label, .admin-link { display: none; }
+  .brand-copy small, .topbar-label { display: none; }
   .project-picker { grid-column: 1 / -1; grid-row: 2; min-height: 55px; padding: 9px 15px; border-top: 1px solid var(--ws-line); border-left: 0; background: #101419; }
   .topbar { grid-template-rows: 68px 55px; }
   .identity-block { padding-right: 14px; }
@@ -672,8 +677,5 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 }
 
 @media (max-width: 440px) {
-  .line-history-row { grid-template-columns: 1fr; }
-  .line-history-row > .button { justify-self: start; }
-  .line-history-top time { width: 100%; margin-left: 0; }
   .line-history-media audio { width: 100%; }
 }

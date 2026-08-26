@@ -50,9 +50,10 @@ class WorkstationApp {
   async boot(user) {
     this.state.user = user;
     byId("clientId").textContent = user.display_name || user.username;
-    byId("identityRole").textContent = user.is_admin ? "系统管理员" : "项目成员";
+    const isSystemAdmin = user.role === "system_admin";
+    byId("identityRole").textContent = isSystemAdmin ? "系统管理员" : "项目成员";
     byId("userAvatar").textContent = first(user.display_name || user.username);
-    byId("adminLink").hidden = !user.is_admin;
+    byId("adminLink").hidden = !isSystemAdmin;
     try {
       const [config, projects] = await Promise.all([this.api.get("/api/config"), this.api.get("/api/projects")]);
       this.state.config = config;
@@ -206,7 +207,12 @@ class WorkstationApp {
     this.state.currentView = view;
     this.storePosition();
     document.querySelectorAll("[data-view-panel]").forEach((panel) => { panel.hidden = panel.dataset.viewPanel !== view; });
-    document.querySelectorAll("[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+    document.querySelectorAll("[data-view]").forEach((button) => {
+      const active = button.dataset.view === view;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
     byId("workspaceMain").scrollTop = 0;
   }
 
@@ -224,7 +230,7 @@ class WorkstationApp {
       if (count) count.textContent = `${this.state.scripts.length} 个台本`;
       if (!options.listOnly) detailElement.innerHTML = detail;
     } else {
-      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">SCRIPT WORKSTATION</span><h1>台本</h1><p>选中台本后，直接编辑台词和发音，选择声音并生成音频。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">添加</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">内容与生成</span><h1>台本</h1><p>编辑台词与发音，配置参考声音后生成、试听并采纳结果。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">导入台本</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
     }
     this.restoreScriptFocus(focus);
     if (selected) void this.loadScriptDetail(selected.id);
@@ -331,20 +337,20 @@ class WorkstationApp {
       else if (!detail && Number(job.total_items) > 1) records.push(this.renderLineHistory(job, null, selection));
     }
     if (!records.length) return "";
-    return `<section class="line-history" aria-label="第 ${sequence} 行生成历史"><div class="line-history-heading"><span>生成历史</span><small>${records.length} 条</small></div>${records.join("")}</section>`;
+    return `<section class="line-history" aria-label="第 ${sequence} 行生成历史"><div class="line-history-heading"><span>生成历史</span><small>${records.length} 条</small></div><div class="line-history-grid">${records.join("")}</div></section>`;
   }
 
   renderLineHistory(job, item, selection) {
     const status = item?.status || job.status;
     const canDelete = Boolean(item?.id) && !["queued", "running"].includes(status) && !["queued", "running"].includes(job.status);
     const scope = Number(job.total_items) === 1 ? "单条" : "全部";
-    const deleteButton = canDelete ? `<button class="button button-danger button-small" type="button" data-action="delete-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}">删除</button>` : "";
+    const deleteButton = canDelete ? `<button class="icon-button line-history-delete" type="button" data-action="delete-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" title="删除这条生成记录" aria-label="删除这条生成记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : "";
     const candidateCards = item?.candidates?.length
       ? item.candidates.map((candidate) => this.renderCandidateCard(job, item, candidate, selection)).join("")
       : `<small class="line-history-message">${escapeHtml(item?.error || (status === "completed" ? "音频详情暂不可用" : "音频生成后会显示在这里"))}</small>`;
     const selectedHere = selection && selection.job_id === job.id;
     const selectionNote = selectedHere ? `<span class="line-selection-note">已采纳 · ${escapeHtml(selection.selected_by_name || "项目成员")}</span>` : "";
-    return `<article class="line-history-row"><div class="line-history-main"><div class="line-history-top"><span class="status-pill ${status === "failed" ? "danger" : status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(status))}</span><span class="line-history-scope">${scope}</span>${selectionNote}<time>${escapeHtml(formatDate(job.submitted_at))}</time></div><div class="line-history-meta"><span>声音：${escapeHtml(job.voice_name || job.voice_id || "未指定")}</span><span>模型：${escapeHtml(this.modelLabel(job.model_id))}</span><span class="line-history-id">任务：${escapeHtml(job.id)}</span></div><div class="line-history-candidates">${candidateCards}</div></div>${deleteButton}</article>`;
+    return `<article class="line-history-row"><div class="line-history-main"><div class="line-history-top"><span class="status-pill ${status === "failed" ? "danger" : status !== "completed" ? "warning" : ""}">${escapeHtml(statusLabel(status))}</span><span class="line-history-scope">${scope}</span>${selectionNote}<time>${escapeHtml(formatDate(job.submitted_at))}</time>${deleteButton}</div><div class="line-history-meta"><span>声音：${escapeHtml(job.voice_name || job.voice_id || "未指定")}</span><span>模型：${escapeHtml(this.modelLabel(job.model_id))}</span><span class="line-history-id">任务：${escapeHtml(job.id)}</span></div><div class="line-history-candidates">${candidateCards}</div></div></article>`;
   }
 
   renderCandidateCard(job, item, candidate, selection) {
@@ -354,7 +360,7 @@ class WorkstationApp {
       : `<button class="button button-primary button-small" type="button" data-action="select-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}" data-sequence="${escapeHtml(item.sequence)}"${candidate.status === "completed" ? "" : " disabled"}>采纳</button>`;
     const audio = candidate.audio_url ? `<audio controls preload="none" src="${escapeHtml(candidate.audio_url)}"></audio>` : `<small class="candidate-pending">${escapeHtml(candidate.error || "候选生成后会显示在这里")}</small>`;
     const badge = selected ? "<span>已采纳</span>" : `<span>${escapeHtml(statusLabel(candidate.status))}</span>`;
-    return `<article class="line-history-candidate${selected ? " selected" : ""}"><div class="candidate-top"><strong>${escapeHtml(candidate.name || `候选 ${candidate.ordinal}`)}</strong>${badge}</div>${audio}<div class="candidate-actions">${candidate.download_url ? `<a class="button button-quiet button-small" href="${escapeHtml(candidate.download_url)}" download>下载</a>` : ""}${action}</div></article>`;
+    return `<article class="line-history-candidate${selected ? " selected" : ""}"><div class="candidate-top"><strong>${escapeHtml(candidate.name || `候选 ${candidate.ordinal}`)}</strong>${badge}</div><div class="candidate-media">${audio}${action}</div></article>`;
   }
 
   modelLabel(modelId) {
@@ -380,7 +386,7 @@ class WorkstationApp {
       if (count) count.textContent = `${this.state.voices.length} 个声音`;
       if (!options.listOnly) detailElement.innerHTML = detail;
     } else {
-      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">VOICE LIBRARY</span><h1>声音库</h1><p>维护项目里的参考录音，生成时从这里选择声音。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">参考素材</span><h1>声音库</h1><p>集中维护可复用的参考录音，生成台词时直接选择。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
     }
     this.restoreVoiceFocus(focus);
     if (selected) void this.loadVoiceDetail(selected.id);

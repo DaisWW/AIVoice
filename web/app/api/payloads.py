@@ -197,18 +197,22 @@ class JobPresenter:
     def _summary(self, job: dict[str, Any]) -> dict[str, Any]:
         total = int(job["total_items"])
         completed = int(job["completed_items"])
+        model_id = str(job["model_id"])
+        model_label = self._model_label(model_id)
         return {
             "id": job["id"],
             "name": str(job.get("display_name") or "").strip() or job["script_name"],
             "client_id": job["client_id"],
             "project_id": job.get("project_id") or "",
+            "project_name": job.get("project_name") or job.get("project_id") or "",
             "created_by": job.get("created_by") or job["client_id"],
             "script_id": job["script_id"],
             "script_name": job["script_name"],
             "voice_id": job["voice_id"],
             "voice_name": job["voice_name"],
-            "model_id": job["model_id"],
-            "output_type": self._output_type(str(job["model_id"])),
+            "model_id": model_id,
+            "model_label": model_label,
+            "output_type": self._output_type(model_id),
             "candidate_count": int(job.get("candidate_count") or 1),
             "reference_emotion": job.get("reference_emotion") or "all",
             "status": job["status"],
@@ -224,9 +228,18 @@ class JobPresenter:
                 job.get("display_name"),
                 job.get("script_name"),
                 job.get("voice_name"),
-                job.get("model_id"),
+                job.get("project_name"),
+                model_label,
+                model_id,
             ),
         }
+
+    def _model_label(self, model_id: str) -> str:
+        try:
+            profile = self._services.profiles.model(model_id)
+            return str(profile.get("label") or model_id)
+        except ValueError:
+            return model_id
 
     def _output_type(self, model_id: str) -> str:
         try:

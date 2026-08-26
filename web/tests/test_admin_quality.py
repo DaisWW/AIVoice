@@ -69,6 +69,50 @@ def test_admin_assets_treats_all_as_unfiltered_and_clamps_limit(app_client) -> N
     assert payload["voices"][0]["project_id"] == project["id"]
 
 
+def test_admin_overview_jobs_include_readable_identity(app_client) -> None:
+    client, services = app_client
+    admin = services.database.auth.get_by_username("admin")
+    assert admin
+    project = services.database.projects.create(
+        str(admin["id"]), "动画配音", "任务展示测试"
+    )
+    voice_id = services.database.voices.create(
+        "铁匠音色", str(admin["id"]), "", project_id=str(project["id"])
+    )
+    script_path = services.settings.data_root / "identity-test.txt"
+    script_path.write_text("text | mo-la\n", encoding="utf-8")
+    item = _script_item()
+    script_id = services.database.scripts.create(
+        "铁匠 · 第 1 行",
+        script_path.name,
+        script_path,
+        str(admin["id"]),
+        "test",
+        [item],
+        project_id=str(project["id"]),
+    )
+    job_id = services.database.jobs.create(
+        str(admin["id"]),
+        script_id,
+        voice_id,
+        "test_model",
+        [item],
+        project_id=str(project["id"]),
+        created_by=str(admin["id"]),
+    )
+
+    response = client.get("/api/admin/overview")
+
+    assert response.status_code == 200
+    job = next(item for item in response.json()["recent_jobs"] if item["id"] == job_id)
+    assert (job["project_name"], job["project_id"]) == (
+        "动画配音",
+        project["id"],
+    )
+    assert (job["voice_name"], job["voice_id"]) == ("铁匠音色", voice_id)
+    assert (job["model_label"], job["model_id"]) == ("Test", "test_model")
+
+
 def test_monitoring_counts_are_zero_safe(settings_factory) -> None:
     _, database = _database(settings_factory)
 

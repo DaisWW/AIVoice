@@ -241,18 +241,19 @@ class AdminApp {
     $("#adminWorkerDot").classList.toggle("online", Boolean(payload.queue.worker_alive));
     $("#adminQueueState").textContent = active ? `${active} 个任务处理中` : "队列空闲";
     $("#adminRecentJobs").innerHTML = table(
-      ["任务", "项目", "模型", "状态", "提交时间"],
+      ["任务", "项目", "人声", "模型", "状态", "提交时间"],
       payload.recent_jobs.map((job) => [
         `<strong>${escapeHtml(job.name)}</strong><small>${job.total_items} 段</small>`,
-        escapeHtml(job.project_id || "—"),
-        escapeHtml(job.model_id),
+        identityCell(job.project_name, job.project_id),
+        identityCell(job.voice_name, job.voice_id),
+        identityCell(job.model_label, job.model_id),
         `<span class="admin-status ${escapeHtml(job.status)}">${statusLabel(job.status)}</span>`,
         formatDate(job.submitted_at),
       ]),
     );
     const models = Object.values(payload.engine.models || {});
     $("#adminRuntime").innerHTML = models.length
-      ? models.map((model) => `<div class="runtime-row"><span class="runtime-dot ${model.available ? "ok" : "off"}"></span><div><strong>${escapeHtml(model.label || model.id || "模型")}</strong><small>${model.available ? "可用" : escapeHtml(model.reason || "未安装")}</small></div><em>${model.loaded ? "已加载" : "待机"}</em></div>`).join("")
+      ? models.map((model) => `<div class="runtime-row"><span class="runtime-dot ${model.available ? "ok" : "off"}"></span><div><strong>${escapeHtml(model.label || model.id || "模型")}</strong><small>${model.available ? "可用" : escapeHtml(model.availability_reason || "未安装")}</small></div><em>${model.loaded ? "已加载" : "待机"}</em></div>`).join("")
       : '<p class="muted-empty">暂无模型状态</p>';
     $("#adminAuditPreview").innerHTML = payload.recent_audit.slice(0, 6).map(auditRow).join("") || '<p class="muted-empty">暂无操作记录</p>';
     this.#renderInsights(payload.insights || {}, payload.queue || {});
@@ -387,7 +388,11 @@ class AdminApp {
         job.client_id,
         this.#userLabel(job.client_id),
         job.project_id,
-        this.#projectLabel(job.project_id),
+        job.project_name,
+        job.voice_id,
+        job.voice_name,
+        job.model_id,
+        job.model_label,
       ]
         .join(" ")
         .toLowerCase();
@@ -395,12 +400,13 @@ class AdminApp {
     });
     $("#adminJobSummary").textContent = `${filtered.length} / ${this.#state.jobs.length} 条任务`;
     $("#adminJobTable").innerHTML = table(
-      ["任务", "提交用户", "项目", "模型", "进度", "状态", "提交时间", "操作"],
+      ["任务", "提交用户", "项目", "人声", "模型", "进度", "状态", "提交时间", "操作"],
       filtered.map((job) => [
         `<strong>${escapeHtml(job.name)}</strong><small>${escapeHtml(job.id)}</small>`,
         `<strong>${escapeHtml(this.#userLabel(job.client_id))}</strong><small>${escapeHtml(job.client_id)}</small>`,
-        escapeHtml(this.#projectLabel(job.project_id)),
-        escapeHtml(this.#modelLabel(job.model_id)),
+        identityCell(job.project_name || this.#projectLabel(job.project_id), job.project_id),
+        identityCell(job.voice_name, job.voice_id),
+        identityCell(job.model_label || this.#modelLabel(job.model_id), job.model_id),
         `<strong>${job.completed_items}/${job.total_items} 段</strong><small>${job.progress}%</small>`,
         `<span class="admin-status ${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>`,
         formatDate(job.submitted_at),
@@ -558,8 +564,8 @@ class AdminApp {
     $("#adminJobDetail").innerHTML = `
       <div class="admin-job-summary">
         <div><span>提交用户</span><strong>${escapeHtml(this.#userLabel(job.client_id))}</strong></div>
-        <div><span>项目</span><strong>${escapeHtml(this.#projectLabel(job.project_id))}</strong></div>
-        <div><span>声音 / 模型</span><strong>${escapeHtml(job.voice_name)} · ${escapeHtml(this.#modelLabel(job.model_id))}</strong></div>
+        <div><span>项目</span><strong>${escapeHtml(job.project_name || this.#projectLabel(job.project_id))}</strong></div>
+        <div><span>人声 / 模型</span><strong>${escapeHtml(job.voice_name)} · ${escapeHtml(job.model_label || this.#modelLabel(job.model_id))}</strong></div>
         <div><span>进度</span><strong>${job.completed_items}/${job.total_items} 段 · ${job.progress}%</strong></div>
       </div>
       <div class="admin-job-actions">
@@ -679,6 +685,14 @@ class AdminApp {
 
 function table(headers, rows) {
   return `<table class="admin-table"><thead><tr>${headers.map((item) => `<th>${item}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}"><span class="muted-empty">暂无数据</span></td></tr>`}</tbody></table>`;
+}
+
+function identityCell(label, id) {
+  const resolvedId = String(id || "").trim();
+  const resolvedLabel = String(label || resolvedId || "—").trim();
+  const primary = `<strong>${escapeHtml(resolvedLabel)}</strong>`;
+  if (!resolvedId || resolvedLabel === resolvedId) return primary;
+  return `${primary}<small title="${escapeHtml(resolvedId)}">（${escapeHtml(resolvedId)}）</small>`;
 }
 
 function auditRow(item) {

@@ -222,10 +222,12 @@ class JobRepository:
         with self._database.read() as connection:
             rows = connection.execute(
                 f"""
-                SELECT j.*, s.name AS script_name, v.name AS voice_name
+                SELECT j.*, s.name AS script_name, v.name AS voice_name,
+                       COALESCE(p.name, j.project_id, '') AS project_name
                 FROM jobs j
                 JOIN scripts s ON s.id=j.script_id
                 JOIN voices v ON v.id=j.voice_id
+                LEFT JOIN projects p ON p.id=j.project_id
                 {where}
                 ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
                          j.submitted_at DESC
@@ -268,10 +270,12 @@ class JobRepository:
             row = connection.execute(
                 f"""
                 SELECT j.*, s.name AS script_name, s.source_path AS script_path,
-                       v.name AS voice_name
+                       v.name AS voice_name,
+                       COALESCE(p.name, j.project_id, '') AS project_name
                 FROM jobs j
                 JOIN scripts s ON s.id=j.script_id
                 JOIN voices v ON v.id=j.voice_id
+                LEFT JOIN projects p ON p.id=j.project_id
                 WHERE {where}
                 """,
                 parameters,
