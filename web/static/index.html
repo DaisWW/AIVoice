@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260825.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260825.5">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.3">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
@@ -63,23 +63,6 @@
     </header>
 
     <div class="workspace-body">
-      <aside class="workflow-rail" aria-label="工作站导航">
-        <div class="rail-project">
-          <span class="rail-kicker">PROJECT WORKSTATION</span>
-          <strong id="railProjectName">尚未选择项目</strong>
-          <span id="railProjectRole" class="role-chip">--</span>
-        </div>
-        <div class="rail-nav" aria-label="项目流程导航">
-          <button class="active" type="button" data-view="script"><span>台本</span><small>编辑台词、发音并生成</small></button>
-          <button type="button" data-view="voice"><span>声音</span><small>维护参考录音</small></button>
-          <button type="button" data-view="project"><span>项目设置</span><small>成员与管理员权限</small></button>
-        </div>
-        <div class="rail-footer">
-          <div class="queue-indicator"><i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong></div>
-          <p>选中台本后即可编辑台词、选择声音并加入生成队列。</p>
-        </div>
-      </aside>
-
       <main id="workspaceMain" class="workspace-main">
         <section id="emptyWorkspace" class="empty-workspace" hidden>
           <div class="empty-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -101,6 +84,9 @@
           </section>
         </div>
       </main>
+    </div>
+    <div id="queueDock" class="queue-indicator queue-dock" aria-live="polite">
+      <i id="workerDot"></i><span>生成队列</span><strong id="queueSummary">检查中</strong>
     </div>
   </div>
 
@@ -149,6 +135,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260825.5"></script>
+  <script type="module" src="/assets/js/app.js?v=20260826.3"></script>
 </body>
 </html>
