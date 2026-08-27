@@ -12,7 +12,7 @@
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260826.1">
   <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.16">
-  <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260826.4">
+  <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.2">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
@@ -91,6 +91,11 @@
     </div>
   </div>
 
+  <div id="assetSettingsBackdrop" class="asset-settings-backdrop" data-action="close-settings-drawer" aria-hidden="true"></div>
+  <aside id="assetSettingsDrawer" class="asset-settings-drawer" role="dialog" aria-modal="true" aria-label="资产设置" aria-hidden="true">
+    <div id="assetSettingsContent"></div>
+  </aside>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <dialog id="projectDialog" class="modal-dialog">
@@ -150,6 +155,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260826.18"></script>
+  <script type="module" src="/assets/js/app.js?v=20260827.1"></script>
 </body>
 </html>

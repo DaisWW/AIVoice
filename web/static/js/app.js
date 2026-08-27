@@ -17,7 +17,7 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", settingsDrawer: null, assetRename: null, jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.generation = new GenerationConfigurationController(this.state, {
       storePosition: () => this.storePosition(),
@@ -44,7 +44,7 @@ class WorkstationApp {
     document.addEventListener("submit", (event) => this.submit(event));
     document.addEventListener("change", (event) => this.change(event));
     document.addEventListener("input", (event) => this.input(event));
-    document.addEventListener("keydown", (event) => this.generation.handleKeydown(event));
+    document.addEventListener("keydown", (event) => this.keydown(event));
     document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".generation-dropdown-options")) this.generation.closeDropdowns(); }, true);
     window.addEventListener("resize", () => this.generation.closeDropdowns());
     document.addEventListener("play", (event) => this.pauseOtherAudio(event.target), true);
@@ -137,8 +137,10 @@ class WorkstationApp {
       this.state.voices = voicesResult.voices;
       this.state.jobs = jobsResult.jobs;
       if (previousProjectId !== id) {
+        this.closeSettingsDrawer({ restoreFocus: false });
         this.state.scriptSearchQuery = "";
         this.state.voiceSearchQuery = "";
+        this.state.assetRename = null;
         this.state.scriptDetail = null;
         this.state.voiceDetail = null;
         this.state.jobDetails = {};
@@ -193,10 +195,12 @@ class WorkstationApp {
     this.renderScript();
     this.renderVoice();
     this.renderProject();
+    this.renderSettingsDrawer();
   }
 
   showView(view) {
     if (!WORKSTATION_VIEWS.has(view)) return;
+    if (this.state.settingsDrawer && this.state.settingsDrawer !== view) this.closeSettingsDrawer({ restoreFocus: false });
     this.state.currentView = view;
     this.storePosition();
     document.querySelectorAll("[data-view-panel]").forEach((panel) => { panel.hidden = panel.dataset.viewPanel !== view; });
@@ -223,7 +227,7 @@ class WorkstationApp {
       if (count) count.textContent = `${this.state.scripts.length} 个台本`;
       if (!options.listOnly) detailElement.innerHTML = detail;
     } else {
-      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">内容与生成</span><h1>台本</h1><p>编辑台词与发音，配置参考声音后生成、试听并采纳结果。</p></div></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">导入台本</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+      content.innerHTML = `<div class="split-workspace asset-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>台本</h2><small>${this.state.scripts.length} 个台本</small></div><button class="button button-quiet button-small" type="button" data-action="open-script">导入台本</button></header><label class="asset-search" for="scriptSearch"><input id="scriptSearch" type="search" value="${escapeHtml(this.state.scriptSearchQuery)}" autocomplete="off" placeholder="搜索台本" aria-label="搜索台本"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
     }
     this.restoreScriptFocus(focus);
     if (selected) void this.loadScriptDetail(selected.id);
@@ -233,7 +237,17 @@ class WorkstationApp {
     const selected = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const query = String(this.state.scriptSearchQuery || "").trim().toLowerCase();
     const scripts = query ? this.state.scripts.filter((script) => String(script.search_text || `${script.name} ${script.original_name}`).toLowerCase().includes(query)) : this.state.scripts;
-    return scripts.map((script) => `<button class="asset-row${script.id === selected?.id ? " active" : ""}" type="button" data-action="select-script" data-id="${escapeHtml(script.id)}" aria-current="${script.id === selected?.id}"><span class="asset-icon">T</span><span class="asset-copy"><strong>${escapeHtml(script.name)}</strong><small>${script.item_count} 行 · ${formatDate(script.created_at)}</small></span><span class="asset-status">台词</span></button>`).join("") || (query && this.state.scripts.length ? '<p class="empty-list">没有匹配的台本</p>' : '<p class="empty-list">尚未导入台本</p>');
+    return scripts.map((script) => {
+      if (this.state.assetRename?.kind === "script" && this.state.assetRename.id === script.id) return this.assetRenameForm("script", script);
+      return `<button class="asset-row${script.id === selected?.id ? " active" : ""}" type="button" data-action="select-script" data-id="${escapeHtml(script.id)}" aria-current="${script.id === selected?.id}" title="按 F2 重命名"><span class="asset-icon">T</span><span class="asset-copy"><strong>${escapeHtml(script.name)}</strong><small>${script.item_count} 行 · ${formatDate(script.created_at)}</small></span><span class="asset-status">台词</span></button>`;
+    }).join("") || (query && this.state.scripts.length ? '<p class="empty-list">没有匹配的台本</p>' : '<p class="empty-list">尚未导入台本</p>');
+  }
+
+  assetRenameForm(kind, asset) {
+    const selectedId = kind === "script" ? this.state.selectedScriptId : this.state.selectedVoiceId;
+    const icon = kind === "script" ? "T" : "♪";
+    const label = kind === "script" ? "台本" : "声音";
+    return `<form id="assetRenameForm" class="asset-row asset-rename-row${asset.id === selectedId ? " active" : ""}" data-asset-rename="${kind}" data-id="${escapeHtml(asset.id)}"><span class="asset-icon">${icon}</span><label class="asset-rename-field"><input name="name" value="${escapeHtml(asset.name)}" maxlength="80" autocomplete="off" required aria-label="重命名${label}"><small>Enter 保存 · Esc 取消</small></label><button type="submit" hidden>保存</button></form>`;
   }
 
   captureScriptFocus() {
@@ -241,12 +255,21 @@ class WorkstationApp {
     if (active?.id === "scriptSearch") {
       return { type: "search", start: active.selectionStart, end: active.selectionEnd };
     }
+    const rename = active?.closest?.('[data-asset-rename="script"]');
+    if (rename) return { type: "rename", id: rename.dataset.id, start: active.selectionStart, end: active.selectionEnd };
     const row = active?.closest?.('[data-action="select-script"]');
     return row ? { type: "script", id: row.dataset.id } : null;
   }
 
   restoreScriptFocus(focus) {
     if (!focus) return;
+    if (focus.type === "rename") {
+      const form = [...document.querySelectorAll('[data-asset-rename="script"]')].find((item) => item.dataset.id === focus.id);
+      const input = form?.querySelector('input[name="name"]');
+      input?.focus({ preventScroll: true });
+      if (input && Number.isInteger(focus.start)) input.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+      return;
+    }
     if (focus.type === "script") {
       const row = [...document.querySelectorAll('[data-action="select-script"]')].find((item) => item.dataset.id === focus.id);
       row?.focus({ preventScroll: true });
@@ -263,7 +286,7 @@ class WorkstationApp {
   async loadScriptDetail(id) {
     if (this.state.scriptDetail?.id === id || this.loadingScript === id) return;
     this.loadingScript = id;
-    try { const { script } = await this.api.get(`/api/scripts/${enc(id)}`); if (this.state.selectedScriptId === id) { this.state.scriptDetail = script; this.renderScript(); } } catch (error) { this.toast(error.message, true); } finally { this.loadingScript = null; }
+    try { const { script } = await this.api.get(`/api/scripts/${enc(id)}`); if (this.state.selectedScriptId === id) { this.state.scriptDetail = script; this.renderScript(); this.renderOpenSettingsDrawer("script"); } } catch (error) { this.toast(error.message, true); } finally { this.loadingScript = null; }
   }
 
   scriptDetail(script) {
@@ -273,22 +296,29 @@ class WorkstationApp {
     const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
     const canGenerate = Boolean(voices.length && models.length && detail.items.length);
     const generationJobs = this.generationJobsForScript(detail.id);
-    const deletableJobs = generationJobs.filter((job) => !["queued", "running"].includes(job.status));
     const selections = detail.selections || [];
     const selectedSequences = new Set(selections.map((row) => Number(row.sequence)));
+    const selectedCount = detail.items.filter((item, index) => selectedSequences.has(Number(item.order || index + 1))).length;
+    const lines = detail.items.map((item, index) => this.scriptLine(detail.id, item, index, canGenerate)).join("");
+    return `<div class="detail-inner"><header class="detail-header asset-detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><button class="button button-quiet button-small asset-settings-trigger" type="button" data-action="open-settings-drawer" data-kind="script" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>设置</span></button></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>选择原声、模型和候选条数后生成，试听结果会显示在对应台词下方。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>编辑内容、生成音频并试听采纳；修改后点击右下角保存。</p></div></div><div class="script-lines">${lines}</div><button class="button button-primary script-save-floating" type="submit" aria-label="保存全部台词与发音">保存台词</button></form></div>`;
+  }
+
+  scriptSettingsDrawer(detail) {
+    const generationJobs = this.generationJobsForScript(detail.id);
+    const deletableJobs = generationJobs.filter((job) => !["queued", "running"].includes(job.status));
+    const selectedSequences = new Set((detail.selections || []).map((row) => Number(row.sequence)));
     const selectedCount = detail.items.filter((item, index) => selectedSequences.has(Number(item.order || index + 1))).length;
     const hasActiveJobs = generationJobs.some((job) => ["queued", "running"].includes(job.status));
     const canExportAccepted = !hasActiveJobs && selectedCount === detail.items.length && detail.items.length > 0;
     const canExportAll = !hasActiveJobs && generationJobs.some((job) => job.status === "completed");
-    const lines = detail.items.map((item, index) => this.scriptLine(detail.id, item, index, canGenerate)).join("");
     const pendingLines = this.state.generatedLinesScriptId === detail.id ? this.state.generatedLines : [];
     const exportAccepted = canExportAccepted
-      ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="accepted">导出已采纳</button>`
-      : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="accepted" disabled>已采纳 ${selectedCount}/${detail.items.length}</button>`;
+      ? '<button class="button button-quiet" type="button" data-action="export-script-audio" data-scope="accepted">导出已采纳音频</button>'
+      : `<button class="button button-quiet" type="button" disabled>已采纳 ${selectedCount}/${detail.items.length}</button>`;
     const exportAll = canExportAll
-      ? `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all">导出全部历史</button>`
-      : `<button class="button button-quiet button-small" type="button" data-action="export-script-audio" data-scope="all" disabled>导出全部历史</button>`;
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions"><a class="button button-quiet button-small" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger button-small" type="button" data-action="delete-script">删除</button></div></header><section class="script-generation work-section"><div class="generation-copy"><span class="eyebrow">GENERATE</span><h3>生成音频</h3><p>按列表组装原声、模型和候选条数，每条配置独立生成。</p></div><div class="generation-controls"><div class="generation-actions"><button class="button button-primary" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"}>全部生成</button><button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>全部删除</button></div><small class="generation-help">${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条组装生成配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · 已保留 ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}</small></div></section><form id="scriptSettingsForm" class="detail-form compact-script-settings"><label class="field"><span>台本 / 角色名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-quiet" type="submit">保存名称</button></div></form><form id="textGenerationForm" class="text-generation-form"><div class="editor-toolbar"><div><h3>AI 生成台词</h3><p>保存当前角色的长期台词特性；生成新台词和单行修改时会自动叠加项目级上下文。</p></div></div><label class="field wide"><span>角色台词特性</span><textarea name="prompt" maxlength="12000" placeholder="例如：说话克制、句子短，不主动解释情绪；遇到质疑时先停顿，再用事实回应。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>这是可长期复用的角色上下文，不是一次性要求。生成前会自动保存；AI 候选不会直接覆盖现有台词。</small></label><div class="character-context-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善角色特性</button><button class="button button-quiet" type="button" data-action="save-character-context">保存角色特性</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}<div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词候选</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>手动编辑或采用 AI 候选后，点击右下角“保存台词”。</p></div></div><div class="script-lines">${lines}</div><button class="button button-primary script-save-floating" type="submit" aria-label="保存全部台词与发音">保存台词</button></form></div>`;
+      ? '<button class="button button-quiet" type="button" data-action="export-script-audio" data-scope="all">导出全部音频历史</button>'
+      : '<button class="button button-quiet" type="button" disabled>暂无可导出历史</button>';
+    return `<div class="settings-drawer-shell"><header class="settings-drawer-header"><div><span class="eyebrow">台本</span><h2 id="assetSettingsTitle">台本设置</h2><p>重命名、角色配置与资产管理</p></div><button class="icon-button" type="button" data-action="close-settings-drawer" title="关闭设置" aria-label="关闭设置">×</button></header><div class="settings-drawer-body"><form id="scriptSettingsForm" class="settings-section"><div class="settings-section-heading"><h3>台本信息</h3><p>左侧列表选中后也可以按 F2 快速重命名。</p></div><label class="field"><span>台本 / 角色名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-primary" type="submit">保存名称</button></div></form><form id="textGenerationForm" class="settings-section"><div class="settings-section-heading"><h3>AI 生成台词</h3><p>长期角色特性会用于新台词和单行修改。</p></div><label class="field"><span>角色台词特性</span><textarea name="prompt" maxlength="12000" placeholder="例如：说话克制、句子短，不主动解释情绪；遇到质疑时先停顿，再用事实回应。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>生成前自动保存；AI 候选不会直接覆盖现有台词。</small></label><div class="character-context-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善角色特性</button><button class="button button-quiet" type="button" data-action="save-character-context">保存角色特性</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}<div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词候选</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><section class="settings-section settings-asset-actions"><div class="settings-section-heading"><h3>导出与清理</h3><p>这些操作不会改变主编辑区中的台词内容。</p></div><div class="settings-action-grid"><a class="button button-quiet" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>删除全部生成历史</button></div><button class="button button-danger settings-delete-asset" type="button" data-action="delete-script">删除当前台本</button></section></div></div>`;
   }
 
   promptSuggestion(suggestion, scope) {
@@ -380,7 +410,7 @@ class WorkstationApp {
       if (count) count.textContent = `${this.state.voices.length} 个声音`;
       if (!options.listOnly) detailElement.innerHTML = detail;
     } else {
-      content.innerHTML = `<div class="view-header"><div><span class="eyebrow">参考素材</span><h1>声音库</h1><p>集中维护可复用的参考录音，生成台词时直接选择。</p></div><button class="button button-primary" type="button" data-action="open-voice">添加声音</button></div><div class="split-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
+      content.innerHTML = `<div class="split-workspace asset-workspace"><aside class="asset-sidebar"><header class="asset-sidebar-header"><div><h2>声音</h2><small>${this.state.voices.length} 个声音</small></div><button class="button button-quiet button-small" type="button" data-action="open-voice">添加声音</button></header><label class="asset-search" for="voiceSearch"><input id="voiceSearch" type="search" value="${escapeHtml(this.state.voiceSearchQuery)}" autocomplete="off" placeholder="搜索声音" aria-label="搜索声音"></label><div class="asset-list">${list}</div></aside><section class="detail-panel">${detail}</section></div>`;
     }
     this.restoreVoiceFocus(focus);
     if (selected) void this.loadVoiceDetail(selected.id);
@@ -390,18 +420,30 @@ class WorkstationApp {
     const selected = this.state.voices.find((item) => item.id === this.state.selectedVoiceId);
     const query = String(this.state.voiceSearchQuery || "").trim().toLowerCase();
     const voices = query ? this.state.voices.filter((voice) => String(voice.search_text || `${voice.name} ${voice.notes}`).toLowerCase().includes(query)) : this.state.voices;
-    return voices.map((voice) => `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`).join("") || (query && this.state.voices.length ? '<p class="empty-list">没有匹配的声音</p>' : '<p class="empty-list">尚未创建声音</p>');
+    return voices.map((voice) => {
+      if (this.state.assetRename?.kind === "voice" && this.state.assetRename.id === voice.id) return this.assetRenameForm("voice", voice);
+      return `<button class="asset-row${voice.id === selected?.id ? " active" : ""}" type="button" data-action="select-voice" data-id="${escapeHtml(voice.id)}" aria-current="${voice.id === selected?.id}" title="按 F2 重命名"><span class="asset-icon">♪</span><span class="asset-copy"><strong>${escapeHtml(voice.name)}</strong><small>${voice.enabled_file_count}/${voice.file_count} 条录音</small></span><span class="asset-status ${voice.enabled_file_count ? "ready" : "pending"}">${voice.enabled_file_count ? "可用" : "待录入"}</span></button>`;
+    }).join("") || (query && this.state.voices.length ? '<p class="empty-list">没有匹配的声音</p>' : '<p class="empty-list">尚未创建声音</p>');
   }
 
   captureVoiceFocus() {
     const active = document.activeElement;
     if (active?.id === "voiceSearch") return { type: "search", start: active.selectionStart, end: active.selectionEnd };
+    const rename = active?.closest?.('[data-asset-rename="voice"]');
+    if (rename) return { type: "rename", id: rename.dataset.id, start: active.selectionStart, end: active.selectionEnd };
     const row = active?.closest?.('[data-action="select-voice"]');
     return row ? { type: "voice", id: row.dataset.id } : null;
   }
 
   restoreVoiceFocus(focus) {
     if (!focus) return;
+    if (focus.type === "rename") {
+      const form = [...document.querySelectorAll('[data-asset-rename="voice"]')].find((item) => item.dataset.id === focus.id);
+      const input = form?.querySelector('input[name="name"]');
+      input?.focus({ preventScroll: true });
+      if (input && Number.isInteger(focus.start)) input.setSelectionRange(focus.start, Number.isInteger(focus.end) ? focus.end : focus.start);
+      return;
+    }
     if (focus.type === "voice") {
       const row = [...document.querySelectorAll('[data-action="select-voice"]')].find((item) => item.dataset.id === focus.id);
       row?.focus({ preventScroll: true });
@@ -418,18 +460,40 @@ class WorkstationApp {
   async loadVoiceDetail(id) {
     if (this.state.voiceDetail?.id === id || this.loadingVoice === id) return;
     this.loadingVoice = id;
-    try { const { voice } = await this.api.get(`/api/voices/${enc(id)}`); if (this.state.selectedVoiceId === id) { this.state.voiceDetail = voice; this.renderVoice(); } } catch (error) { this.toast(error.message, true); } finally { this.loadingVoice = null; }
+    try { const { voice } = await this.api.get(`/api/voices/${enc(id)}`); if (this.state.selectedVoiceId === id) { this.state.voiceDetail = voice; this.renderVoice(); this.renderOpenSettingsDrawer("voice"); } } catch (error) { this.toast(error.message, true); } finally { this.loadingVoice = null; }
   }
 
   voiceDetail(voice) {
     const detail = this.state.voiceDetail?.id === voice.id ? this.state.voiceDetail : null;
     if (!detail) return '<div class="empty-panel">正在读取声音...</div>';
-    const emotions = this.state.config.reference_emotions || [];
     const files = detail.files.map((file) => {
       const audioUrl = safeResourceUrl(file.audio_url);
-      return `<div class="voice-file-row"><div class="voice-file-name"><strong>${escapeHtml(file.original_name)}</strong><small>${formatBytes(file.size_bytes)} · ${file.quality?.grade || "待检测"}</small></div>${audioUrl ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>` : '<small class="candidate-pending">音频地址不可用</small>'}<div class="voice-file-controls"><select data-action="file-emotion" data-file-id="${escapeHtml(file.id)}">${emotions.map((emotion) => `<option value="${escapeHtml(emotion.id)}"${emotion.id === file.emotion_tag ? " selected" : ""}>${escapeHtml(emotion.label)}</option>`).join("")}</select><label class="switch"><input type="checkbox" data-action="file-enabled" data-file-id="${escapeHtml(file.id)}"${file.enabled ? " checked" : ""}>启用</label></div></div>`;
+      return `<div class="voice-file-row voice-playback-row"><div class="voice-file-name"><strong>${escapeHtml(file.original_name)}</strong><small>${formatBytes(file.size_bytes)} · ${file.quality?.grade || "待检测"} · ${file.enabled ? "已启用" : "未启用"}</small></div>${audioUrl ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>` : '<small class="candidate-pending">音频地址不可用</small>'}</div>`;
     }).join("") || '<p class="empty-list">没有参考录音</p>';
-    return `<div class="detail-inner"><header class="detail-header"><div><span class="eyebrow">VOICE DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.enabled_file_count}/${detail.file_count} 条启用录音 · ${formatBytes(detail.size_bytes)}</p></div></header><form id="voiceSettingsForm" class="detail-form"><label class="field"><span>声音名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field wide"><span>说明</span><textarea name="notes" maxlength="500">${escapeHtml(detail.notes)}</textarea></label><div class="form-actions"><button class="button button-primary" type="submit">保存声音信息</button></div></form><div class="voice-detail-grid"><div><div class="editor-toolbar"><div><h3>参考录音</h3><p>启用的录音可作为生成参考。</p></div></div><div class="voice-files">${files}</div></div><form id="voiceAppendForm" class="voice-append"><label><span>追加参考录音</span><input name="files" type="file" accept="audio/*" multiple required></label><button class="button button-quiet" type="submit">追加录音</button></form></div></div>`;
+    return `<div class="detail-inner"><header class="detail-header asset-detail-header"><div><span class="eyebrow">VOICE DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.enabled_file_count}/${detail.file_count} 条启用录音 · ${formatBytes(detail.size_bytes)}</p></div><button class="button button-quiet button-small asset-settings-trigger" type="button" data-action="open-settings-drawer" data-kind="voice" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>设置</span></button></header><section class="voice-playback-section work-section"><div class="editor-toolbar"><div><h3>参考录音</h3><p>点击即可试听；录音启用状态和情绪在右侧设置中管理。</p></div></div><div class="voice-files">${files}</div></section></div>`;
+  }
+
+  voiceSettingsDrawer(detail) {
+    const files = this.voiceSettingsFileRows(detail);
+    return `<div class="settings-drawer-shell"><header class="settings-drawer-header"><div><span class="eyebrow">声音</span><h2 id="assetSettingsTitle">声音设置</h2><p>重命名、说明与参考录音管理</p></div><button class="icon-button" type="button" data-action="close-settings-drawer" title="关闭设置" aria-label="关闭设置">×</button></header><div class="settings-drawer-body"><form id="voiceSettingsForm" class="settings-section"><div class="settings-section-heading"><h3>声音信息</h3><p>左侧列表选中后也可以按 F2 快速重命名。</p></div><label class="field"><span>声音名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><label class="field"><span>说明</span><textarea name="notes" maxlength="500" placeholder="录音者、音色或使用场景">${escapeHtml(detail.notes)}</textarea></label><div class="form-actions"><button class="button button-primary" type="submit">保存声音信息</button></div></form><section class="settings-section"><div class="settings-section-heading"><h3>录音配置</h3><p>启用的录音会作为生成参考。</p></div><div class="voice-settings-files">${files}</div></section><form id="voiceAppendForm" class="settings-section"><div class="settings-section-heading"><h3>追加录音</h3><p>支持一次选择多条参考音频。</p></div><label class="drawer-file-picker"><span>选择参考录音</span><input name="files" type="file" accept="audio/*" multiple required></label><div class="form-actions"><button class="button button-primary" type="submit">追加录音</button></div></form></div></div>`;
+  }
+
+  voiceSettingsFileRows(detail) {
+    const emotions = this.state.config.reference_emotions || [];
+    return detail.files.map((file) => `<div class="voice-settings-file-row"><div class="voice-file-name"><strong>${escapeHtml(file.original_name)}</strong><small>${formatBytes(file.size_bytes)} · ${file.quality?.grade || "待检测"}</small></div><div class="voice-file-controls"><select data-action="file-emotion" data-file-id="${escapeHtml(file.id)}" aria-label="${escapeHtml(file.original_name)} 的参考情绪">${emotions.map((emotion) => `<option value="${escapeHtml(emotion.id)}"${emotion.id === file.emotion_tag ? " selected" : ""}>${escapeHtml(emotion.label)}</option>`).join("")}</select><label class="switch"><input type="checkbox" data-action="file-enabled" data-file-id="${escapeHtml(file.id)}"${file.enabled ? " checked" : ""}>启用</label></div></div>`).join("") || '<p class="empty-list">没有参考录音</p>';
+  }
+
+  renderVoiceSettingsFiles() {
+    const detail = this.state.voiceDetail?.id === this.state.selectedVoiceId ? this.state.voiceDetail : null;
+    const target = byId("assetSettingsContent")?.querySelector(".voice-settings-files");
+    if (!detail || !target) return;
+    const active = document.activeElement;
+    const fileId = active?.dataset?.fileId;
+    const action = active?.dataset?.action;
+    target.innerHTML = this.voiceSettingsFileRows(detail);
+    if (!fileId || !action) return;
+    const restored = [...target.querySelectorAll(`[data-action="${action}"]`)].find((element) => element.dataset.fileId === fileId);
+    restored?.focus({ preventScroll: true });
   }
 
   async loadJobDetail(id, force = false) {
@@ -494,6 +558,162 @@ class WorkstationApp {
     });
   }
 
+  keydown(event) {
+    if (this.generation.handleKeydown(event)) return;
+    if (event.key === "Escape" && this.state.assetRename) {
+      event.preventDefault();
+      this.cancelAssetRename();
+      return;
+    }
+    if (event.key === "Escape" && this.state.settingsDrawer) {
+      event.preventDefault();
+      this.closeSettingsDrawer();
+      return;
+    }
+    if (this.state.settingsDrawer && event.key === "Tab") {
+      const focusable = this.drawerFocusableElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+    if (event.key !== "F2" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (this.state.settingsDrawer) return;
+    const row = event.target.closest('[data-action="select-script"], [data-action="select-voice"]');
+    if (!row) return;
+    event.preventDefault();
+    this.startAssetRename(row.dataset.action === "select-script" ? "script" : "voice", row.dataset.id);
+  }
+
+  drawerFocusableElements() {
+    const drawer = byId("assetSettingsDrawer");
+    if (!drawer) return [];
+    return [...drawer.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), audio[controls], [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => element.offsetParent !== null || element === document.activeElement);
+  }
+
+  startAssetRename(kind, id) {
+    const assets = kind === "script" ? this.state.scripts : this.state.voices;
+    if (!assets.some((asset) => asset.id === id)) return;
+    this.state.assetRename = { kind, id };
+    if (kind === "script") this.renderScript({ listOnly: true });
+    else this.renderVoice({ listOnly: true });
+    window.requestAnimationFrame(() => {
+      const form = [...document.querySelectorAll('[data-asset-rename]')].find((item) => item.dataset.assetRename === kind && item.dataset.id === id);
+      const input = form?.querySelector('input[name="name"]');
+      input?.focus({ preventScroll: true });
+      input?.select();
+    });
+  }
+
+  cancelAssetRename() {
+    const rename = this.state.assetRename;
+    if (!rename) return;
+    this.state.assetRename = null;
+    if (rename.kind === "script") this.renderScript({ listOnly: true });
+    else this.renderVoice({ listOnly: true });
+    window.requestAnimationFrame(() => {
+      const row = [...document.querySelectorAll('[data-action]')].find((item) => item.dataset.action === `select-${rename.kind}` && item.dataset.id === rename.id);
+      row?.focus({ preventScroll: true });
+    });
+  }
+
+  async saveAssetRename(form) {
+    const kind = form.dataset.assetRename;
+    const id = form.dataset.id;
+    const name = form.name.value.trim();
+    if (!name) return;
+    if (kind === "script") {
+      const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name });
+      this.merge(this.state.scripts, script);
+      if (this.state.scriptDetail?.id === id) this.state.scriptDetail = { ...this.state.scriptDetail, ...script };
+    } else {
+      const voice = this.state.voices.find((item) => item.id === id);
+      const notes = voice?.notes ?? this.state.voiceDetail?.notes ?? "";
+      const { voice: updated } = await this.api.patch(`/api/voices/${enc(id)}`, { name, notes });
+      this.merge(this.state.voices, updated);
+      if (this.state.voiceDetail?.id === id) this.state.voiceDetail = updated;
+    }
+    this.state.assetRename = null;
+    this.render();
+    this.showView(kind);
+    window.requestAnimationFrame(() => {
+      const row = [...document.querySelectorAll('[data-action]')].find((item) => item.dataset.action === `select-${kind}` && item.dataset.id === id);
+      row?.focus({ preventScroll: true });
+    });
+    this.toast(kind === "script" ? "台本名称已保存" : "声音名称已保存");
+  }
+
+  openSettingsDrawer(kind) {
+    const detail = kind === "script" ? this.state.scriptDetail : this.state.voiceDetail;
+    const selectedId = kind === "script" ? this.state.selectedScriptId : this.state.selectedVoiceId;
+    if (!detail || detail.id !== selectedId) return;
+    this.drawerReturnFocus = document.activeElement;
+    this.state.settingsDrawer = kind;
+    this.renderSettingsDrawer();
+    const backdrop = byId("assetSettingsBackdrop");
+    const drawer = byId("assetSettingsDrawer");
+    const appShell = byId("appShell");
+    backdrop?.classList.add("open");
+    drawer?.classList.add("open");
+    backdrop?.setAttribute("aria-hidden", "false");
+    drawer?.setAttribute("aria-hidden", "false");
+    if (appShell) {
+      appShell.inert = true;
+      appShell.setAttribute("inert", "");
+    }
+    this.drawerFocusableElements()[0]?.focus();
+  }
+
+  closeSettingsDrawer(options = {}) {
+    const drawer = byId("assetSettingsDrawer");
+    if (!this.state.settingsDrawer && !drawer?.classList.contains("open")) return;
+    const drawerKind = this.state.settingsDrawer;
+    const returnFocus = this.drawerReturnFocus;
+    this.state.settingsDrawer = null;
+    const appShell = byId("appShell");
+    byId("assetSettingsBackdrop")?.classList.remove("open");
+    drawer?.classList.remove("open");
+    byId("assetSettingsBackdrop")?.setAttribute("aria-hidden", "true");
+    drawer?.setAttribute("aria-hidden", "true");
+    if (appShell) {
+      appShell.inert = false;
+      appShell.removeAttribute("inert");
+    }
+    if (options.restoreFocus !== false) {
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      else if (drawerKind) document.querySelector(`[data-action="open-settings-drawer"][data-kind="${drawerKind}"]`)?.focus({ preventScroll: true });
+    }
+    this.drawerReturnFocus = null;
+  }
+
+  renderSettingsDrawer() {
+    const content = byId("assetSettingsContent");
+    if (!content || !this.state.settingsDrawer) return;
+    if (this.state.settingsDrawer === "script") {
+      const detail = this.state.scriptDetail?.id === this.state.selectedScriptId ? this.state.scriptDetail : null;
+      content.innerHTML = detail ? this.scriptSettingsDrawer(detail) : '<div class="empty-panel">正在读取台本设置...</div>';
+      return;
+    }
+    const detail = this.state.voiceDetail?.id === this.state.selectedVoiceId ? this.state.voiceDetail : null;
+    content.innerHTML = detail ? this.voiceSettingsDrawer(detail) : '<div class="empty-panel">正在读取声音设置...</div>';
+  }
+
+  renderOpenSettingsDrawer(kind) {
+    if (this.state.settingsDrawer === kind) this.renderSettingsDrawer();
+  }
+
   async click(event) {
     this.generation.handleDocumentClick(event);
     const closeButton = event.target.closest("[data-close-dialog]");
@@ -515,9 +735,11 @@ class WorkstationApp {
       if (action === "open-project-dialog") this.openDialog("projectDialog");
       if (action === "open-script") this.openDialog("scriptDialog");
       if (action === "open-voice") this.openDialog("voiceDialog");
+      if (action === "open-settings-drawer") this.openSettingsDrawer(button.dataset.kind);
+      if (action === "close-settings-drawer") this.closeSettingsDrawer();
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
-      if (action === "select-script") { this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); }
-      if (action === "select-voice") { this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
+      if (action === "select-script") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); }
+      if (action === "select-voice") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "rewrite-line") await this.runBusy(button, () => this.rewriteScriptLine(button));
       if (action === "adopt-line-rewrite") this.adoptLineRewrite(button);
       if (action === "discard-line-rewrite") this.discardLineRewrite(button);
@@ -580,7 +802,10 @@ class WorkstationApp {
       if (input.dataset.action === "file-enabled") await this.updateVoiceFile(input.dataset.fileId, { enabled: input.checked });
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
-    } catch (error) { this.toast(error.message, true); }
+    } catch (error) {
+      if (["file-enabled", "file-emotion"].includes(input.dataset.action)) this.renderVoiceSettingsFiles();
+      this.toast(error.message, true);
+    }
   }
 
   async submit(event) {
@@ -592,6 +817,7 @@ class WorkstationApp {
       if (form.id === "projectCreateForm") await this.createProject(form);
       if (form.id === "scriptCreateForm") await this.createScript(form);
       if (form.id === "voiceCreateForm") await this.createVoice(form);
+      if (form.id === "assetRenameForm") await this.runBusy(button, () => this.saveAssetRename(form));
       if (form.id === "scriptSettingsForm") await this.runBusy(button, () => this.saveScriptSettings(form));
       if (form.id === "scriptItemsForm") await this.runBusy(button, () => this.saveScriptItems(form));
       if (form.id === "voiceSettingsForm") await this.saveVoiceSettings(form);
@@ -609,8 +835,8 @@ class WorkstationApp {
   async saveScriptSettings(form) { const id = this.state.selectedScriptId; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name: form.name.value.trim(), prompt: this.currentCharacterContext() }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("名称已保存"); }
   async saveScriptItems(form, options = {}) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
   async saveVoiceSettings(form) { const id = this.state.selectedVoiceId; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
-  async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoice(); this.toast("参考录音已追加"); }
-  async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoice(); this.toast("录音设置已更新"); }
+  async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("参考录音已追加"); }
+  async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("录音设置已更新"); }
   async submitGenerationOptions() {
     const submission = this.generation.submission();
     if (!submission) return;
@@ -713,6 +939,7 @@ class WorkstationApp {
     if (this.state.scriptDetail) this.state.scriptDetail.selections = (this.state.scriptDetail.selections || []).filter((entry) => !deletedIds.has(entry.job_id));
     for (const job of jobs) delete this.state.jobDetails[job.id];
     this.renderScript();
+    this.renderOpenSettingsDrawer("script");
     this.toast(`${jobs.length} 个生成结果已删除`);
   }
   async saveProject(form) { const { project } = await this.api.patch(`/api/projects/${enc(this.state.project.id)}`, { name: form.name.value.trim(), description: form.description.value.trim(), prompt: form.prompt.value }); this.state.project = project; this.state.projectPromptSuggestion = ""; this.state.projectPromptDraft = null; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
@@ -720,11 +947,11 @@ class WorkstationApp {
   adoptProjectPrompt() { const form = byId("projectSettingsForm"); if (!form || !this.state.projectPromptSuggestion) return; this.state.projectPromptDraft = this.state.projectPromptSuggestion; form.prompt.value = this.state.projectPromptDraft; this.toast("建议已放入编辑框，请保存"); }
   currentCharacterContext() { return byId("textGenerationForm")?.prompt?.value ?? this.state.scriptPromptDraft ?? this.state.scriptDetail?.prompt ?? ""; }
   async persistCharacterContext(options = {}) { const id = this.state.selectedScriptId; const name = this.state.scriptDetail?.name || ""; const prompt = this.currentCharacterContext(); const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name, prompt }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.state.scriptPromptDraft = null; if (options.clearSuggestion) this.state.scriptPromptSuggestion = ""; return script; }
-  async saveCharacterContext() { await this.persistCharacterContext({ clearSuggestion: true }); this.renderScript(); this.toast("角色台词特性已保存"); }
-  async suggestScriptPrompt() { this.state.scriptPromptDraft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderScript(); this.toast("已生成角色台词特性建议"); }
+  async saveCharacterContext() { await this.persistCharacterContext({ clearSuggestion: true }); this.renderOpenSettingsDrawer("script"); this.toast("角色台词特性已保存"); }
+  async suggestScriptPrompt() { this.state.scriptPromptDraft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderOpenSettingsDrawer("script"); this.toast("已生成角色台词特性建议"); }
   adoptScriptPrompt() { const form = byId("textGenerationForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入角色特性框，请保存"); }
-  async generateText(form) { await this.persistCharacterContext(); const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: "", line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderScript(); this.toast(`已生成 ${lines.length} 句台词候选`); }
-  adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.toast("候选已加入编辑器，请点击保存台词"); }
+  async generateText(form) { await this.persistCharacterContext(); const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: "", line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderOpenSettingsDrawer("script"); this.toast(`已生成 ${lines.length} 句台词候选`); }
+  adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.renderOpenSettingsDrawer("script"); this.toast("候选已加入编辑器，请点击保存台词"); }
   async rewriteScriptLine(button) {
     const row = button.closest("[data-script-item]");
     const sequence = Number(button.dataset.lineNumber);
@@ -764,7 +991,7 @@ class WorkstationApp {
   async removeMember(memberId) { if (!window.confirm("确定移除该成员吗？")) return; await this.api.delete(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`); await this.refreshProjectAndMembers(); this.toast("成员已移除"); }
   async updateMemberRole(memberId, role) { await this.api.patch(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`, { role }); await this.loadMembers(this.state.project.id); this.toast("成员角色已更新"); }
   async refreshProjectAndMembers() { const { project } = await this.api.get(`/api/projects/${enc(this.state.project.id)}`); this.state.project = project; this.merge(this.state.projects, project); this.renderProject(); }
-  async deleteScript() { const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId); if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return; await this.api.delete(`/api/scripts/${enc(script.id)}`); this.state.scripts = this.state.scripts.filter((item) => item.id !== script.id); this.state.selectedScriptId = this.state.scripts[0]?.id || null; this.state.scriptDetail = null; this.storePosition(); this.render(); this.toast("台本已删除"); }
+  async deleteScript() { const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId); if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return; this.closeSettingsDrawer({ restoreFocus: false }); await this.api.delete(`/api/scripts/${enc(script.id)}`); this.state.scripts = this.state.scripts.filter((item) => item.id !== script.id); this.state.selectedScriptId = this.state.scripts[0]?.id || null; this.state.scriptDetail = null; this.storePosition(); this.render(); this.toast("台本已删除"); }
   merge(items, value) { const index = items.findIndex((item) => item.id === value.id); if (index >= 0) items[index] = { ...items[index], ...value }; }
   async runBusy(button, operation) {
     if (!button) return operation();
