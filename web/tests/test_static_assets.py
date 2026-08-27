@@ -155,7 +155,7 @@ def test_workstation_login_uses_generated_background_asset() -> None:
     stylesheet = (STATIC_ROOT / "css" / "ui-refresh.css").read_text(encoding="utf-8")
     background = STATIC_ROOT / "assets" / "voice-lab-login-bg.webp"
 
-    assert "ui-refresh.css?v=20260827.2" in content
+    assert "ui-refresh.css?v=20260827.3" in content
     assert 'url("../assets/voice-lab-login-bg.webp")' in stylesheet
     assert background.is_file()
     assert background.stat().st_size > 50_000
@@ -167,7 +167,7 @@ def test_generation_candidate_keeps_only_compact_selection_action() -> None:
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
     assert "workstation.css?v=20260826.16" in content
-    assert "app.js?v=20260827.1" in content
+    assert "app.js?v=20260827.2" in content
     assert '<div class="candidate-media">${audio}${action}</div>' in javascript
     assert 'class="candidate-actions"' not in javascript
     assert "candidate.download_url" not in javascript
@@ -196,9 +196,19 @@ def test_script_and_voice_assets_use_compact_workspaces_and_settings_drawer() ->
     assert 'id="assetSettingsDrawer"' in content
     assert 'class="split-workspace asset-workspace"' in javascript
     assert 'data-action="open-settings-drawer"' in javascript
-    assert 'event.key !== "F2"' in javascript
+    assert 'class="detail-actions asset-detail-actions"' in javascript
+    assert 'class="asset-detail-generation"' in javascript
+    assert 'class="script-generation work-section"' not in javascript
+    assert 'event.key !== "F2"' not in javascript
+    assert "按 F2 重命名" not in javascript
+    assert "startAssetRename(kind, id)" in javascript
+    assert 'id="scriptSettingsForm"' in javascript
+    assert 'id="voiceSettingsForm"' in javascript
+    assert "saveScriptSettings(form)" in javascript
+    assert "saveVoiceSettings(form)" in javascript
     assert 'data-asset-rename="${kind}"' in javascript
     assert ".asset-settings-drawer" in stylesheet
+    assert ".asset-detail-generation" in stylesheet
     assert ".asset-rename-row" in stylesheet
 
 

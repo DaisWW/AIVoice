@@ -1514,6 +1514,49 @@ body.workstation-page .asset-settings-trigger {
   flex: 0 0 auto;
 }
 
+body.workstation-page .asset-detail-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+body.workstation-page .asset-detail-generation {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+body.workstation-page .asset-detail-generation .generation-help {
+  max-width: min(34vw, 340px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 680px) {
+  body.workstation-page .asset-detail-actions {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  body.workstation-page .asset-detail-generation {
+    flex: 1 1 auto;
+  }
+
+  body.workstation-page .asset-detail-generation .button,
+  body.workstation-page .asset-detail-actions > .asset-settings-trigger {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  body.workstation-page .asset-detail-generation .generation-help {
+    max-width: none;
+    min-width: 0;
+    flex: 1 1 auto;
+    text-align: left;
+  }
+}
+
 body.workstation-page .asset-rename-row {
   cursor: default;
 }
