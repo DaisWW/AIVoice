@@ -1,0 +1,7 @@
+interface:
+  display_name: "1 Bug Hunt"
+  short_description: "Manual full-project bug review"
+  default_prompt: "Use $1-bug-hunt to run a scoped full-project bug review."
+
+policy:
+  allow_implicit_invocation: false

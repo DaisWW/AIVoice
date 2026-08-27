@@ -1,0 +1,10 @@
+# Project-scoped Codex configuration for Voice Lab.
+# Keep secrets and machine-specific paths out of this file.
+
+[[skills.config]]
+path = "skills/1-bug-hunt"
+enabled = true
+
+[[skills.config]]
+path = "skills/2-perf-hunt"
+enabled = true

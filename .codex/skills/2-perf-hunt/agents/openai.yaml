@@ -1,0 +1,7 @@
+interface:
+  display_name: "2 Perf Hunt"
+  short_description: "Manual full-project performance review"
+  default_prompt: "Use $2-perf-hunt to run a scoped full-project performance review."
+
+policy:
+  allow_implicit_invocation: false
