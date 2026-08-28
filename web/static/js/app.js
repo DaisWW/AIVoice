@@ -936,7 +936,11 @@ class WorkstationApp {
       if (form.id === "memberAddForm") await this.addMember(form);
       if (form.id === "generationOptionsForm") await this.runBusy(button, () => this.submitGenerationOptions());
       if (form.id === "textGenerationForm") await this.runBusy(button, () => this.generateText(form));
-    } catch (error) { this.toast(error.message, true); }
+    } catch (error) {
+      const message = String(error?.message || "请求失败，请稍后重试");
+      if (form.id === "smartScriptImportForm") this.setSmartScriptImportMessage(message, true);
+      this.toast(message, true);
+    }
   }
 
   async createProject(form) { const { project } = await this.api.post("/api/projects", { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.projects.push(project); form.reset(); byId("projectDialog").close(); await this.selectProject(project.id, true); this.showView("script"); this.toast("项目已创建"); }
@@ -944,11 +948,13 @@ class WorkstationApp {
   async analyzeSmartScriptImport(form) {
     const projectId = this.state.project?.id;
     const version = this.requestVersion;
+    this.setSmartScriptImportMessage("正在上传并分析，长文本可能需要一些时间，请稍候。");
     if (!projectId) throw new Error("请先选择项目");
     const { batch } = await this.api.postForm(`/api/projects/${enc(projectId)}/script-imports/analyze`, new FormData(form));
     if (!this.isCurrentProjectRequest(projectId, version)) return;
     this.state.scriptImportBatch = batch;
     this.state.scriptImportError = "";
+    this.setSmartScriptImportMessage();
     form.reset();
     byId("smartScriptImportFileName").textContent = "选择一个或多个台本文件";
     byId("smartScriptImportDialog").close();
@@ -1248,7 +1254,15 @@ class WorkstationApp {
     setButtonBusy(button, true);
     try { return await operation(); } finally { setButtonBusy(button, false); }
   }
-  openDialog(id) { byId(id).showModal(); }
+  setSmartScriptImportMessage(message = "", error = false) {
+    const element = byId("smartScriptImportMessage");
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle("error", error);
+    element.classList.toggle("is-progress", Boolean(message) && !error);
+    element.setAttribute("role", error ? "alert" : "status");
+  }
+  openDialog(id) { if (id === "smartScriptImportDialog") this.setSmartScriptImportMessage(); byId(id).showModal(); }
   toast(message, error = false) { const element = byId("toast"); element.textContent = message; element.classList.toggle("error", error); element.classList.add("show"); clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => element.classList.remove("show"), 3000); }
 }
 

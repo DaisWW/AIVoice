@@ -500,6 +500,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .smart-import-excluded li { display: grid; grid-template-columns: minmax(100px, 170px) minmax(0, 1fr); gap: 12px; padding: 9px 11px; border-left: 2px solid var(--ws-line-strong); background: rgba(17, 22, 27, .65); }
 .smart-import-excluded small { color: var(--ws-faint); font-size: 9px; overflow-wrap: anywhere; }
 .smart-import-excluded span { color: var(--ws-muted); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.smart-import-message { min-height: 18px; margin: 14px 0 0; color: var(--ws-muted); font-size: 10px; line-height: 1.55; }
+.smart-import-message.is-progress { color: var(--ws-cool); }
+.smart-import-message.error { color: var(--ws-danger); }
 .smart-import-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 20px; }
 .member-list { display: grid; }
 .member-row { display: grid; min-height: 76px; grid-template-columns: 36px minmax(0, 1fr) minmax(96px, 118px) 32px; align-items: center; gap: 12px; padding: 13px 22px; border-bottom: 1px solid rgba(40, 49, 58, .7); }

@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260826.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260827.17">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260828.1">
   <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.3&rev=20260828.2">
 </head>
 <body class="workstation-page">
@@ -130,6 +130,7 @@
       <p class="dialog-intro">所选文件的文本会发送给管理员配置的台词文本模型。AI 只分析台本、角色和分段，正式导入前仍需确认。</p>
       <label class="upload-drop" for="smartScriptImportFiles"><span class="upload-glyph">↑</span><strong id="smartScriptImportFileName">选择一个或多个台本文件</strong><small>支持 TXT、MD、CSV、DOCX，最多 20 个文件</small></label>
       <input id="smartScriptImportFiles" name="files" type="file" accept=".txt,.md,.csv,.docx" multiple required>
+      <p id="smartScriptImportMessage" class="smart-import-message" role="status" aria-live="polite"></p>
       <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="smartScriptImportDialog">取消</button><button class="button button-primary" type="submit">开始分析</button></footer>
     </form>
   </dialog>
@@ -171,6 +172,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260827.5"></script>
+  <script type="module" src="/assets/js/app.js?v=20260828.1"></script>
 </body>
 </html>

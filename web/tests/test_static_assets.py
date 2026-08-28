@@ -166,8 +166,8 @@ def test_generation_candidate_keeps_only_compact_selection_action() -> None:
     javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
-    assert "workstation.css?v=20260827.17" in content
-    assert "app.js?v=20260827.5" in content
+    assert "workstation.css?v=20260828.1" in content
+    assert "app.js?v=20260828.1" in content
     assert '<div class="candidate-media">${audio}${action}</div>' in javascript
     assert 'class="candidate-actions"' not in javascript
     assert "candidate.download_url" not in javascript
@@ -254,6 +254,7 @@ def test_project_settings_has_confirmed_smart_script_import_flow() -> None:
 
     assert 'id="smartScriptImportDialog"' in content
     assert 'id="smartScriptImportFiles"' in content
+    assert 'id="smartScriptImportMessage"' in content
     assert "scriptImportBatch" in javascript
     assert "/script-imports/pending" in javascript
     assert "/script-imports/analyze" in javascript
@@ -262,5 +263,8 @@ def test_project_settings_has_confirmed_smart_script_import_flow() -> None:
     assert 'data-action="discard-script-import"' in javascript
     assert 'data-action="discard-corrupt-script-import"' in javascript
     assert "scriptImportError" in javascript
+    assert "setSmartScriptImportMessage" in javascript
+    assert "正在上传并分析" in javascript
+    assert ".smart-import-message.error" in stylesheet
     assert "尚未创建正式台本" in javascript
     assert ".smart-import-section { grid-column: 1 / -1; }" in stylesheet
