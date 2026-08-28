@@ -132,7 +132,7 @@ def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save(
     assert 'class="button button-primary script-save-floating"' in javascript
     assert "角色台词特性" in javascript
     assert "项目级上下文" in javascript
-    assert "本次要求" not in javascript
+    assert 'name="instruction" maxlength="4000"' in javascript
     assert ".script-save-floating { position: fixed;" in stylesheet
     assert (
         "body.workstation-page .line-rewrite-controls .button {\n  min-height: 44px;"
@@ -166,8 +166,8 @@ def test_generation_candidate_keeps_only_compact_selection_action() -> None:
     javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
-    assert "workstation.css?v=20260826.16" in content
-    assert "app.js?v=20260827.2" in content
+    assert "workstation.css?v=20260827.17" in content
+    assert "app.js?v=20260827.5" in content
     assert '<div class="candidate-media">${audio}${action}</div>' in javascript
     assert 'class="candidate-actions"' not in javascript
     assert "candidate.download_url" not in javascript
@@ -245,3 +245,22 @@ def test_admin_health_rows_share_the_card_content_alignment() -> None:
     assert "padding: 12px 0 0 17px;" in stylesheet
     assert ".health-summary > div" in stylesheet
     assert "border-bottom: 1px solid var(--line);" in stylesheet
+
+
+def test_project_settings_has_confirmed_smart_script_import_flow() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+
+    assert 'id="smartScriptImportDialog"' in content
+    assert 'id="smartScriptImportFiles"' in content
+    assert "scriptImportBatch" in javascript
+    assert "/script-imports/pending" in javascript
+    assert "/script-imports/analyze" in javascript
+    assert "/script-imports/confirm" in javascript
+    assert 'id="scriptImportConfirmForm"' in javascript
+    assert 'data-action="discard-script-import"' in javascript
+    assert 'data-action="discard-corrupt-script-import"' in javascript
+    assert "scriptImportError" in javascript
+    assert "尚未创建正式台本" in javascript
+    assert ".smart-import-section { grid-column: 1 / -1; }" in stylesheet

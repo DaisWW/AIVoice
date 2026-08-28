@@ -471,6 +471,36 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .project-settings-form .field input { min-height: 46px; }
 .project-settings-form .field textarea { min-height: 132px; }
 .project-settings-form .form-actions { margin-top: -2px; }
+.smart-import-section { grid-column: 1 / -1; }
+.smart-import-empty { display: flex; min-height: 126px; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 24px; }
+.smart-import-empty strong { display: block; color: var(--ws-ink-soft); font-size: 12px; }
+.smart-import-empty p { max-width: 720px; margin: 7px 0 0; color: var(--ws-muted); font-size: 10px; line-height: 1.65; }
+.smart-import-empty small { display: block; margin-top: 8px; color: var(--ws-warm); font-size: 10px; }
+.smart-import-empty .button { flex: 0 0 auto; }
+.smart-import-confirm-form { padding: 20px 24px 24px; }
+.smart-import-notice { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid rgba(110, 212, 209, .22); border-radius: 5px; background: rgba(110, 212, 209, .06); }
+.smart-import-notice strong { color: var(--ws-cool); font-size: 10px; }
+.smart-import-notice span { color: var(--ws-muted); font-size: 10px; }
+.smart-import-draft-list { display: grid; gap: 10px; margin-top: 14px; }
+.smart-import-draft { display: grid; min-width: 0; grid-template-columns: 46px minmax(0, 1fr); border: 1px solid var(--ws-line); border-radius: 6px; background: var(--ws-surface-soft); overflow: hidden; }
+.smart-import-select { display: grid; min-height: 88px; place-items: center; align-content: start; gap: 11px; padding: 17px 8px; border-right: 1px solid var(--ws-line); color: var(--ws-faint); font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; cursor: pointer; }
+.smart-import-select input { width: 16px; height: 16px; margin: 0; accent-color: var(--ws-accent); }
+.smart-import-draft-body { min-width: 0; padding: 16px; }
+.smart-import-draft-heading { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 16px; }
+.smart-import-draft-heading .field { margin: 0; }
+.smart-import-draft-heading .field input { min-height: 39px; }
+.smart-import-draft-heading p { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px 12px; margin: 0 0 4px; color: var(--ws-muted); font-size: 9px; }
+.smart-import-lines { display: grid; max-height: 310px; gap: 0; margin: 14px 0 0; padding: 0; overflow-y: auto; list-style: none; border-top: 1px solid var(--ws-line); }
+.smart-import-lines li { display: grid; min-width: 0; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 9px 2px; border-bottom: 1px solid rgba(40, 49, 58, .58); }
+.smart-import-lines li > span { color: var(--ws-faint); font: 9px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.smart-import-lines strong { min-width: 0; color: var(--ws-ink-soft); font-size: 10px; font-weight: 550; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.smart-import-excluded { margin-top: 14px; border-top: 1px solid var(--ws-line); }
+.smart-import-excluded summary { padding: 13px 2px 6px; color: var(--ws-muted); font-size: 10px; cursor: pointer; }
+.smart-import-excluded ol { display: grid; gap: 7px; margin: 5px 0 0; padding: 0; list-style: none; }
+.smart-import-excluded li { display: grid; grid-template-columns: minmax(100px, 170px) minmax(0, 1fr); gap: 12px; padding: 9px 11px; border-left: 2px solid var(--ws-line-strong); background: rgba(17, 22, 27, .65); }
+.smart-import-excluded small { color: var(--ws-faint); font-size: 9px; overflow-wrap: anywhere; }
+.smart-import-excluded span { color: var(--ws-muted); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.smart-import-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 20px; }
 .member-list { display: grid; }
 .member-row { display: grid; min-height: 76px; grid-template-columns: 36px minmax(0, 1fr) minmax(96px, 118px) 32px; align-items: center; gap: 12px; padding: 13px 22px; border-bottom: 1px solid rgba(40, 49, 58, .7); }
 .member-row:last-child { border-bottom: 0; }
@@ -530,6 +560,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .upload-glyph { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 15px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 22px; }
 .compact-dialog { width: min(420px, calc(100vw - 30px)); }
+.smart-import-dialog { width: min(640px, calc(100vw - 30px)); }
 .generation-options-dialog { width: min(920px, calc(100vw - 40px)); max-height: min(760px, calc(100dvh - 40px)); }
 .generation-configuration-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .generation-configuration-toolbar strong, .generation-configuration-toolbar small { display: block; }
@@ -654,6 +685,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
   .result-line-heading small { grid-column: 2; }
   [data-view-panel="project"] .view-header h1 { font-size: 31px; }
   [data-view-panel="project"] .project-settings-form { padding: 18px 15px 20px; }
+  [data-view-panel="project"] .smart-import-empty { align-items: stretch; flex-direction: column; padding: 18px 15px 20px; }
+  [data-view-panel="project"] .smart-import-empty .button { align-self: flex-start; }
+  [data-view-panel="project"] .smart-import-confirm-form { padding: 15px; }
+  [data-view-panel="project"] .smart-import-notice { align-items: flex-start; flex-direction: column; gap: 5px; }
+  [data-view-panel="project"] .smart-import-draft { grid-template-columns: 38px minmax(0, 1fr); }
+  [data-view-panel="project"] .smart-import-select { padding-inline: 5px; }
+  [data-view-panel="project"] .smart-import-draft-body { padding: 13px 11px; }
+  [data-view-panel="project"] .smart-import-draft-heading { grid-template-columns: 1fr; gap: 9px; }
+  [data-view-panel="project"] .smart-import-draft-heading p { justify-content: flex-start; }
+  [data-view-panel="project"] .smart-import-excluded li { grid-template-columns: 1fr; gap: 4px; }
+  [data-view-panel="project"] .smart-import-actions { align-items: stretch; flex-direction: column-reverse; }
+  [data-view-panel="project"] .smart-import-actions .button { width: 100%; }
   [data-view-panel="project"] .member-row { grid-template-columns: 36px minmax(0, 1fr) auto; padding-inline: 15px; }
   [data-view-panel="project"] .member-row > span:last-child { display: none; }
   [data-view-panel="project"] .member-row select { grid-column: 2 / -1; }

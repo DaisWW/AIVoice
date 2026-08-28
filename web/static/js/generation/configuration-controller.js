@@ -15,9 +15,13 @@ export class GenerationConfigurationController {
   restore(configurations, voices, models) {
     const voiceIds = new Set(voices.map((voice) => voice.id));
     const modelIds = new Set(models.map((model) => model.id));
+    const combinations = new Set();
     this.state.generationConfigurations = Array.isArray(configurations)
       ? configurations.flatMap((configuration) => {
         if (!configuration || !voiceIds.has(configuration.voiceId) || !modelIds.has(configuration.modelId)) return [];
+        const combination = `${configuration.voiceId}\u0000${configuration.modelId}`;
+        if (combinations.has(combination) || combinations.size >= 4) return [];
+        combinations.add(combination);
         return [{
           id: String(++this.sequence),
           voiceId: configuration.voiceId,
@@ -192,8 +196,17 @@ export class GenerationConfigurationController {
       (item) => item.id === option.dataset.configurationId,
     );
     if (!configuration) return;
-    if (option.dataset.field === "原声") configuration.voiceId = option.dataset.value;
-    if (option.dataset.field === "模型") configuration.modelId = option.dataset.value;
+    const nextVoiceId = option.dataset.field === "原声" ? option.dataset.value : configuration.voiceId;
+    const nextModelId = option.dataset.field === "模型" ? option.dataset.value : configuration.modelId;
+    const duplicate = this.state.generationConfigurations.some(
+      (item) => item !== configuration && item.voiceId === nextVoiceId && item.modelId === nextModelId,
+    );
+    if (duplicate) {
+      this.toast("该原声与模型组合已存在", true);
+      return;
+    }
+    configuration.voiceId = nextVoiceId;
+    configuration.modelId = nextModelId;
     if (option.dataset.field === "条数") {
       configuration.candidateCount = Math.min(4, Math.max(1, Number(option.dataset.value) || 1));
     }
@@ -239,16 +252,25 @@ export class GenerationConfigurationController {
     const voices = this.availableVoices();
     const models = this.availableModels();
     if (!voices.length || !models.length) return;
+    if (this.state.generationConfigurations.length >= 4) {
+      this.toast("最多添加 4 条生成配置", true);
+      return;
+    }
+    const used = new Set(this.state.generationConfigurations.map((item) => `${item.voiceId}\u0000${item.modelId}`));
     const previous = this.state.generationConfigurations.at(-1);
+    const fallbackVoice = voices.some((voice) => voice.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id;
+    const fallbackModel = models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0].id;
+    const combination = voices.flatMap((voice) => models.map((model) => ({ voiceId: voice.id, modelId: model.id })))
+      .find((item) => !used.has(`${item.voiceId}\u0000${item.modelId}`));
+    if (!combination) {
+      this.toast("没有更多可用的原声与模型组合", true);
+      return;
+    }
     const id = String(++this.sequence);
     this.state.generationConfigurations.push({
       id,
-      voiceId: voices.some((voice) => voice.id === previous?.voiceId)
-        ? previous.voiceId
-        : (voices.some((voice) => voice.id === this.state.selectedVoiceId) ? this.state.selectedVoiceId : voices[0].id),
-      modelId: models.some((model) => model.id === previous?.modelId)
-        ? previous.modelId
-        : (models.some((model) => model.id === this.state.selectedModelId) ? this.state.selectedModelId : models[0].id),
+      voiceId: combination.voiceId || fallbackVoice,
+      modelId: combination.modelId || fallbackModel,
       candidateCount: previous?.candidateCount || 1,
     });
     this.storePosition();

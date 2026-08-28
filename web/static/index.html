@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260826.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260826.16">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260827.17">
   <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.3">
 </head>
 <body class="workstation-page">
@@ -118,6 +118,16 @@
     </form>
   </dialog>
 
+  <dialog id="smartScriptImportDialog" class="modal-dialog smart-import-dialog">
+    <form id="smartScriptImportForm" method="dialog" enctype="multipart/form-data">
+      <header class="dialog-header"><div><span class="eyebrow">AI 台本分析</span><h2>智能导入台本</h2></div><button class="icon-button" type="button" data-close-dialog="smartScriptImportDialog" title="关闭" aria-label="关闭">×</button></header>
+      <p class="dialog-intro">所选文件的文本会发送给管理员配置的台词文本模型。AI 只分析台本、角色和分段，正式导入前仍需确认。</p>
+      <label class="upload-drop" for="smartScriptImportFiles"><span class="upload-glyph">↑</span><strong id="smartScriptImportFileName">选择一个或多个台本文件</strong><small>支持 TXT、MD、CSV、DOCX，最多 20 个文件</small></label>
+      <input id="smartScriptImportFiles" name="files" type="file" accept=".txt,.md,.csv,.docx" multiple required>
+      <footer class="dialog-actions"><button class="button button-quiet" type="button" data-close-dialog="smartScriptImportDialog">取消</button><button class="button button-primary" type="submit">开始分析</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="voiceDialog" class="modal-dialog">
     <form id="voiceCreateForm" method="dialog" enctype="multipart/form-data">
       <header class="dialog-header"><div><span class="eyebrow">参考声音</span><h2>创建声音</h2></div><button class="icon-button" type="button" data-close-dialog="voiceDialog" title="关闭" aria-label="关闭">×</button></header>
@@ -155,6 +165,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260827.2"></script>
+  <script type="module" src="/assets/js/app.js?v=20260827.5"></script>
 </body>
 </html>

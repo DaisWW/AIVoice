@@ -3,6 +3,7 @@ import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { escapeHtml, setButtonBusy } from "./core/dom.js";
 import { safeResourceUrl } from "./core/url.js?v=20260826.1";
 import { GenerationConfigurationController } from "./generation/configuration-controller.js?v=20260826.1";
+import { generationSeedPlan } from "./generation/seed-plan.js";
 
 const byId = (id) => document.getElementById(id);
 const enc = (value) => encodeURIComponent(value);
@@ -17,13 +18,16 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", settingsDrawer: null, assetRename: null, jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, scriptImportBatch: null, scriptImportError: "", selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", settingsDrawer: null, assetRename: null, jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.generation = new GenerationConfigurationController(this.state, {
       storePosition: () => this.storePosition(),
       toast: (message, error = false) => this.toast(message, error),
     });
     this.requestVersion = 0;
+    this.loadingScriptToken = 0;
+    this.loadingVoiceToken = 0;
+    this.loadingMembersToken = 0;
     this.toastTimer = null;
     this.loadingJobIds = new Set();
   }
@@ -49,6 +53,7 @@ class WorkstationApp {
     window.addEventListener("resize", () => this.generation.closeDropdowns());
     document.addEventListener("play", (event) => this.pauseOtherAudio(event.target), true);
     byId("scriptUploadFile").addEventListener("change", (event) => { byId("scriptUploadFileName").textContent = event.target.files[0]?.name || "选择台本文件"; });
+    byId("smartScriptImportFiles").addEventListener("change", (event) => { byId("smartScriptImportFileName").textContent = event.target.files.length ? `${event.target.files.length} 个台本文件` : "选择一个或多个台本文件"; });
     byId("voiceFiles").addEventListener("change", (event) => { byId("voiceFileName").textContent = event.target.files.length ? `${event.target.files.length} 条参考录音` : "选择参考录音"; });
   }
 
@@ -119,29 +124,38 @@ class WorkstationApp {
   }
 
   async selectProject(id, initial = false) {
-    if (!id) { this.state.project = null; this.state.scripts = []; this.state.voices = []; this.state.jobs = []; this.render(); return; }
+    const version = ++this.requestVersion;
+    if (!id) { this.state.project = null; this.state.scripts = []; this.state.voices = []; this.state.jobs = []; this.state.scriptImportBatch = null; this.state.scriptImportError = ""; this.state.scriptDetail = null; this.state.voiceDetail = null; this.state.jobDetails = {}; this.loadingVoice = null; this.loadingMembers = null; this.loadingJobIds.clear(); this.render(); return; }
     const previousProjectId = this.state.project?.id || null;
     const savedPosition = this.restoreProjectPosition(id);
     const restoredView = initial ? this.restoreView() : "script";
-    const version = ++this.requestVersion;
     try {
-      const [projectResult, scriptsResult, voicesResult, jobsResult] = await Promise.all([
+      const [projectResult, scriptsResult, voicesResult, jobsResult, importResult] = await Promise.all([
         this.api.get(`/api/projects/${enc(id)}`),
         this.api.get(`/api/scripts?project_id=${enc(id)}`),
         this.api.get(`/api/voices?project_id=${enc(id)}`),
         this.api.get(`/api/jobs?limit=300&project_id=${enc(id)}`),
+        this.api.get(`/api/projects/${enc(id)}/script-imports/pending`).catch((error) => {
+          if (error.status !== 409) throw error;
+          return { batch: null, error: error.message };
+        }),
       ]);
       if (version !== this.requestVersion) return;
       this.state.project = projectResult.project;
       this.state.scripts = scriptsResult.scripts;
       this.state.voices = voicesResult.voices;
       this.state.jobs = jobsResult.jobs;
+      this.state.scriptImportBatch = importResult.batch;
+      this.state.scriptImportError = importResult.error || "";
+      // A project refresh must not keep a detail response from the previous snapshot.
+      this.state.scriptDetail = null;
+      this.loadingScript = null;
+      this.loadingScriptToken += 1;
       if (previousProjectId !== id) {
         this.closeSettingsDrawer({ restoreFocus: false });
         this.state.scriptSearchQuery = "";
         this.state.voiceSearchQuery = "";
         this.state.assetRename = null;
-        this.state.scriptDetail = null;
         this.state.voiceDetail = null;
         this.state.jobDetails = {};
         this.state.generationConfigurations = [];
@@ -154,6 +168,9 @@ class WorkstationApp {
         this.state.lineRewriteSuggestions = {};
         this.state.lineRewriteInstructions = {};
         this.state.scriptItemDrafts = {};
+        this.loadingVoice = null;
+        this.loadingMembers = null;
+        this.loadingJobIds.clear();
       }
       const savedScriptId = previousProjectId === id ? this.state.selectedScriptId : savedPosition.scriptId;
       const savedVoiceId = previousProjectId === id ? this.state.selectedVoiceId : savedPosition.voiceId;
@@ -175,7 +192,19 @@ class WorkstationApp {
       for (const job of this.state.jobs.filter((item) => item.script_id === this.state.selectedScriptId)) void this.loadJobDetail(job.id);
       byId("workspaceMain").scrollTop = 0;
       if (!initial) this.toast("已切换项目");
-    } catch (error) { this.toast(error.message, true); }
+    } catch (error) { if (version === this.requestVersion) this.toast(error.message, true); }
+  }
+
+  isCurrentProjectRequest(projectId, version) {
+    return version === this.requestVersion && this.state.project?.id === projectId;
+  }
+
+  isCurrentScriptRequest(projectId, scriptId, version) {
+    return this.isCurrentProjectRequest(projectId, version) && this.state.selectedScriptId === scriptId;
+  }
+
+  isCurrentVoiceRequest(projectId, voiceId, version) {
+    return this.isCurrentProjectRequest(projectId, version) && this.state.selectedVoiceId === voiceId;
   }
 
   renderProjectSelect() {
@@ -286,7 +315,9 @@ class WorkstationApp {
   async loadScriptDetail(id) {
     if (this.state.scriptDetail?.id === id || this.loadingScript === id) return;
     this.loadingScript = id;
-    try { const { script } = await this.api.get(`/api/scripts/${enc(id)}`); if (this.state.selectedScriptId === id) { this.state.scriptDetail = script; this.renderScript(); this.renderOpenSettingsDrawer("script"); } } catch (error) { this.toast(error.message, true); } finally { this.loadingScript = null; }
+    const token = ++this.loadingScriptToken;
+    const version = this.requestVersion;
+    try { const { script } = await this.api.get(`/api/scripts/${enc(id)}`); if (version === this.requestVersion && token === this.loadingScriptToken && this.state.selectedScriptId === id) { this.state.scriptDetail = script; this.renderScript(); this.renderOpenSettingsDrawer("script"); } } catch (error) { if (version === this.requestVersion) this.toast(error.message, true); } finally { if (token === this.loadingScriptToken) this.loadingScript = null; }
   }
 
   scriptDetail(script) {
@@ -319,7 +350,7 @@ class WorkstationApp {
     const exportAll = canExportAll
       ? '<button class="button button-quiet" type="button" data-action="export-script-audio" data-scope="all">导出全部音频历史</button>'
       : '<button class="button button-quiet" type="button" disabled>暂无可导出历史</button>';
-    return `<div class="settings-drawer-shell"><header class="settings-drawer-header"><div><span class="eyebrow">台本</span><h2 id="assetSettingsTitle">台本设置</h2><p>重命名、角色配置与资产管理</p></div><button class="icon-button" type="button" data-action="close-settings-drawer" title="关闭设置" aria-label="关闭设置">×</button></header><div class="settings-drawer-body"><form id="scriptSettingsForm" class="settings-section"><div class="settings-section-heading"><h3>台本信息</h3><p>在设置中修改台本名称。</p></div><label class="field"><span>台本 / 角色名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-primary" type="submit">保存名称</button></div></form><form id="textGenerationForm" class="settings-section"><div class="settings-section-heading"><h3>AI 生成台词</h3><p>长期角色特性会用于新台词和单行修改。</p></div><label class="field"><span>角色台词特性</span><textarea name="prompt" maxlength="12000" placeholder="例如：说话克制、句子短，不主动解释情绪；遇到质疑时先停顿，再用事实回应。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>生成前自动保存；AI 候选不会直接覆盖现有台词。</small></label><div class="character-context-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善角色特性</button><button class="button button-quiet" type="button" data-action="save-character-context">保存角色特性</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}<div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词候选</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><section class="settings-section settings-asset-actions"><div class="settings-section-heading"><h3>导出与清理</h3><p>这些操作不会改变主编辑区中的台词内容。</p></div><div class="settings-action-grid"><a class="button button-quiet" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>删除全部生成历史</button></div><button class="button button-danger settings-delete-asset" type="button" data-action="delete-script">删除当前台本</button></section></div></div>`;
+    return `<div class="settings-drawer-shell"><header class="settings-drawer-header"><div><span class="eyebrow">台本</span><h2 id="assetSettingsTitle">台本设置</h2><p>重命名、角色配置与资产管理</p></div><button class="icon-button" type="button" data-action="close-settings-drawer" title="关闭设置" aria-label="关闭设置">×</button></header><div class="settings-drawer-body"><form id="scriptSettingsForm" class="settings-section"><div class="settings-section-heading"><h3>台本信息</h3><p>在设置中修改台本名称。</p></div><label class="field"><span>台本 / 角色名称</span><input name="name" value="${escapeHtml(detail.name)}" maxlength="80" required></label><div class="form-actions"><button class="button button-primary" type="submit">保存名称</button></div></form><form id="textGenerationForm" class="settings-section"><div class="settings-section-heading"><h3>AI 生成台词</h3><p>长期角色特性会用于新台词和单行修改。</p></div><label class="field"><span>角色台词特性</span><textarea name="prompt" maxlength="12000" placeholder="例如：说话克制、句子短，不主动解释情绪；遇到质疑时先停顿，再用事实回应。">${escapeHtml(this.state.scriptPromptDraft ?? detail.prompt ?? "")}</textarea><small>生成前自动保存；AI 候选不会直接覆盖现有台词。</small></label><div class="character-context-actions"><button class="button button-quiet" type="button" data-action="suggest-script-prompt">让 AI 完善角色特性</button><button class="button button-quiet" type="button" data-action="save-character-context">保存角色特性</button></div>${this.promptSuggestion(this.state.scriptPromptSuggestion, "script")}<label class="field"><span>本次要求</span><textarea name="instruction" maxlength="4000" placeholder="例如：生成一组首次见面时的短句，克制但带有警惕感。"></textarea></label><div class="text-generation-controls"><label class="field"><span>句数</span><input name="line_count" type="number" min="1" max="100" value="5"></label><button class="button button-primary" type="submit">生成台词候选</button></div>${pendingLines.length ? this.generatedLinesPanel(pendingLines) : ""}</form><section class="settings-section settings-asset-actions"><div class="settings-section-heading"><h3>导出与清理</h3><p>这些操作不会改变主编辑区中的台词内容。</p></div><div class="settings-action-grid"><a class="button button-quiet" href="/api/scripts/${enc(detail.id)}/export">导出台词 CSV</a>${exportAccepted}${exportAll}<button class="button button-danger" type="button" data-action="delete-all-generations"${deletableJobs.length ? "" : " disabled"}>删除全部生成历史</button></div><button class="button button-danger settings-delete-asset" type="button" data-action="delete-script">删除当前台本</button></section></div></div>`;
   }
 
   promptSuggestion(suggestion, scope) {
@@ -461,7 +492,21 @@ class WorkstationApp {
   async loadVoiceDetail(id) {
     if (this.state.voiceDetail?.id === id || this.loadingVoice === id) return;
     this.loadingVoice = id;
-    try { const { voice } = await this.api.get(`/api/voices/${enc(id)}`); if (this.state.selectedVoiceId === id) { this.state.voiceDetail = voice; this.renderVoice(); this.renderOpenSettingsDrawer("voice"); } } catch (error) { this.toast(error.message, true); } finally { this.loadingVoice = null; }
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
+    const token = ++this.loadingVoiceToken;
+    try {
+      const { voice } = await this.api.get(`/api/voices/${enc(id)}`);
+      if (this.isCurrentProjectRequest(projectId, version) && token === this.loadingVoiceToken && this.state.selectedVoiceId === id) {
+        this.state.voiceDetail = voice;
+        this.renderVoice();
+        this.renderOpenSettingsDrawer("voice");
+      }
+    } catch (error) {
+      if (this.isCurrentProjectRequest(projectId, version)) this.toast(error.message, true);
+    } finally {
+      if (token === this.loadingVoiceToken) this.loadingVoice = null;
+    }
   }
 
   voiceDetail(voice) {
@@ -503,24 +548,76 @@ class WorkstationApp {
     if (!force && cached && (!summary || cached.status === summary.status)) return;
     if (this.loadingJobIds.has(id)) return;
     this.loadingJobIds.add(id);
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
     try {
       const { job } = await this.api.get(`/api/jobs/${enc(id)}`);
-      this.state.jobDetails[id] = job;
-      if (this.state.selectedScriptId === job.script_id && !document.activeElement?.closest?.("form")) this.renderScript();
-    } catch (error) { this.toast(error.message, true); } finally { this.loadingJobIds.delete(id); }
+      if (this.isCurrentProjectRequest(projectId, version) && job.project_id === projectId) {
+        this.state.jobDetails[id] = job;
+        if (this.state.selectedScriptId === job.script_id && !document.activeElement?.closest?.("form")) this.renderScript();
+      }
+    } catch (error) {
+      if (this.isCurrentProjectRequest(projectId, version)) this.toast(error.message, true);
+    } finally {
+      this.loadingJobIds.delete(id);
+    }
   }
 
   renderProject() {
     const project = this.state.project;
     const canManage = project.can_manage;
-    byId("projectContent").innerHTML = `<div class="view-header"><div><span class="eyebrow">项目管理</span><h1>项目资料与成员</h1><p>管理项目范围、共享上下文和参与成员。</p></div></div><div class="project-layout"><section class="project-section work-section"><header class="section-heading"><div><h2>项目资料</h2><p>更新名称、说明和所有角色共用的项目级上下文</p></div></header>${canManage ? `<form id="projectSettingsForm" class="project-settings-form"><label class="field"><span>项目名称</span><input name="name" value="${escapeHtml(project.name)}" maxlength="80" required></label><label class="field"><span>项目说明</span><textarea name="description" maxlength="500">${escapeHtml(project.description)}</textarea></label><label class="field"><span>项目级上下文</span><textarea name="prompt" maxlength="12000" placeholder="统一定义世界观、角色关系、语言风格、输出格式和禁用项。">${escapeHtml(this.state.projectPromptDraft ?? project.prompt ?? "")}</textarea><small>所有角色都会继承这段上下文；每个角色可再保存自己的台词特性。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-project-prompt">让 AI 完善上下文</button><button class="button button-primary" type="submit">保存资料</button></div>${this.promptSuggestion(this.state.projectPromptSuggestion, "project")}</form>` : `<div class="section-body"><p>${escapeHtml(project.description || "暂无项目说明")}</p><div class="readonly-prompt"><strong>项目级上下文</strong><p>${escapeHtml(project.prompt || "尚未设置")}</p></div></div>`}</section><section class="project-section work-section"><header class="section-heading"><div><h2>成员</h2><p>${project.member_count} 位项目成员</p></div></header><div id="memberList" class="member-list"><p class="empty-list">正在读取成员...</p></div>${canManage ? '<form id="memberAddForm" class="member-add"><span>按用户名添加已由系统管理员创建的账户。</span><div class="inline-form"><input name="username" maxlength="64" required placeholder="member@example.com"><button class="button button-quiet" type="submit">添加成员</button></div></form>' : ""}<p class="project-id-note">PROJECT ID · ${escapeHtml(project.id)}</p></section></div>`;
+    const projectSettings = canManage
+      ? `<form id="projectSettingsForm" class="project-settings-form"><label class="field"><span>项目名称</span><input name="name" value="${escapeHtml(project.name)}" maxlength="80" required></label><label class="field"><span>项目说明</span><textarea name="description" maxlength="500">${escapeHtml(project.description)}</textarea></label><label class="field"><span>项目级上下文</span><textarea name="prompt" maxlength="12000" placeholder="统一定义世界观、角色关系、语言风格、输出格式和禁用项。">${escapeHtml(this.state.projectPromptDraft ?? project.prompt ?? "")}</textarea><small>所有角色都会继承这段上下文；每个角色可再保存自己的台词特性。</small></label><div class="form-actions"><button class="button button-quiet" type="button" data-action="suggest-project-prompt">让 AI 完善上下文</button><button class="button button-primary" type="submit">保存资料</button></div>${this.promptSuggestion(this.state.projectPromptSuggestion, "project")}</form>`
+      : `<div class="section-body"><p>${escapeHtml(project.description || "暂无项目说明")}</p><div class="readonly-prompt"><strong>项目级上下文</strong><p>${escapeHtml(project.prompt || "尚未设置")}</p></div></div>`;
+    const memberActions = canManage
+      ? '<form id="memberAddForm" class="member-add"><span>按用户名添加已由系统管理员创建的账户。</span><div class="inline-form"><input name="username" maxlength="64" required placeholder="member@example.com"><button class="button button-quiet" type="submit">添加成员</button></div></form>'
+      : "";
+    byId("projectContent").innerHTML = `
+      <div class="view-header"><div><span class="eyebrow">项目管理</span><h1>项目资料与成员</h1><p>管理项目范围、共享上下文和参与成员。</p></div></div>
+      <div class="project-layout">
+        <section class="project-section work-section"><header class="section-heading"><div><h2>项目资料</h2><p>更新名称、说明和所有角色共用的项目级上下文</p></div></header>${projectSettings}</section>
+        <section class="project-section work-section"><header class="section-heading"><div><h2>成员</h2><p>${project.member_count} 位项目成员</p></div></header><div id="memberList" class="member-list"><p class="empty-list">正在读取成员...</p></div>${memberActions}<p class="project-id-note">PROJECT ID · ${escapeHtml(project.id)}</p></section>
+        ${this.smartScriptImportSection()}
+      </div>`;
     void this.loadMembers(project.id);
+  }
+
+  smartScriptImportSection() {
+    const batch = this.state.scriptImportBatch;
+    const error = this.state.scriptImportError;
+    const modelReady = this.state.config.text_model?.configured === true;
+    if (!batch) {
+      if (error) {
+        return `<section id="smartScriptImportSection" class="project-section work-section smart-import-section"><header class="section-heading"><div><h2>待确认数据异常</h2><p>${escapeHtml(error)}</p></div></header><div class="smart-import-empty"><div><strong>清理后可重新分析导入</strong><p>该操作只会删除无法读取的临时预览，不会删除已导入的正式台本。</p></div><button class="button button-danger" type="button" data-action="discard-corrupt-script-import">清理待确认数据</button></div></section>`;
+      }
+      return `<section id="smartScriptImportSection" class="project-section work-section smart-import-section"><header class="section-heading"><div><h2>AI 智能导入</h2><p>识别多台本、多角色和连续长文本</p></div></header><div class="smart-import-empty"><div><strong>从原始台本生成待确认预览</strong><p>已有行或段落会原样保留；连续文本只做分段和归类，不改写台词。</p>${modelReady ? "" : '<small>需要系统管理员先启用台词文本模型。</small>'}</div><button class="button button-primary" type="button" data-action="open-smart-script-import"${modelReady ? "" : " disabled"}><span aria-hidden="true">↑</span> AI 智能导入</button></div></section>`;
+    }
+    const drafts = Array.isArray(batch.drafts) ? batch.drafts : [];
+    const excluded = Array.isArray(batch.excluded) ? batch.excluded : [];
+    return `<section id="smartScriptImportSection" class="project-section work-section smart-import-section"><header class="section-heading"><div><h2>待确认的智能导入</h2><p>${drafts.length} 个台本候选 · ${Number(batch.dialogue_line_count || 0)} 条台词</p></div></header><form id="scriptImportConfirmForm" class="smart-import-confirm-form"><div class="smart-import-notice"><strong>尚未创建正式台本</strong><span>逐项核对名称、角色和每句原文后再确认。</span></div><div class="smart-import-draft-list">${drafts.map((draft, index) => this.smartScriptImportDraft(draft, index)).join("")}</div>${excluded.length ? `<details class="smart-import-excluded"><summary>查看未导入内容（${excluded.length} 段）</summary><ol>${excluded.map((item) => `<li><small>${escapeHtml(item.source_file || "")}</small><span>${escapeHtml(item.text || "")}</span></li>`).join("")}</ol></details>` : ""}<footer class="smart-import-actions"><button class="button button-quiet" type="button" data-action="discard-script-import">放弃本次分析</button><button class="button button-primary" type="submit">确认导入所选台本</button></footer></form></section>`;
+  }
+
+  smartScriptImportDraft(draft, index) {
+    const lines = Array.isArray(draft.lines) ? draft.lines : [];
+    const selected = draft.selected !== false;
+    const script = draft.script || "未命名台本";
+    const speaker = draft.speaker || "未识别角色";
+    return `<article class="smart-import-draft" data-import-draft="${escapeHtml(draft.id)}"><label class="smart-import-select"><input type="checkbox" data-import-draft-select value="${escapeHtml(draft.id)}" aria-label="导入台本 ${escapeHtml(draft.name || String(index + 1))}"${selected ? " checked" : ""}><span>${String(index + 1).padStart(2, "0")}</span></label><div class="smart-import-draft-body"><div class="smart-import-draft-heading"><label class="field"><span>正式台本名称</span><input data-import-draft-name value="${escapeHtml(draft.name || "")}" maxlength="80"></label><p><span>台本：${escapeHtml(script)}</span><span>角色：${escapeHtml(speaker)}</span><span>${lines.length} 条</span></p></div><ol class="smart-import-lines">${lines.map((line, lineIndex) => `<li><span>${String(lineIndex + 1).padStart(2, "0")}</span><strong>${escapeHtml(line.text || "")}</strong></li>`).join("")}</ol></div></article>`;
   }
 
   async loadMembers(id) {
     if (this.loadingMembers === id) return;
     this.loadingMembers = id;
-    try { const { members } = await this.api.get(`/api/projects/${enc(id)}/members`); if (this.state.project?.id === id) this.renderMembers(members); } catch (error) { this.toast(error.message, true); } finally { this.loadingMembers = null; }
+    const version = this.requestVersion;
+    const token = ++this.loadingMembersToken;
+    try {
+      const { members } = await this.api.get(`/api/projects/${enc(id)}/members`);
+      if (this.isCurrentProjectRequest(id, version) && token === this.loadingMembersToken) this.renderMembers(members);
+    } catch (error) {
+      if (this.isCurrentProjectRequest(id, version)) this.toast(error.message, true);
+    } finally {
+      if (token === this.loadingMembersToken) this.loadingMembers = null;
+    }
   }
 
   renderMembers(members) {
@@ -532,12 +629,13 @@ class WorkstationApp {
 
   async refreshJobs() {
     const projectId = this.state.project?.id;
+    const version = this.requestVersion;
     const hasActiveJobs = this.state.jobs.some((job) => ["queued", "running"].includes(job.status));
     if (!projectId || !hasActiveJobs || this.loadingJobs || document.activeElement?.closest?.("form")) return;
     this.loadingJobs = true;
     try {
       const { jobs } = await this.api.get(`/api/jobs?limit=300&project_id=${enc(projectId)}`);
-      if (this.state.project?.id !== projectId) return;
+      if (!this.isCurrentProjectRequest(projectId, version)) return;
       this.state.jobs = jobs;
       this.renderScript();
       const scriptJobs = jobs.filter((job) => job.script_id === this.state.selectedScriptId);
@@ -626,16 +724,20 @@ class WorkstationApp {
   async saveAssetRename(form) {
     const kind = form.dataset.assetRename;
     const id = form.dataset.id;
+    const projectId = this.state.project?.id;
+    const requestVersion = this.requestVersion;
     const name = form.name.value.trim();
     if (!name) return;
     if (kind === "script") {
       const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name });
+      if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return;
       this.merge(this.state.scripts, script);
       if (this.state.scriptDetail?.id === id) this.state.scriptDetail = { ...this.state.scriptDetail, ...script };
     } else {
       const voice = this.state.voices.find((item) => item.id === id);
       const notes = voice?.notes ?? this.state.voiceDetail?.notes ?? "";
       const { voice: updated } = await this.api.patch(`/api/voices/${enc(id)}`, { name, notes });
+      if (!this.isCurrentVoiceRequest(projectId, id, requestVersion)) return;
       this.merge(this.state.voices, updated);
       if (this.state.voiceDetail?.id === id) this.state.voiceDetail = updated;
     }
@@ -728,6 +830,7 @@ class WorkstationApp {
       if (action === "view") this.showView(button.dataset.viewTarget);
       if (action === "open-project-dialog") this.openDialog("projectDialog");
       if (action === "open-script") this.openDialog("scriptDialog");
+      if (action === "open-smart-script-import") this.openDialog("smartScriptImportDialog");
       if (action === "open-voice") this.openDialog("voiceDialog");
       if (action === "open-settings-drawer") this.openSettingsDrawer(button.dataset.kind);
       if (action === "close-settings-drawer") this.closeSettingsDrawer();
@@ -744,6 +847,8 @@ class WorkstationApp {
       if (action === "delete-all-generations") await this.deleteAllGenerations();
       if (action === "delete-script") await this.deleteScript();
       if (action === "remove-member") await this.removeMember(button.dataset.memberId);
+      if (action === "discard-script-import") await this.runBusy(button, () => this.discardSmartScriptImport());
+      if (action === "discard-corrupt-script-import") await this.runBusy(button, () => this.discardCorruptSmartScriptImport());
       if (action === "suggest-project-prompt") await this.runBusy(button, () => this.suggestProjectPrompt());
       if (action === "suggest-script-prompt") await this.runBusy(button, () => this.suggestScriptPrompt());
       if (action === "save-character-context") await this.runBusy(button, () => this.saveCharacterContext());
@@ -776,6 +881,11 @@ class WorkstationApp {
       this.state.voiceSearchQuery = input.value;
       this.renderVoice({ listOnly: true });
     }
+    if (input.matches("[data-import-draft-name]")) {
+      const draftId = input.closest("[data-import-draft]")?.dataset.importDraft;
+      const draft = this.state.scriptImportBatch?.drafts?.find((item) => item.id === draftId);
+      if (draft) draft.name = input.value;
+    }
     this.generation.handleInput(input);
   }
 
@@ -796,6 +906,10 @@ class WorkstationApp {
       if (input.dataset.action === "file-enabled") await this.updateVoiceFile(input.dataset.fileId, { enabled: input.checked });
       if (input.dataset.action === "file-emotion") await this.updateVoiceFile(input.dataset.fileId, { emotion_tag: input.value });
       if (input.dataset.action === "member-role") await this.updateMemberRole(input.dataset.memberId, input.value);
+      if (input.matches("[data-import-draft-select]")) {
+        const draft = this.state.scriptImportBatch?.drafts?.find((item) => item.id === input.value);
+        if (draft) draft.selected = input.checked;
+      }
     } catch (error) {
       if (["file-enabled", "file-emotion"].includes(input.dataset.action)) this.renderVoiceSettingsFiles();
       this.toast(error.message, true);
@@ -810,6 +924,8 @@ class WorkstationApp {
     try {
       if (form.id === "projectCreateForm") await this.createProject(form);
       if (form.id === "scriptCreateForm") await this.createScript(form);
+      if (form.id === "smartScriptImportForm") await this.runBusy(button, () => this.analyzeSmartScriptImport(form));
+      if (form.id === "scriptImportConfirmForm") await this.runBusy(button, () => this.confirmSmartScriptImport(form));
       if (form.id === "voiceCreateForm") await this.createVoice(form);
       if (form.id === "assetRenameForm") await this.runBusy(button, () => this.saveAssetRename(form));
       if (form.id === "scriptSettingsForm") await this.runBusy(button, () => this.saveScriptSettings(form));
@@ -825,12 +941,93 @@ class WorkstationApp {
 
   async createProject(form) { const { project } = await this.api.post("/api/projects", { name: form.name.value.trim(), description: form.description.value.trim() }); this.state.projects.push(project); form.reset(); byId("projectDialog").close(); await this.selectProject(project.id, true); this.showView("script"); this.toast("项目已创建"); }
   async createScript(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { script } = await this.api.postForm("/api/scripts", data); this.state.scripts.unshift(script); this.state.selectedScriptId = script.id; this.state.scriptDetail = null; form.reset(); byId("scriptUploadFileName").textContent = "选择台本文件"; byId("scriptDialog").close(); this.render(); this.showView("script"); this.toast("台本已导入"); }
+  async analyzeSmartScriptImport(form) {
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
+    if (!projectId) throw new Error("请先选择项目");
+    const { batch } = await this.api.postForm(`/api/projects/${enc(projectId)}/script-imports/analyze`, new FormData(form));
+    if (!this.isCurrentProjectRequest(projectId, version)) return;
+    this.state.scriptImportBatch = batch;
+    this.state.scriptImportError = "";
+    form.reset();
+    byId("smartScriptImportFileName").textContent = "选择一个或多个台本文件";
+    byId("smartScriptImportDialog").close();
+    this.renderProject();
+    byId("smartScriptImportSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    this.toast("分析完成，请确认每个候选台本");
+  }
+  async confirmSmartScriptImport(form) {
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
+    const batchId = this.state.scriptImportBatch?.batch_id;
+    if (!projectId || !batchId) throw new Error("没有可确认的智能导入结果");
+    const drafts = [...form.querySelectorAll("[data-import-draft]")]
+      .filter((row) => row.querySelector("[data-import-draft-select]")?.checked)
+      .map((row) => ({
+        id: row.dataset.importDraft,
+        name: row.querySelector("[data-import-draft-name]").value.trim(),
+      }));
+    if (!drafts.length) throw new Error("请至少选择一个台本");
+    if (drafts.some((draft) => !draft.name)) throw new Error("所选台本名称不能为空");
+    const { scripts } = await this.api.post(`/api/projects/${enc(projectId)}/script-imports/confirm`, {
+      batch_id: batchId,
+      drafts,
+    });
+    if (!this.isCurrentProjectRequest(projectId, version) || this.state.scriptImportBatch?.batch_id !== batchId) return;
+    const createdIds = new Set(scripts.map((script) => script.id));
+    this.state.scripts = [...scripts, ...this.state.scripts.filter((script) => !createdIds.has(script.id))];
+    this.state.scriptImportBatch = null;
+    this.state.scriptImportError = "";
+    this.state.selectedScriptId = scripts[0]?.id || this.state.selectedScriptId;
+    this.state.scriptDetail = null;
+    this.storePosition();
+    this.render();
+    this.showView("script");
+    this.toast(`已导入 ${scripts.length} 个台本`);
+  }
+  async discardSmartScriptImport() {
+    const batch = this.state.scriptImportBatch;
+    if (!batch || !window.confirm("确定放弃这次 AI 分析结果吗？")) return;
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
+    const batchId = batch.batch_id;
+    if (!projectId || !batchId) return;
+    await this.api.delete(`/api/projects/${enc(projectId)}/script-imports/${enc(batchId)}`);
+    if (!this.isCurrentProjectRequest(projectId, version) || this.state.scriptImportBatch?.batch_id !== batchId) return;
+    this.state.scriptImportBatch = null;
+    this.state.scriptImportError = "";
+    this.renderProject();
+    this.toast("已放弃本次分析");
+  }
+  async discardCorruptSmartScriptImport() {
+    if (!window.confirm("确定清理无法读取的待确认数据吗？")) return;
+    const projectId = this.state.project?.id;
+    const version = this.requestVersion;
+    if (!projectId) return;
+    await this.api.delete(`/api/projects/${enc(projectId)}/script-imports/pending`);
+    if (!this.isCurrentProjectRequest(projectId, version)) return;
+    this.state.scriptImportBatch = null;
+    this.state.scriptImportError = "";
+    this.renderProject();
+    this.toast("已清理待确认数据");
+  }
   async createVoice(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { voice } = await this.api.postForm("/api/voices", data); this.state.voices.unshift(voice); this.state.selectedVoiceId = voice.id; this.state.voiceDetail = null; form.reset(); byId("voiceFileName").textContent = "选择参考录音"; byId("voiceDialog").close(); this.render(); this.showView("voice"); this.toast("声音已创建"); }
-  async saveScriptSettings(form) { const id = this.state.selectedScriptId; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name: form.name.value.trim(), prompt: this.currentCharacterContext() }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("名称已保存"); }
-  async saveScriptItems(form, options = {}) { const id = this.state.selectedScriptId; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, { items }); this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
-  async saveVoiceSettings(form) { const id = this.state.selectedVoiceId; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
-  async appendVoiceFiles(form) { const { voice } = await this.api.postForm(`/api/voices/${enc(this.state.selectedVoiceId)}/files`, new FormData(form)); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("参考录音已追加"); }
-  async updateVoiceFile(fileId, changes) { const { voice } = await this.api.patch(`/api/voices/${enc(this.state.selectedVoiceId)}/files/${enc(fileId)}`, changes); this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("录音设置已更新"); }
+  async saveScriptSettings(form) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const version = this.state.scriptDetail?.version; const payload = { name: form.name.value.trim(), prompt: this.currentCharacterContext() }; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("名称已保存"); }
+  async saveScriptItems(form, options = {}) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const version = this.state.scriptDetail?.version; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const payload = { items }; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return null; this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
+  scriptItemsNeedSave(form) {
+    const detail = this.state.scriptDetail;
+    if (!detail || detail.id !== this.state.selectedScriptId) return false;
+    const rows = [...form.querySelectorAll("[data-script-item]")];
+    if (rows.length !== detail.items.length) return true;
+    return rows.some((row, index) => {
+      const item = detail.items[index] || {};
+      return row.querySelector('[name="text"]')?.value !== String(item.text ?? "")
+        || row.querySelector('[name="pronunciation"]')?.value !== String(item.pronunciation ?? "");
+    });
+  }
+  async saveVoiceSettings(form) { const projectId = this.state.project?.id; const id = this.state.selectedVoiceId; const requestVersion = this.requestVersion; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); if (!this.isCurrentVoiceRequest(projectId, id, requestVersion)) return; this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
+  async appendVoiceFiles(form) { const projectId = this.state.project?.id; const id = this.state.selectedVoiceId; const requestVersion = this.requestVersion; const { voice } = await this.api.postForm(`/api/voices/${enc(id)}/files`, new FormData(form)); if (!this.isCurrentVoiceRequest(projectId, id, requestVersion)) return; this.state.voiceDetail = voice; this.merge(this.state.voices, voice); form.reset(); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("参考录音已追加"); }
+  async updateVoiceFile(fileId, changes) { const projectId = this.state.project?.id; const id = this.state.selectedVoiceId; const requestVersion = this.requestVersion; const { voice } = await this.api.patch(`/api/voices/${enc(id)}/files/${enc(fileId)}`, changes); if (!this.isCurrentVoiceRequest(projectId, id, requestVersion)) return; this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.renderVoiceSettingsFiles(); this.renderVoice(); this.toast("录音设置已更新"); }
   async submitGenerationOptions() {
     const submission = this.generation.submission();
     if (!submission) return;
@@ -839,27 +1036,62 @@ class WorkstationApp {
   }
 
   async generateScript(lineNumber = null, configurations = []) {
+    const projectId = this.state.project?.id;
+    const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
     const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId);
     const voices = this.state.voices.filter((item) => item.enabled_file_count);
     const models = this.state.config.models.filter((model) => model.available === true);
-    const validConfigurations = configurations.filter((configuration) => voices.some((voice) => voice.id === configuration.voiceId) && models.some((model) => model.id === configuration.modelId));
-    if (!script || !validConfigurations.length || validConfigurations.length !== configurations.length) { this.toast("请检查生成配置中的原声和模型", true); return false; }
+    const seen = new Set();
+    const validConfigurations = configurations.flatMap((configuration) => {
+      const voiceId = configuration?.voiceId;
+      const modelId = configuration?.modelId;
+      const key = `${voiceId}\u0000${modelId}`;
+      if (!voices.some((voice) => voice.id === voiceId) || !models.some((model) => model.id === modelId) || seen.has(key)) return [];
+      seen.add(key);
+      return [{ voiceId, modelId, candidateCount: Math.min(4, Math.max(1, Number(configuration.candidateCount) || 1)) }];
+    });
+    if (!script || !validConfigurations.length || validConfigurations.length !== configurations.length || validConfigurations.length > 4) { this.toast("请检查生成配置（最多 4 条且组合不能重复）", true); return false; }
     const form = byId("scriptItemsForm");
-    if (form) await this.saveScriptItems(form, { notify: false, rerender: false });
-    const results = await Promise.all(validConfigurations.map((configuration) => {
+    if (form && this.scriptItemsNeedSave(form) && !await this.saveScriptItems(form, { notify: false, rerender: false })) return false;
+    const requests = [];
+    const { baseSeed, seedStride } = generationSeedPlan(validConfigurations);
+    const grouped = new Map();
+    for (const configuration of validConfigurations) {
+      const list = grouped.get(configuration.candidateCount) || [];
+      list.push(configuration);
+      grouped.set(configuration.candidateCount, list);
+    }
+    for (const group of grouped.values()) {
+      const voiceIds = [...new Set(group.map((item) => item.voiceId))];
+      const modelIds = [...new Set(group.map((item) => item.modelId))];
+      if (voiceIds.length * modelIds.length === group.length) {
+        requests.push({ voiceIds, modelIds, candidateCount: group[0].candidateCount });
+      } else {
+        group.forEach((configuration) => requests.push({ voiceIds: [configuration.voiceId], modelIds: [configuration.modelId], candidateCount: configuration.candidateCount }));
+      }
+    }
+    const results = await Promise.allSettled(requests.map((request) => {
       const data = new FormData();
-      data.set("project_id", this.state.project.id);
+      data.set("project_id", projectId);
       data.set("script_id", script.id);
-      data.set("voice_id", configuration.voiceId);
-      data.set("model_id", configuration.modelId);
-      data.set("candidate_count", String(Math.min(4, Math.max(1, Number(configuration.candidateCount) || 1))));
+      data.set("voice_id", request.voiceIds[0]);
+      data.set("voice_ids", JSON.stringify(request.voiceIds));
+      data.set("model_id", request.modelIds[0]);
+      data.set("model_ids", JSON.stringify(request.modelIds));
+      data.set("candidate_count", String(request.candidateCount));
+      data.set("base_seed", String(baseSeed));
+      data.set("seed_stride", String(seedStride));
       data.set("reference_emotion", "all");
       data.set("generation_settings", "{}");
       data.set("name", lineNumber === null ? script.name : `${script.name} · 第 ${lineNumber} 行`);
       if (lineNumber !== null) data.set("line_number", String(lineNumber));
       return this.api.postForm("/api/jobs", data);
     }));
-    const jobs = results.flatMap((result) => result.jobs || [result.job]);
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return false;
+    const jobs = results.flatMap((result) => result.status === "fulfilled" ? (result.value.jobs || [result.value.job]) : []);
+    const failures = results.filter((result) => result.status === "rejected").length;
+    if (!jobs.length) { this.toast("生成任务全部提交失败，请稍后重试", true); return false; }
     this.state.jobs.unshift(...jobs);
     for (const job of jobs) this.state.jobDetails[job.id] = null;
     this.renderScript();
@@ -867,18 +1099,22 @@ class WorkstationApp {
     byId("queueSummary").textContent = `${activeJobs} 个处理中`;
     byId("workerDot").className = "online";
     const candidateCount = validConfigurations.reduce((total, configuration) => total + configuration.candidateCount, 0);
-    this.toast(lineNumber === null ? `全部台词已加入生成队列（${jobs.length} 个任务，每行 ${candidateCount} 条候选）` : `第 ${lineNumber} 行已加入生成队列（${jobs.length} 个任务，共 ${candidateCount} 条候选）`);
+    const partial = failures ? `，${failures} 个请求失败` : "";
+    this.toast(lineNumber === null ? `全部台词已加入生成队列（${jobs.length} 个任务，每行 ${candidateCount} 条候选${partial}）` : `第 ${lineNumber} 行已加入生成队列（${jobs.length} 个任务，共 ${candidateCount} 条候选${partial}）`, Boolean(failures));
     for (const job of jobs) void this.loadJobDetail(job.id, true);
     return true;
   }
   async selectGeneration(data) {
+    const projectId = this.state.project?.id;
     const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
     const result = await this.api.post(`/api/scripts/${enc(scriptId)}/selections`, {
       sequence: Number(data.sequence),
       job_id: data.jobId,
       item_id: data.itemId,
       candidate_id: data.candidateId,
     });
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
     const detail = this.state.scriptDetail;
     if (detail) {
       detail.selections = [...(detail.selections || []).filter((row) => Number(row.sequence) !== Number(data.sequence)), result.selection];
@@ -887,7 +1123,11 @@ class WorkstationApp {
     this.toast(`第 ${data.sequence} 行已标记为采纳`);
   }
   async clearGenerationSelection(sequence) {
-    await this.api.delete(`/api/scripts/${enc(this.state.selectedScriptId)}/selections/${enc(sequence)}`);
+    const projectId = this.state.project?.id;
+    const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
+    await this.api.delete(`/api/scripts/${enc(scriptId)}/selections/${enc(sequence)}`);
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
     const detail = this.state.scriptDetail;
     if (detail) detail.selections = (detail.selections || []).filter((row) => Number(row.sequence) !== sequence);
     this.renderScript();
@@ -902,6 +1142,9 @@ class WorkstationApp {
     window.location.href = `/api/scripts/${enc(this.state.selectedScriptId)}/audio-export?scope=${enc(scope)}`;
   }
   async deleteGeneration(jobId, itemId) {
+    const projectId = this.state.project?.id;
+    const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
     const job = this.state.jobs.find((item) => item.id === jobId);
     if (!job || !itemId) return;
     const detail = this.state.jobDetails[jobId];
@@ -909,6 +1152,7 @@ class WorkstationApp {
     if (["queued", "running"].includes(item?.status || job.status)) return;
     if (!window.confirm("确定删除这条生成结果吗？对应音频文件也会被删除。")) return;
     await this.api.delete(`/api/jobs/${enc(jobId)}/items/${enc(itemId)}`);
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
     if (detail?.items) {
       detail.items = detail.items.filter((entry) => entry.id !== itemId);
       detail.selections = (detail.selections || []).filter((entry) => entry.job_id !== jobId || entry.item_id !== itemId);
@@ -919,15 +1163,23 @@ class WorkstationApp {
       this.state.jobs = this.state.jobs.filter((entry) => entry.id !== jobId);
       delete this.state.jobDetails[jobId];
     }
+    if (this.state.scriptDetail?.id === this.state.selectedScriptId) {
+      this.state.scriptDetail.selections = (this.state.scriptDetail.selections || []).filter(
+        (entry) => entry.job_id !== jobId || entry.item_id !== itemId,
+      );
+    }
     this.renderScript();
     this.toast("生成结果已删除");
   }
   async deleteAllGenerations() {
+    const projectId = this.state.project?.id;
     const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
     const jobs = this.generationJobsForScript(scriptId).filter((job) => !["queued", "running"].includes(job.status));
     if (!jobs.length) return;
     if (!window.confirm(`确定删除当前台本的 ${jobs.length} 个生成结果吗？对应音频文件也会被删除。`)) return;
     for (const job of jobs) await this.api.delete(`/api/jobs/${enc(job.id)}`);
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
     const deletedIds = new Set(jobs.map((job) => job.id));
     this.state.jobs = this.state.jobs.filter((job) => !deletedIds.has(job.id));
     if (this.state.scriptDetail) this.state.scriptDetail.selections = (this.state.scriptDetail.selections || []).filter((entry) => !deletedIds.has(entry.job_id));
@@ -936,17 +1188,20 @@ class WorkstationApp {
     this.renderOpenSettingsDrawer("script");
     this.toast(`${jobs.length} 个生成结果已删除`);
   }
-  async saveProject(form) { const { project } = await this.api.patch(`/api/projects/${enc(this.state.project.id)}`, { name: form.name.value.trim(), description: form.description.value.trim(), prompt: form.prompt.value }); this.state.project = project; this.state.projectPromptSuggestion = ""; this.state.projectPromptDraft = null; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
-  async suggestProjectPrompt() { const form = byId("projectSettingsForm"); this.state.projectPromptDraft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/projects/${enc(this.state.project.id)}/prompt-suggestion`, { goal: this.state.projectPromptDraft }); this.state.projectPromptSuggestion = suggestion; this.renderProject(); this.toast("已生成项目提示词建议"); }
+  async saveProject(form) { const projectId = this.state.project?.id; const requestVersion = this.requestVersion; const { project } = await this.api.patch(`/api/projects/${enc(projectId)}`, { name: form.name.value.trim(), description: form.description.value.trim(), prompt: form.prompt.value }); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; this.state.project = project; this.state.projectPromptSuggestion = ""; this.state.projectPromptDraft = null; this.merge(this.state.projects, project); this.render(); this.toast("项目资料已保存"); }
+  async suggestProjectPrompt() { const projectId = this.state.project?.id; const requestVersion = this.requestVersion; const form = byId("projectSettingsForm"); const draft = form?.prompt?.value || ""; const { suggestion } = await this.api.post(`/api/projects/${enc(projectId)}/prompt-suggestion`, { goal: draft }); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; this.state.projectPromptDraft = draft; this.state.projectPromptSuggestion = suggestion; this.renderProject(); this.toast("已生成项目提示词建议"); }
   adoptProjectPrompt() { const form = byId("projectSettingsForm"); if (!form || !this.state.projectPromptSuggestion) return; this.state.projectPromptDraft = this.state.projectPromptSuggestion; form.prompt.value = this.state.projectPromptDraft; this.toast("建议已放入编辑框，请保存"); }
   currentCharacterContext() { return byId("textGenerationForm")?.prompt?.value ?? this.state.scriptPromptDraft ?? this.state.scriptDetail?.prompt ?? ""; }
-  async persistCharacterContext(options = {}) { const id = this.state.selectedScriptId; const name = this.state.scriptDetail?.name || ""; const prompt = this.currentCharacterContext(); const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, { name, prompt }); this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.state.scriptPromptDraft = null; if (options.clearSuggestion) this.state.scriptPromptSuggestion = ""; return script; }
-  async saveCharacterContext() { await this.persistCharacterContext({ clearSuggestion: true }); this.renderOpenSettingsDrawer("script"); this.toast("角色台词特性已保存"); }
-  async suggestScriptPrompt() { this.state.scriptPromptDraft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/prompt-suggestion`, { goal: this.state.scriptPromptDraft }); this.state.scriptPromptSuggestion = suggestion; this.renderOpenSettingsDrawer("script"); this.toast("已生成角色台词特性建议"); }
+  async persistCharacterContext(options = {}) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const name = this.state.scriptDetail?.name || ""; const prompt = this.currentCharacterContext(); const payload = { name, prompt }; const version = this.state.scriptDetail?.version; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return null; this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.state.scriptPromptDraft = null; if (options.clearSuggestion) this.state.scriptPromptSuggestion = ""; return script; }
+  async saveCharacterContext() { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; if (!await this.persistCharacterContext({ clearSuggestion: true }) || !this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.renderOpenSettingsDrawer("script"); this.toast("角色台词特性已保存"); }
+  async suggestScriptPrompt() { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const draft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(id)}/prompt-suggestion`, { goal: draft }); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.state.scriptPromptDraft = draft; this.state.scriptPromptSuggestion = suggestion; this.renderOpenSettingsDrawer("script"); this.toast("已生成角色台词特性建议"); }
   adoptScriptPrompt() { const form = byId("textGenerationForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入角色特性框，请保存"); }
-  async generateText(form) { await this.persistCharacterContext(); const { lines } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/generate-text`, { instruction: "", line_count: Number(form.line_count.value) }); this.state.generatedLines = lines; this.state.generatedLinesScriptId = this.state.selectedScriptId; this.renderOpenSettingsDrawer("script"); this.toast(`已生成 ${lines.length} 句台词候选`); }
+  async generateText(form) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const instruction = form.instruction?.value.trim() || ""; const lineCount = Number(form.line_count.value); if (!await this.persistCharacterContext() || !this.isCurrentScriptRequest(projectId, id, requestVersion)) return; const { lines } = await this.api.post(`/api/scripts/${enc(id)}/generate-text`, { instruction, line_count: lineCount }); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.state.generatedLines = lines; this.state.generatedLinesScriptId = id; this.renderOpenSettingsDrawer("script"); this.toast(`已生成 ${lines.length} 句台词候选`); }
   adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.renderOpenSettingsDrawer("script"); this.toast("候选已加入编辑器，请点击保存台词"); }
   async rewriteScriptLine(button) {
+    const projectId = this.state.project?.id;
+    const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
     const row = button.closest("[data-script-item]");
     const sequence = Number(button.dataset.lineNumber);
     const text = row?.querySelector('[name="text"]')?.value || "";
@@ -955,11 +1210,12 @@ class WorkstationApp {
     if (!text.trim()) { this.toast("当前台词不能为空", true); return; }
     if (!instruction) { this.toast("请输入这一行的修改要求", true); row?.querySelector('[name="rewrite_instruction"]')?.focus(); return; }
     this.captureScriptItemDraft(row);
-    await this.persistCharacterContext();
-    const { line } = await this.api.post(`/api/scripts/${enc(this.state.selectedScriptId)}/rewrite-line`, { sequence, text, pronunciation, instruction });
-    this.state.lineRewriteSuggestions[this.lineRewriteKey(this.state.selectedScriptId, sequence)] = line;
+    if (!await this.persistCharacterContext() || !this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
+    const { line } = await this.api.post(`/api/scripts/${enc(scriptId)}/rewrite-line`, { sequence, text, pronunciation, instruction });
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
+    this.state.lineRewriteSuggestions[this.lineRewriteKey(scriptId, sequence)] = line;
     const target = row.querySelector(".line-rewrite-result");
-    if (target) target.innerHTML = this.lineRewriteSuggestion(this.state.selectedScriptId, sequence);
+    if (target) target.innerHTML = this.lineRewriteSuggestion(scriptId, sequence);
     this.toast(`第 ${sequence} 行已生成修改候选，请确认`);
   }
   adoptLineRewrite(button) {
@@ -981,11 +1237,11 @@ class WorkstationApp {
     delete this.state.lineRewriteSuggestions[this.lineRewriteKey(this.state.selectedScriptId, sequence)];
     if (row) row.querySelector(".line-rewrite-result").innerHTML = "";
   }
-  async addMember(form) { await this.api.post(`/api/projects/${enc(this.state.project.id)}/members`, { username: form.username.value.trim() }); form.reset(); await this.refreshProjectAndMembers(); this.toast("成员已添加"); }
-  async removeMember(memberId) { if (!window.confirm("确定移除该成员吗？")) return; await this.api.delete(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`); await this.refreshProjectAndMembers(); this.toast("成员已移除"); }
-  async updateMemberRole(memberId, role) { await this.api.patch(`/api/projects/${enc(this.state.project.id)}/members/${enc(memberId)}`, { role }); await this.loadMembers(this.state.project.id); this.toast("成员角色已更新"); }
-  async refreshProjectAndMembers() { const { project } = await this.api.get(`/api/projects/${enc(this.state.project.id)}`); this.state.project = project; this.merge(this.state.projects, project); this.renderProject(); }
-  async deleteScript() { const script = this.state.scripts.find((item) => item.id === this.state.selectedScriptId); if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return; this.closeSettingsDrawer({ restoreFocus: false }); await this.api.delete(`/api/scripts/${enc(script.id)}`); this.state.scripts = this.state.scripts.filter((item) => item.id !== script.id); this.state.selectedScriptId = this.state.scripts[0]?.id || null; this.state.scriptDetail = null; this.storePosition(); this.render(); this.toast("台本已删除"); }
+  async addMember(form) { const projectId = this.state.project?.id; const requestVersion = this.requestVersion; await this.api.post(`/api/projects/${enc(projectId)}/members`, { username: form.username.value.trim() }); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; form.reset(); await this.refreshProjectAndMembers(projectId, requestVersion); if (this.isCurrentProjectRequest(projectId, requestVersion)) this.toast("成员已添加"); }
+  async removeMember(memberId) { const projectId = this.state.project?.id; const requestVersion = this.requestVersion; if (!window.confirm("确定移除该成员吗？")) return; await this.api.delete(`/api/projects/${enc(projectId)}/members/${enc(memberId)}`); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; await this.refreshProjectAndMembers(projectId, requestVersion); if (this.isCurrentProjectRequest(projectId, requestVersion)) this.toast("成员已移除"); }
+  async updateMemberRole(memberId, role) { const projectId = this.state.project?.id; const requestVersion = this.requestVersion; await this.api.patch(`/api/projects/${enc(projectId)}/members/${enc(memberId)}`, { role }); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; await this.loadMembers(projectId); if (this.isCurrentProjectRequest(projectId, requestVersion)) this.toast("成员角色已更新"); }
+  async refreshProjectAndMembers(projectId = this.state.project?.id, requestVersion = this.requestVersion) { const { project } = await this.api.get(`/api/projects/${enc(projectId)}`); if (!this.isCurrentProjectRequest(projectId, requestVersion)) return; this.state.project = project; this.merge(this.state.projects, project); this.renderProject(); }
+  async deleteScript() { const projectId = this.state.project?.id; const scriptId = this.state.selectedScriptId; const requestVersion = this.requestVersion; const script = this.state.scripts.find((item) => item.id === scriptId); if (!script || !window.confirm(`确定删除台本“${script.name}”吗？`)) return; this.closeSettingsDrawer({ restoreFocus: false }); await this.api.delete(`/api/scripts/${enc(script.id)}`); if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return; this.state.scripts = this.state.scripts.filter((item) => item.id !== script.id); this.state.selectedScriptId = this.state.scripts[0]?.id || null; this.state.scriptDetail = null; this.storePosition(); this.render(); this.toast("台本已删除"); }
   merge(items, value) { const index = items.findIndex((item) => item.id === value.id); if (index >= 0) items[index] = { ...items[index], ...value }; }
   async runBusy(button, operation) {
     if (!button) return operation();
