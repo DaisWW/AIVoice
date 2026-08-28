@@ -4,6 +4,8 @@ import csv
 import io
 import math
 import uuid
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -162,16 +164,7 @@ class ScriptStorage:
                 )
             except (OSError, RuntimeError, TypeError, ValueError):
                 raise HTTPException(status_code=409, detail="台本保存路径无效") from None
-            operation_id = uuid.uuid4().hex
-            temporary = target.with_name(f".{target.name}.{operation_id}.tmp")
-            backup = target.with_name(f".{target.name}.{operation_id}.bak")
-            published = False
-            try:
-                self._write_csv(temporary, items)
-                if target.exists() or target.is_symlink():
-                    target.replace(backup)
-                temporary.replace(target)
-                published = True
+            with atomic_csv_publish(target, items, write_csv=self._write_csv):
                 update_kwargs: dict[str, Any] = {"original_name": original_name}
                 if expected_version is not None:
                     update_kwargs["expected_version"] = expected_version
@@ -184,17 +177,6 @@ class ScriptStorage:
                         "台本已被其他用户修改，请刷新后重试" if expected_version is not None else "找不到台本"
                     )
                     raise HTTPException(status_code=status, detail=detail)
-            except Exception:
-                self._unlink_quietly(temporary)
-                if published:
-                    self._unlink_quietly(target)
-                if backup.exists():
-                    try:
-                        backup.replace(target)
-                    except OSError:
-                        pass
-                raise
-            self._unlink_quietly(backup)
             if old_path != target:
                 self._unlink_quietly(old_path)
 
@@ -242,7 +224,7 @@ class ScriptStorage:
             )
 
     @staticmethod
-    def _write_csv(path: Path, items: list[ScriptItem]) -> None:
+    def _write_csv(path: Path, items: Sequence[ScriptItem]) -> None:
         with path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, lineterminator="\n")
             writer.writerow(("text", "pronunciation"))
@@ -254,6 +236,47 @@ class ScriptStorage:
             path.unlink(missing_ok=True)
         except OSError:
             return
+
+
+@contextmanager
+def atomic_csv_publish(
+    target: Path,
+    items: Sequence[ScriptItem],
+    *,
+    write_csv: Callable[[Path, Sequence[ScriptItem]], None],
+) -> Iterator[None]:
+    """Publish a CSV while restoring the previous file if persistence fails."""
+    operation_id = uuid.uuid4().hex
+    temporary = target.with_name(f".{target.name}.{operation_id}.tmp")
+    backup = target.with_name(f".{target.name}.{operation_id}.bak")
+    published = False
+    try:
+        write_csv(temporary, items)
+        if target.exists() or target.is_symlink():
+            target.replace(backup)
+        temporary.replace(target)
+        published = True
+        yield
+    except Exception:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if published:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if backup.exists():
+            try:
+                backup.replace(target)
+            except OSError:
+                pass
+        raise
+    try:
+        backup.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 class VoiceFileStorage:

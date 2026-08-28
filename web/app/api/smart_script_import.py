@@ -187,16 +187,9 @@ class SmartScriptImport:
             directory / f"{script_id}.ai-import.csv",
             self._services.settings.root,
         )
-        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
-        backup = target.with_name(f".{target.name}.{uuid.uuid4().hex}.bak")
-        file_published = False
-        database_created = False
-        try:
-            _write_script_csv(temporary, items)
-            if target.exists() or target.is_symlink():
-                os.replace(target, backup)
-            os.replace(temporary, target)
-            file_published = True
+        from .uploads import ScriptStorage, atomic_csv_publish
+
+        with atomic_csv_publish(target, items, write_csv=ScriptStorage._write_csv):
             self._services.database.scripts.create(
                 name,
                 safe_filename(f"{name}.csv", "ai-import.csv"),
@@ -207,28 +200,6 @@ class SmartScriptImport:
                 script_id=script_id,
                 project_id=project_id,
             )
-            database_created = True
-        except Exception:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
-            if file_published and not database_created:
-                try:
-                    target.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            if backup.exists():
-                try:
-                    os.replace(backup, target)
-                except OSError:
-                    pass
-            raise
-        try:
-            backup.unlink(missing_ok=True)
-        except OSError:
-            # The database row and generated file are already durable.
-            pass
         script = self._services.database.scripts.get(script_id)
         if script is None:  # pragma: no cover - guarded by repository create
             raise RuntimeError("智能导入台本创建后未找到")
@@ -822,10 +793,3 @@ def _smart_import_label(value: Any, label: str) -> str:
 def _smart_import_script_id(batch_id: str, draft_id: str) -> str:
     value = uuid.uuid5(uuid.NAMESPACE_URL, f"voice-lab:{batch_id}:{draft_id}")
     return f"script-{value.hex[:12]}"
-
-
-def _write_script_csv(path: Path, items: list[ScriptItem]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        writer.writerow(("text", "pronunciation"))
-        writer.writerows((item.text, item.pronunciation) for item in items)
