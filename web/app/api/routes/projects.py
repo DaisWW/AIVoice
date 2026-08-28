@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from ..access import require_project
 from ..dependencies import CurrentUser, ServicesDep
@@ -12,8 +13,19 @@ from ..schemas import (
     ProjectCreate,
     ProjectUpdate,
     PromptSuggestionRequest,
+    ScriptImportConfirm,
 )
+from ..payloads import script_payload
+from ..smart_script_import import (
+    MAX_SMART_IMPORT_FILES,
+    MAX_SMART_IMPORT_UPLOAD_BYTES,
+    SmartImportSource,
+    SmartScriptImport,
+    SmartScriptImportError,
+)
+from ...script_parser import ScriptFormatError
 from ...search import search_text
+from ...storage import UPLOAD_CHUNK_SIZE
 
 
 router = APIRouter(prefix="/api")
@@ -86,6 +98,141 @@ def suggest_project_prompt(
         ip_address=request.client.host if request.client else "",
     )
     return {"suggestion": suggestion}
+
+
+@router.get("/projects/{project_id}/script-imports/pending")
+def pending_script_import(
+    project_id: str,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    require_project(services, user, project_id)
+    try:
+        batch = SmartScriptImport(services).pending(project_id, str(user["id"]))
+    except SmartScriptImportError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"batch": batch}
+
+
+@router.post("/projects/{project_id}/script-imports/analyze")
+async def analyze_script_import(
+    project_id: str,
+    files: Annotated[list[UploadFile], File(...)],
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    project = require_project(services, user, project_id)
+    try:
+        if len(files) > MAX_SMART_IMPORT_FILES:
+            raise SmartScriptImportError(f"一次最多导入 {MAX_SMART_IMPORT_FILES} 个文件")
+        remaining = MAX_SMART_IMPORT_UPLOAD_BYTES
+        sources: list[SmartImportSource] = []
+        for upload in files:
+            content = await _read_smart_import_upload(upload, remaining)
+            remaining -= len(content)
+            sources.append(
+                SmartImportSource(filename=upload.filename or "台本.txt", content=content)
+            )
+        batch = await run_in_threadpool(
+            SmartScriptImport(services).analyze,
+            project,
+            str(user["id"]),
+            sources,
+        )
+    except SmartScriptImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "script_import.analyzed",
+        actor=user,
+        target_type="script_import",
+        target_id=str(batch["batch_id"]),
+        project_id=project_id,
+        ip_address=_ip(request),
+        details={
+            "source_file_count": len(files),
+            "draft_count": len(batch["drafts"]),
+            "dialogue_line_count": batch["dialogue_line_count"],
+        },
+    )
+    return {"batch": batch}
+
+
+@router.post("/projects/{project_id}/script-imports/confirm", status_code=201)
+def confirm_script_import(
+    project_id: str,
+    changes: ScriptImportConfirm,
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> dict[str, Any]:
+    require_project(services, user, project_id)
+    try:
+        scripts = SmartScriptImport(services).confirm(
+            project_id,
+            str(user["id"]),
+            changes.batch_id,
+            [draft.model_dump() for draft in changes.drafts],
+        )
+    except (ScriptFormatError, SmartScriptImportError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    services.database.audit.record(
+        "script_import.confirmed",
+        actor=user,
+        target_type="script_import",
+        target_id=changes.batch_id,
+        project_id=project_id,
+        ip_address=_ip(request),
+        details={"script_count": len(scripts)},
+    )
+    return {"scripts": [script_payload(script) for script in scripts]}
+
+
+@router.delete("/projects/{project_id}/script-imports/pending", status_code=204)
+def discard_corrupt_script_import(
+    project_id: str,
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> None:
+    require_project(services, user, project_id)
+    try:
+        SmartScriptImport(services).discard_corrupt(project_id, str(user["id"]))
+    except SmartScriptImportError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    services.database.audit.record(
+        "script_import.corrupt_discarded",
+        actor=user,
+        target_type="script_import",
+        target_id="pending",
+        project_id=project_id,
+        ip_address=_ip(request),
+    )
+
+
+@router.delete("/projects/{project_id}/script-imports/{batch_id}", status_code=204)
+def discard_script_import(
+    project_id: str,
+    batch_id: str,
+    request: Request,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> None:
+    require_project(services, user, project_id)
+    try:
+        SmartScriptImport(services).discard(project_id, str(user["id"]), batch_id)
+    except SmartScriptImportError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    services.database.audit.record(
+        "script_import.discarded",
+        actor=user,
+        target_type="script_import",
+        target_id=batch_id,
+        project_id=project_id,
+        ip_address=_ip(request),
+    )
 
 
 @router.patch("/projects/{project_id}")
@@ -263,3 +410,16 @@ def _project_fields(name: str, description: str) -> tuple[str, str]:
     if not clean_name:
         raise HTTPException(status_code=422, detail="项目名称不能为空")
     return clean_name, clean_description
+
+
+async def _read_smart_import_upload(upload: UploadFile, remaining: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await upload.read(
+        max(1, min(UPLOAD_CHUNK_SIZE, remaining - total + 1))
+    ):
+        total += len(chunk)
+        if total > remaining:
+            raise SmartScriptImportError("本次上传文件总大小不能超过 20 MB")
+        chunks.append(chunk)
+    return b"".join(chunks)

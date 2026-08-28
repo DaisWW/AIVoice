@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from app.script_parser import (
     parse_content,
     parse_docx_sections,
     parse_guide,
+    validate_docx_archive,
 )
 
 
@@ -91,6 +93,48 @@ def test_parse_docx_sections_merges_adjacent_tables_by_role() -> None:
     assert list(sections) == ["角色甲", "角色乙"]
     assert [item.text for item in sections["角色甲"]] == ["第一句", "第二句"]
     assert [item.text for item in sections["角色乙"]] == ["第三句"]
+
+
+def test_parse_docx_sections_keeps_explicit_no_dialogue_roles() -> None:
+    document = Document()
+    document.add_paragraph("有台词角色")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "第一句"
+    document.add_paragraph("")
+    document.add_paragraph("")
+    document.add_paragraph("无台词角色")
+    document.add_paragraph("")
+    document.add_paragraph("无台词")
+    document.add_paragraph("（尖锐一点的鸟叫声）")
+
+    output = io.BytesIO()
+    document.save(output)
+    sections = parse_docx_sections(output.getvalue())
+
+    assert list(sections) == ["有台词角色", "无台词角色"]
+    assert [item.text for item in sections["无台词角色"]] == ["尖锐一点的鸟叫声"]
+
+
+def test_parse_docx_sections_keeps_inline_no_dialogue_description() -> None:
+    document = Document()
+    document.add_paragraph("无台词角色")
+    document.add_paragraph("")
+    document.add_paragraph("无台词（只能哼两声）")
+
+    output = io.BytesIO()
+    document.save(output)
+    sections = parse_docx_sections(output.getvalue())
+
+    assert [item.text for item in sections["无台词角色"]] == ["只能哼两声"]
+
+
+@pytest.mark.parametrize("member_name", ["../word/document.xml", "/word/document.xml"])
+def test_docx_archive_rejects_unsafe_member_paths(member_name: str) -> None:
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr(member_name, "x")
+
+    with pytest.raises(ScriptFormatError, match="压缩包条目无效"):
+        validate_docx_archive(content.getvalue())
 
 
 @pytest.mark.parametrize(

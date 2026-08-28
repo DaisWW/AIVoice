@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import secrets
 import wave
 from pathlib import Path
 from time import perf_counter
@@ -22,6 +23,7 @@ from .contracts import GenerationResult, ModelStatus, ReferenceAudio
 MIN_CLONE_SECONDS = 10
 MAX_CLONE_SECONDS = 300
 MAX_CLONE_DATA_BYTES = 19 * 1024 * 1024
+WAV_HEADER_BYTES = 44
 SAMPLE_GAP_SECONDS = 0.12
 
 
@@ -35,6 +37,7 @@ class MiniMaxAdapter:
 
     engine_id = "minimax"
     provider_id = "minimax"
+    enrollment_max_age_seconds = 7 * 24 * 60 * 60
 
     def __init__(self, config: ProviderConfigStore) -> None:
         self._config = config
@@ -76,11 +79,12 @@ class MiniMaxAdapter:
     ) -> GenerationResult:
         del profile, seed, generation_settings
         config = self._available_config()
-        started = perf_counter()
-        voice_id = self._ensure_voice(reference, config)
         text = self._tts_text(item)
         if not text:
             raise RuntimeError("MiniMax 生成文本不能为空")
+        started = perf_counter()
+        voice_key, fingerprint = self._enrollment_context(reference, config)
+        voice_id = self._ensure_voice(reference, config)
         voice_setting: dict[str, Any] = {
             "voice_id": voice_id,
             "speed": float(config["speed"]),
@@ -110,6 +114,17 @@ class MiniMaxAdapter:
             "/v1/t2a_v2",
             json=body,
         )
+        if self._is_missing_voice(response):
+            self._config.forget_enrollment(self.provider_id, voice_key)
+            voice_id = self._ensure_voice(reference, config, force_refresh=True)
+            body["voice_setting"]["voice_id"] = voice_id
+            response = self._request(
+                config,
+                "语音生成",
+                "POST",
+                "/v1/t2a_v2",
+                json=body,
+            )
         payload = self._success_payload(response, "语音生成")
         encoded = str((payload.get("data") or {}).get("audio") or "")
         try:
@@ -117,6 +132,7 @@ class MiniMaxAdapter:
         except ValueError as error:
             raise RuntimeError("MiniMax 返回的音频不是有效十六进制数据") from error
         duration = self._validate_wav(audio)
+        self._config.touch_enrollment(self.provider_id, voice_key, fingerprint)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(audio)
         return GenerationResult(
@@ -129,19 +145,25 @@ class MiniMaxAdapter:
     def unload(self) -> None:
         return None
 
-    def _ensure_voice(self, reference: ReferenceAudio, config: dict[str, Any]) -> str:
+    def _ensure_voice(
+        self,
+        reference: ReferenceAudio,
+        config: dict[str, Any],
+        *,
+        force_refresh: bool = False,
+    ) -> str:
         source_paths = reference.source_paths or (reference.path,)
-        prompt_text = (
-            reference.prompt_text.strip() if reference.duration_seconds < 8 else ""
+        voice_key, fingerprint = self._enrollment_context(reference, config)
+        cached = (
+            None
+            if force_refresh
+            else self._config.enrollment(
+                self.provider_id,
+                voice_key,
+                fingerprint,
+                max_age_seconds=self.enrollment_max_age_seconds,
+            )
         )
-        fingerprint = self._enrollment_fingerprint(
-            source_paths,
-            config,
-            prompt_text,
-            reference.path if prompt_text else None,
-        )
-        voice_key = reference.voice_id or fingerprint
-        cached = self._config.enrollment(self.provider_id, voice_key, fingerprint)
         if cached:
             return cached
 
@@ -157,6 +179,8 @@ class MiniMaxAdapter:
             payload=clone_audio,
         )
         external_voice_id = f"VoiceLab_{fingerprint[:24]}"
+        if force_refresh:
+            external_voice_id += f"_{secrets.token_hex(4)}"
         body: dict[str, Any] = {
             "file_id": file_id,
             "voice_id": external_voice_id,
@@ -182,6 +206,57 @@ class MiniMaxAdapter:
             external_voice_id,
         )
         return external_voice_id
+
+    def _enrollment_context(
+        self, reference: ReferenceAudio, config: dict[str, Any]
+    ) -> tuple[str, str]:
+        source_paths = reference.source_paths or (reference.path,)
+        prompt_text = (
+            reference.prompt_text.strip() if reference.duration_seconds < 8 else ""
+        )
+        fingerprint = self._enrollment_fingerprint(
+            source_paths,
+            config,
+            prompt_text,
+            reference.path if prompt_text else None,
+        )
+        return reference.voice_id or fingerprint, fingerprint
+
+    @staticmethod
+    def _is_missing_voice(response: httpx.Response) -> bool:
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        if not isinstance(body, dict):
+            return False
+        details: list[str] = []
+        for value in body.values():
+            if isinstance(value, dict):
+                for key in ("code", "status", "status_code", "status_msg", "message"):
+                    item = value.get(key)
+                    if item is not None:
+                        details.append(str(item))
+            elif isinstance(value, str):
+                details.append(value)
+        message = " ".join(details).lower()
+        return any(
+            marker in message
+            for marker in (
+                "voice_not_found",
+                "voice-not-found",
+                "voice not found",
+                "voice does not exist",
+                "voice_id not found",
+                "voice_id does not exist",
+                "voice_expired",
+                "voice-expired",
+                "voice expired",
+                "voice has expired",
+                "音色不存在",
+                "音色已过期",
+            )
+        )
 
     def _prompt(
         self, reference: ReferenceAudio, config: dict[str, Any]
@@ -257,8 +332,12 @@ class MiniMaxAdapter:
                 return client.request(method, path, **options)
         except httpx.TimeoutException as error:
             raise RuntimeError(f"MiniMax {action}超时，请检查管理员超时设置和网络") from error
+        except httpx.InvalidURL as error:
+            raise RuntimeError(f"MiniMax {action} API 地址无效") from error
         except httpx.RequestError as error:
             raise RuntimeError(f"MiniMax {action}网络请求失败，请检查管理员 API 地址和网络") from error
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            raise RuntimeError(f"MiniMax {action}配置无效，请检查管理员设置") from error
 
     @classmethod
     def _success_payload(cls, response: httpx.Response, action: str) -> dict[str, Any]:
@@ -275,42 +354,14 @@ class MiniMaxAdapter:
         except (AttributeError, TypeError, ValueError):
             status_code = -1
         if status_code != 0:
-            message = (
-                str(base.get("status_msg") or "") if isinstance(base, dict) else ""
-            )
-            suffix = f": {message[:300]}" if message else ""
-            raise RuntimeError(f"MiniMax {action}失败（状态码 {status_code}）{suffix}")
+            raise RuntimeError(f"MiniMax {action}失败（状态码 {status_code}）")
         return payload
 
     @staticmethod
     def _ensure_http_success(response: httpx.Response, action: str) -> None:
         if response.is_success:
             return
-        message = ""
-        try:
-            payload = response.json()
-            if isinstance(payload, dict):
-                base = payload.get("base_resp")
-                if isinstance(base, dict):
-                    message = str(base.get("status_msg") or "")
-                if not message:
-                    detail = payload.get("detail")
-                    if isinstance(detail, dict):
-                        message = str(detail.get("message") or "")
-                    elif detail:
-                        message = str(detail)
-                if not message:
-                    message = str(payload.get("message") or "")
-                if not message:
-                    error = payload.get("error")
-                    if isinstance(error, dict):
-                        message = str(error.get("message") or "")
-                    elif error:
-                        message = str(error)
-        except ValueError:
-            pass
-        suffix = f": {message[:300]}" if message else ""
-        raise RuntimeError(f"MiniMax {action}失败（HTTP {response.status_code}）{suffix}")
+        raise RuntimeError(f"MiniMax {action}失败（HTTP {response.status_code}）")
 
     @staticmethod
     def _validate_wav(payload: bytes) -> float:
@@ -370,66 +421,86 @@ class MiniMaxAdapter:
             raise RuntimeError("MiniMax 音色复刻没有可上传的参考录音")
         output = io.BytesIO()
         params: tuple[int, int, int] | None = None
-        chunks: list[bytes] = []
         stored_bytes = 0
+        data_budget = max(0, MAX_CLONE_DATA_BYTES - WAV_HEADER_BYTES)
         combined_frames = 0
         included_source_frames = 0
-        for path in paths:
-            try:
-                with wave.open(str(path), "rb") as audio:
-                    current = (
-                        audio.getnchannels(),
-                        audio.getsampwidth(),
-                        audio.getframerate(),
-                    )
-                    if current[0] != 1 or current[1] != 2 or current[2] <= 0:
-                        raise RuntimeError("MiniMax 参考录音必须是单声道 16-bit WAV")
-                    if params is None:
-                        params = current
-                    elif current != params:
-                        raise RuntimeError("MiniMax 参考录音的 WAV 格式必须一致")
-                    chunk = audio.readframes(audio.getnframes())
-            except (OSError, wave.Error) as error:
-                raise RuntimeError(f"MiniMax 无法读取参考录音: {path.name}") from error
-            bytes_per_frame = current[0] * current[1]
-            max_total_frames = MAX_CLONE_SECONDS * current[2]
-            if stored_bytes >= MAX_CLONE_DATA_BYTES:
-                break
-            # Keep a short zero gap between samples and count it against both
-            # the duration and file-size budgets.
-            gap_frames = int(current[2] * SAMPLE_GAP_SECONDS) if chunks else 0
-            remaining_bytes = MAX_CLONE_DATA_BYTES - stored_bytes
-            remaining_frames = max_total_frames - combined_frames
-            if gap_frames:
-                gap_frames = min(
-                    gap_frames,
-                    remaining_frames,
-                    remaining_bytes // bytes_per_frame,
-                )
-            max_frames = min(
-                len(chunk) // bytes_per_frame,
-                remaining_frames - gap_frames,
-                (remaining_bytes // bytes_per_frame) - gap_frames,
-            )
-            if max_frames <= 0:
-                break
-            if gap_frames > 0:
-                gap = b"\0" * (gap_frames * bytes_per_frame)
-                chunks.append(gap)
-                stored_bytes += len(gap)
-                combined_frames += gap_frames
-            chunk = chunk[: max_frames * bytes_per_frame]
-            chunks.append(chunk)
-            stored_bytes += len(chunk)
-            combined_frames += max_frames
-            included_source_frames += max_frames
-        if params is None:
-            raise RuntimeError("MiniMax 音色复刻没有可读取的参考录音")
+        writer: wave.Wave_write | None = None
+        try:
+            for path in paths:
+                try:
+                    with wave.open(str(path), "rb") as audio:
+                        current = (
+                            audio.getnchannels(),
+                            audio.getsampwidth(),
+                            audio.getframerate(),
+                        )
+                        if current[0] != 1 or current[1] != 2 or current[2] <= 0:
+                            raise RuntimeError("MiniMax 参考录音必须是单声道 16-bit WAV")
+                        if params is None:
+                            params = current
+                            writer = wave.open(output, "wb")
+                            writer.setnchannels(current[0])
+                            writer.setsampwidth(current[1])
+                            writer.setframerate(current[2])
+                        elif current != params:
+                            raise RuntimeError("MiniMax 参考录音的 WAV 格式必须一致")
+                        source_frames = audio.getnframes()
+                        if source_frames <= 0:
+                            continue
+                        bytes_per_frame = current[0] * current[1]
+                        max_total_frames = MAX_CLONE_SECONDS * current[2]
+                        if stored_bytes >= data_budget:
+                            break
+                        gap_frames = (
+                            int(current[2] * SAMPLE_GAP_SECONDS)
+                            if included_source_frames
+                            else 0
+                        )
+                        remaining_bytes = data_budget - stored_bytes
+                        remaining_frames = max_total_frames - combined_frames
+                        gap_frames = min(
+                            gap_frames,
+                            max(0, remaining_frames),
+                            remaining_bytes // bytes_per_frame,
+                        )
+                        max_frames = min(
+                            source_frames,
+                            max(0, remaining_frames - gap_frames),
+                            max(0, (remaining_bytes // bytes_per_frame) - gap_frames),
+                        )
+                        if max_frames <= 0:
+                            break
+                        if gap_frames > 0:
+                            assert writer is not None
+                            writer.writeframesraw(
+                                b"\0" * (gap_frames * bytes_per_frame)
+                            )
+                            stored_bytes += gap_frames * bytes_per_frame
+                            combined_frames += gap_frames
+                        remaining_frames = max_frames
+                        while remaining_frames:
+                            block = audio.readframes(min(65_536, remaining_frames))
+                            if not block:
+                                break
+                            block_frames = len(block) // bytes_per_frame
+                            if block_frames <= 0:
+                                break
+                            assert writer is not None
+                            writer.writeframesraw(
+                                block[: block_frames * bytes_per_frame]
+                            )
+                            stored_bytes += block_frames * bytes_per_frame
+                            combined_frames += block_frames
+                            included_source_frames += block_frames
+                            remaining_frames -= block_frames
+                except (OSError, wave.Error) as error:
+                    raise RuntimeError(f"MiniMax 无法读取参考录音: {path.name}") from error
+            if params is None or writer is None:
+                raise RuntimeError("MiniMax 音色复刻没有可读取的参考录音")
+        finally:
+            if writer is not None:
+                writer.close()
         sample_rate = params[2]
         source_seconds = included_source_frames / sample_rate
-        with wave.open(output, "wb") as combined:
-            combined.setnchannels(params[0])
-            combined.setsampwidth(params[1])
-            combined.setframerate(sample_rate)
-            combined.writeframes(b"".join(chunks))
         return output.getvalue(), source_seconds

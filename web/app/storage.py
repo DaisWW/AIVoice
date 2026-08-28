@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 
 
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9\u4e00-\u9fff._-]+")
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 UPLOAD_CHUNK_SIZE = 1024 * 1024
+DOWNLOAD_SNAPSHOT_PREFIX = ".download-"
+DOWNLOAD_SNAPSHOT_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 def safe_filename(value: str, fallback: str = "upload") -> str:
@@ -30,7 +35,7 @@ async def save_upload(upload: UploadFile, directory: Path) -> tuple[Path, str, i
                 total += len(chunk)
                 if total > MAX_UPLOAD_BYTES:
                     raise ValueError("单个上传文件不能超过 200 MB")
-                handle.write(chunk)
+                await run_in_threadpool(handle.write, chunk)
     except Exception:
         target.unlink(missing_ok=True)
         raise
@@ -55,6 +60,52 @@ def ensure_within(path: Path, root: Path) -> Path:
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ValueError(f"路径超出工作区: {resolved}")
     return resolved
+
+
+def resolve_audio_path(record: Mapping[str, object], root: Path) -> Path | None:
+    """Return the first safe, existing audio path, preferring the raw output."""
+    for field in ("raw_audio_path", "audio_path"):
+        try:
+            value = record.get(field)  # type: ignore[attr-defined]
+        except AttributeError:
+            try:
+                value = record[field]  # type: ignore[index]
+            except (KeyError, IndexError, TypeError):
+                value = ""
+        value = str(value or "").strip()
+        if not value:
+            continue
+        try:
+            path = ensure_within(Path(value), root)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            continue
+        if path.is_file():
+            return path
+    return None
+
+
+def cleanup_download_snapshots(
+    export_root: Path,
+    *,
+    max_age_seconds: float = DOWNLOAD_SNAPSHOT_MAX_AGE_SECONDS,
+) -> None:
+    """Remove stale download snapshots left by interrupted responses."""
+    cutoff = time.time() - max(0.0, max_age_seconds)
+    try:
+        entries = export_root.iterdir()
+    except OSError:
+        return
+    for path in entries:
+        if not path.name.startswith(DOWNLOAD_SNAPSHOT_PREFIX):
+            continue
+        try:
+            if path.is_dir() and not path.is_symlink():
+                continue
+            if path.stat().st_mtime >= cutoff:
+                continue
+            path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def validate_wav(path: Path) -> None:

@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ...auth import AuthError, public_user
+from ...value_utils import stored_int
 from ..dependencies import AdminUser, ServicesDep
 from ..payloads import JobPresenter
 from ..schemas import PasswordReset, TextModelUpdate, UserCreate, UserStatusUpdate
@@ -20,7 +21,11 @@ router = APIRouter(prefix="/api/admin")
 
 @router.get("/text-model")
 def get_text_model(_: AdminUser, services: ServicesDep) -> dict[str, Any]:
-    return {"text_model": services.text_generation.admin()}
+    try:
+        payload = services.text_generation.admin()
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {"text_model": payload}
 
 
 @router.patch("/text-model")
@@ -32,7 +37,7 @@ def update_text_model(
 ) -> dict[str, Any]:
     try:
         payload = services.text_generation.update(changes.model_dump())
-    except (RuntimeError, ValueError) as error:
+    except (RuntimeError, TypeError, ValueError, OverflowError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     services.database.audit.record(
         "admin.text_model_updated",
@@ -258,7 +263,7 @@ def _trim_storage_cache() -> None:
 
 
 def _bounded_limit(value: int, maximum: int) -> int:
-    return min(max(int(value), 1), maximum)
+    return min(max(stored_int(value, 1), 1), maximum)
 
 
 def _project_filter(value: str) -> str | None:
@@ -289,9 +294,9 @@ def _voice_asset(
         "project_name": _project_name(projects, project_id),
         "owner_id": owner_id,
         "owner_name": _owner_name(users, owner_id),
-        "file_count": int(voice.get("file_count") or 0),
-        "enabled_file_count": int(voice.get("enabled_file_count") or 0),
-        "size_bytes": int(voice.get("size_bytes") or 0),
+        "file_count": stored_int(voice.get("file_count")),
+        "enabled_file_count": stored_int(voice.get("enabled_file_count")),
+        "size_bytes": stored_int(voice.get("size_bytes")),
         "source_kind": str(voice.get("source_kind") or ""),
         "created_at": voice.get("created_at"),
     }
@@ -312,7 +317,7 @@ def _script_asset(
         "project_name": _project_name(projects, project_id),
         "owner_id": owner_id,
         "owner_name": _owner_name(users, owner_id),
-        "item_count": int(script.get("item_count") or 0),
+        "item_count": stored_int(script.get("item_count")),
         "source_kind": str(script.get("source_kind") or ""),
         "created_at": script.get("created_at"),
     }
@@ -322,9 +327,9 @@ def _admin_user_payload(user: dict[str, Any]) -> dict[str, Any]:
     payload = public_user(user)
     payload.update(
         {
-            "job_count": int(user.get("job_count") or 0),
-            "voice_count": int(user.get("voice_count") or 0),
-            "script_count": int(user.get("script_count") or 0),
+            "job_count": stored_int(user.get("job_count")),
+            "voice_count": stored_int(user.get("voice_count")),
+            "script_count": stored_int(user.get("script_count")),
             "last_activity_at": user.get("last_activity_at"),
         }
     )
@@ -335,9 +340,9 @@ def _voice_summary(voice: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(voice["id"]),
         "name": str(voice["name"]),
-        "file_count": int(voice.get("file_count") or 0),
-        "enabled_file_count": int(voice.get("enabled_file_count") or 0),
-        "size_bytes": int(voice.get("size_bytes") or 0),
+        "file_count": stored_int(voice.get("file_count")),
+        "enabled_file_count": stored_int(voice.get("enabled_file_count")),
+        "size_bytes": stored_int(voice.get("size_bytes")),
         "created_at": voice.get("created_at"),
     }
 
@@ -346,7 +351,7 @@ def _script_summary(script: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(script["id"]),
         "name": str(script["name"]),
-        "item_count": int(script.get("item_count") or 0),
+        "item_count": stored_int(script.get("item_count")),
         "source_kind": str(script.get("source_kind") or ""),
         "created_at": script.get("created_at"),
     }

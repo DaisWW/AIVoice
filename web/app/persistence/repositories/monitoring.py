@@ -5,6 +5,7 @@ from statistics import median
 from typing import Any
 
 from ..connection import SQLiteConnection
+from ...value_utils import stored_float, stored_int
 
 
 class MonitoringRepository:
@@ -20,11 +21,12 @@ class MonitoringRepository:
                 ORDER BY rowid DESC LIMIT 200
                 """
             ).fetchall()
-        value = (
-            float(median(float(row["elapsed_seconds"]) for row in rows))
-            if rows
-            else 0.0
-        )
+        samples = [
+            value
+            for row in rows
+            if (value := stored_float(row["elapsed_seconds"], 0.0, minimum=0)) > 0
+        ]
+        value = float(median(samples)) if samples else 0.0
         return min(max(value, 3.0), 180.0) if value else 18.0
 
     def queue_snapshot(self, job_id: str) -> dict[str, Any]:
@@ -52,24 +54,43 @@ class MonitoringRepository:
     def _active_queue(self) -> tuple[Any, list[Any]]:
         with self._database.read() as connection:
             running = connection.execute(
-                "SELECT * FROM jobs WHERE status='running' ORDER BY started_at LIMIT 1"
+                """
+                SELECT 'job' AS work_type, id,
+                       MAX(total_items - completed_items, 0) AS remaining_items,
+                       started_at AS ordered_at
+                FROM jobs WHERE status='running'
+                UNION ALL
+                SELECT 'candidate' AS work_type, id, 1 AS remaining_items,
+                       started_at AS ordered_at
+                FROM job_item_candidates
+                WHERE origin_type='manual' AND kind='gpt' AND status='running'
+                ORDER BY ordered_at, id LIMIT 1
+                """
             ).fetchone()
             queued = connection.execute(
-                "SELECT * FROM jobs WHERE status='queued' ORDER BY submitted_at, id"
+                """
+                SELECT 'job' AS work_type, id,
+                       MAX(total_items - completed_items, 0) AS remaining_items,
+                       submitted_at AS ordered_at
+                FROM jobs WHERE status='queued'
+                UNION ALL
+                SELECT 'candidate' AS work_type, id, 1 AS remaining_items,
+                       submitted_at AS ordered_at
+                FROM job_item_candidates
+                WHERE origin_type='manual' AND kind='gpt' AND status='queued'
+                ORDER BY ordered_at, id
+                """
             ).fetchall()
         return running, queued
 
     @staticmethod
     def _queued_state(running: Any, queued: list[Any]) -> dict[str, tuple[int, int]]:
-        workload = (
-            max(0, running["total_items"] - running["completed_items"])
-            if running
-            else 0
-        )
+        workload = stored_int(running["remaining_items"]) if running else 0
         result: dict[str, tuple[int, int]] = {}
         for position, row in enumerate(queued, start=1):
-            result[str(row["id"])] = (position, workload)
-            workload += int(row["total_items"])
+            if row["work_type"] == "job":
+                result[str(row["id"])] = (position, workload)
+            workload += stored_int(row["remaining_items"])
         return result
 
     @classmethod
@@ -80,7 +101,11 @@ class MonitoringRepository:
         estimate: float,
     ) -> dict[str, Any]:
         if job["status"] == "running":
-            remaining = max(0, int(job["total_items"]) - int(job["completed_items"]))
+            remaining = max(
+                0,
+                stored_int(job.get("total_items"))
+                - stored_int(job.get("completed_items")),
+            )
             return cls._snapshot(0, remaining * estimate, estimate)
         position, workload = queued_state.get(str(job["id"]), (None, None))
         wait = workload * estimate if workload is not None else None
@@ -138,7 +163,7 @@ class MonitoringRepository:
                 FROM jobs
                 """
             ).fetchone()
-        return {field: int(row[field] or 0) for field in fields}
+        return {field: stored_int(row[field]) for field in fields}
 
     def admin_insights(self, days: int = 14) -> dict[str, Any]:
         """Return small, read-only aggregates used by the admin control room."""
@@ -150,12 +175,12 @@ class MonitoringRepository:
             "window_days": window,
             "activity": self._activity_payload(rows["activity"], now.date(), window),
             "failure_reasons": [
-                {"reason": str(row["reason"]), "count": int(row["count"])}
+                {"reason": str(row["reason"]), "count": stored_int(row["count"])}
                 for row in rows["failures"]
             ],
             "top_users": self._ranking_payload(rows["users"], "user_id"),
             "top_projects": self._ranking_payload(rows["projects"], "project_id"),
-            "active_sessions": int(rows["active_sessions"] or 0),
+            "active_sessions": stored_int(rows["active_sessions"]),
             "last_job_at": str(rows["last_job_at"]) if rows["last_job_at"] else None,
             "last_audit_at": (
                 str(rows["last_audit_at"]) if rows["last_audit_at"] else None
@@ -263,9 +288,9 @@ class MonitoringRepository:
             result.append(
                 {
                     "day": day,
-                    "total": int(row.get("total", 0) or 0),
-                    "completed": int(row.get("completed", 0) or 0),
-                    "failed": int(row.get("failed", 0) or 0),
+                    "total": stored_int(row.get("total")),
+                    "completed": stored_int(row.get("completed")),
+                    "failed": stored_int(row.get("failed")),
                 }
             )
         return result
@@ -276,9 +301,9 @@ class MonitoringRepository:
             {
                 source_id: str(row[source_id] or ""),
                 "name": str(row["name"]),
-                "jobs": int(row["jobs"] or 0),
-                "completed": int(row["completed"] or 0),
-                "failed": int(row["failed"] or 0),
+                "jobs": stored_int(row["jobs"]),
+                "completed": stored_int(row["completed"]),
+                "failed": stored_int(row["failed"]),
             }
             for row in rows
         ]

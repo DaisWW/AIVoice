@@ -5,6 +5,7 @@ from typing import Any
 
 
 MAX_SCRIPT_ITEMS = 3000
+MAX_CANDIDATES_PER_ITEM = 4
 
 
 @dataclass(frozen=True)

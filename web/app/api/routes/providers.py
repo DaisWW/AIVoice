@@ -19,7 +19,7 @@ LANGUAGE_BOOST_RE = re.compile(r"^[A-Za-z][A-Za-z, ]{0,31}$")
 
 @router.get("")
 def providers(services: ServicesDep, _: AdminAccess) -> dict[str, Any]:
-    return services.provider_config.public()
+    return _public_config(services)
 
 
 @router.patch("/elevenlabs")
@@ -33,7 +33,10 @@ def update_elevenlabs(
     model_id = changes.tts_model_id.strip()
     if not MODEL_ID_RE.fullmatch(model_id):
         raise HTTPException(status_code=422, detail="模型 ID 只能包含字母、数字、点、下划线和短横线")
-    current = services.provider_config.provider("elevenlabs")
+    try:
+        current = services.provider_config.provider("elevenlabs")
+    except RuntimeError:
+        current = {}
     supplied_key = (changes.api_key or "").strip()
     effective_key = (
         ""
@@ -52,7 +55,10 @@ def update_elevenlabs(
             "api_key": effective_key,
         }
     )
-    services.provider_config.update_provider("elevenlabs", payload)
+    try:
+        services.provider_config.update_provider("elevenlabs", payload)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="provider 配置不可用") from error
     record_action(
         services,
         request,
@@ -62,7 +68,7 @@ def update_elevenlabs(
         target_id="elevenlabs",
         details={"enabled": changes.enabled, "model_id": model_id},
     )
-    return services.provider_config.public()
+    return _public_config(services)
 
 
 @router.post("/elevenlabs/test")
@@ -110,7 +116,10 @@ def update_minimax(
         )
     if not LANGUAGE_BOOST_RE.fullmatch(language_boost):
         raise HTTPException(status_code=422, detail="MiniMax 语言增强参数无效")
-    current = services.provider_config.provider("minimax")
+    try:
+        current = services.provider_config.provider("minimax")
+    except RuntimeError:
+        current = {}
     supplied_key = (changes.api_key or "").strip()
     effective_key = (
         ""
@@ -128,7 +137,10 @@ def update_minimax(
             "api_key": effective_key,
         }
     )
-    services.provider_config.update_provider("minimax", payload)
+    try:
+        services.provider_config.update_provider("minimax", payload)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="provider 配置不可用") from error
     record_action(
         services,
         request,
@@ -138,7 +150,7 @@ def update_minimax(
         target_id="minimax",
         details={"enabled": changes.enabled, "model_id": model_id},
     )
-    return services.provider_config.public()
+    return _public_config(services)
 
 
 @router.post("/minimax/test")
@@ -171,8 +183,8 @@ def test_minimax(
 
 def _validated_base_url(value: str) -> str:
     cleaned = value.strip().rstrip("/")
-    parsed = urlsplit(cleaned)
     try:
+        parsed = urlsplit(cleaned)
         hostname = parsed.hostname
         parsed.port
     except ValueError as error:
@@ -187,3 +199,10 @@ def _validated_base_url(value: str) -> str:
     if not hostname:
         raise HTTPException(status_code=422, detail="API 地址无效")
     return cleaned
+
+
+def _public_config(services: ServicesDep) -> dict[str, Any]:
+    try:
+        return services.provider_config.public()
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="provider 配置不可用") from error

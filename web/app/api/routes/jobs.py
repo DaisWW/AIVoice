@@ -23,6 +23,7 @@ from ..downloads import JobDownloadService
 from ..job_creation import JobCreationService
 from ..payloads import JobPresenter
 from ..schemas import CandidateAccept, CandidateRegenerate, JobRename
+from ...value_utils import stored_int
 
 
 router = APIRouter(prefix="/api/jobs")
@@ -45,6 +46,7 @@ def create_job(
     reference_emotion: Annotated[str, Form()] = "all",
     generation_settings: Annotated[str, Form()] = "",
     base_seed: Annotated[int | None, Form()] = None,
+    seed_stride: Annotated[int | None, Form()] = None,
     model_ids: Annotated[str, Form()] = "",
     project_id: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
@@ -61,6 +63,7 @@ def create_job(
         reference_emotion=reference_emotion,
         generation_settings_json=generation_settings,
         base_seed=base_seed,
+        seed_stride=seed_stride,
     )
     for job in jobs:
         record_action(
@@ -104,10 +107,11 @@ def rename_job(
     request: Request,
 ) -> dict[str, Any]:
     name = _job_name(changes.name)
-    current = project_job(services, job_id, user)
-    if not services.database.jobs.rename(job_id, name):
-        raise HTTPException(status_code=404, detail="找不到任务")
-    job = project_job(services, job_id, user)
+    with services.job_mutation_lock:
+        current = project_job(services, job_id, user)
+        if not services.database.jobs.rename(job_id, name):
+            raise HTTPException(status_code=404, detail="找不到任务")
+        job = project_job(services, job_id, user)
     record_action(
         services,
         request,
@@ -128,13 +132,18 @@ def delete_job(
     services: ServicesDep,
     request: Request,
 ) -> Response:
-    job = project_job(services, job_id, user)
-    if job["status"] in {"queued", "running"}:
-        raise HTTPException(status_code=409, detail="任务处理完成后才能删除")
-    if not services.database.jobs.delete(job_id):
-        raise HTTPException(status_code=404, detail="找不到任务")
-    remove_job_artifacts(services, job_id)
-    remove_script_exports(services, str(job["script_id"]))
+    with services.job_mutation_lock:
+        job = project_job(services, job_id, user)
+        if job["status"] in {"queued", "running"}:
+            raise HTTPException(status_code=409, detail="任务处理完成后才能删除")
+        if services.database.jobs.has_active_candidates(job_id):
+            raise HTTPException(status_code=409, detail="任务仍有候选在生成，完成后才能删除")
+        if not services.database.jobs.delete(job_id):
+            if services.database.jobs.get(job_id):
+                raise HTTPException(status_code=409, detail="任务仍有候选在生成，完成后才能删除")
+            raise HTTPException(status_code=404, detail="找不到任务")
+        remove_job_artifacts(services, job_id)
+        remove_script_exports(services, str(job["script_id"]))
     record_action(
         services,
         request,
@@ -156,28 +165,33 @@ def delete_item(
     services: ServicesDep,
     request: Request,
 ) -> Response:
-    job = project_job(services, job_id, user)
-    if job["status"] in {"queued", "running"}:
-        raise HTTPException(status_code=409, detail="任务处理完成后才能删除单条音频")
-    item = services.database.jobs.item(job_id, item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="找不到该段音频")
-    candidates = services.database.candidates.list_for_item(item_id)
-    if item["status"] in {"queued", "running"} or any(
-        candidate["status"] in {"queued", "running"} for candidate in candidates
-    ):
-        raise HTTPException(status_code=409, detail="该段音频仍在生成，完成后才能删除")
-    deleted_item, deleted_candidates, job_deleted = services.database.jobs.delete_item(
-        job_id, item_id
-    )
-    if not deleted_item:  # pragma: no cover - the item was checked above
-        raise HTTPException(status_code=404, detail="找不到该段音频")
-    remove_item_artifacts(services, deleted_item, deleted_candidates)
-    if job_deleted:
-        remove_job_artifacts(services, job_id)
-    else:
-        remove_job_exports(services, job_id)
-    remove_script_exports(services, str(job["script_id"]))
+    with services.job_mutation_lock:
+        job = project_job(services, job_id, user)
+        if job["status"] in {"queued", "running"}:
+            raise HTTPException(status_code=409, detail="任务处理完成后才能删除单条音频")
+        item = services.database.jobs.item(job_id, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="找不到该段音频")
+        candidates = services.database.candidates.list_for_item(item_id)
+        if item["status"] in {"queued", "running"} or any(
+            candidate["status"] in {"queued", "running"} for candidate in candidates
+        ):
+            raise HTTPException(status_code=409, detail="该段音频仍在生成，完成后才能删除")
+        (
+            deleted_item,
+            deleted_candidates,
+            job_deleted,
+        ) = services.database.jobs.delete_item(job_id, item_id)
+        if not deleted_item:  # pragma: no cover - the item was checked above
+            if services.database.jobs.item(job_id, item_id):
+                raise HTTPException(status_code=409, detail="该段音频仍在生成，完成后才能删除")
+            raise HTTPException(status_code=404, detail="找不到该段音频")
+        remove_item_artifacts(services, deleted_item, deleted_candidates)
+        if job_deleted:
+            remove_job_artifacts(services, job_id)
+        else:
+            remove_job_exports(services, job_id)
+        remove_script_exports(services, str(job["script_id"]))
     record_action(
         services,
         request,
@@ -186,7 +200,7 @@ def delete_item(
         target_type="job_item",
         target_id=item_id,
         project_id=str(job["project_id"]),
-        details={"job_id": job_id, "sequence": int(item["sequence"])},
+        details={"job_id": job_id, "sequence": stored_int(item.get("sequence"))},
     )
     return Response(status_code=204)
 
@@ -261,14 +275,10 @@ def download_candidate(
     services: ServicesDep,
 ) -> FileResponse:
     job = project_job(services, job_id, user)
-    candidate, path = JobDownloadService(services).candidate_path(
-        job, item_id, candidate_id
-    )
-    return FileResponse(
-        path,
-        media_type="audio/wav",
-        filename=f"{int(candidate['sequence']):03d}.wav",
-    )
+    service = JobDownloadService(services)
+    candidate, _ = service.candidate_path(job, item_id, candidate_id)
+    filename = service.sequence_filename(candidate)
+    return service.candidate_response(job, item_id, candidate_id, filename=filename)
 
 
 @router.get("/{job_id}/items/{item_id}/audio")
@@ -276,8 +286,7 @@ def play_item(
     job_id: str, item_id: str, user: CurrentUser, services: ServicesDep
 ) -> FileResponse:
     job = project_job(services, job_id, user)
-    _, path = JobDownloadService(services).item_path(job, item_id)
-    return FileResponse(path, media_type="audio/wav")
+    return JobDownloadService(services).item_response(job, item_id)
 
 
 @router.get("/{job_id}/items/{item_id}/download")
@@ -285,18 +294,15 @@ def download_item(
     job_id: str, item_id: str, user: CurrentUser, services: ServicesDep
 ) -> FileResponse:
     job = project_job(services, job_id, user)
-    item, path = JobDownloadService(services).item_path(job, item_id)
-    return FileResponse(
-        path,
-        media_type="audio/wav",
-        filename=f"{int(item['sequence']):03d}.wav",
-    )
+    service = JobDownloadService(services)
+    item, _ = service.item_path(job, item_id)
+    return service.item_response(job, item_id, filename=service.sequence_filename(item))
 
 
 @router.get("/{job_id}/download")
 def download_all(job_id: str, user: CurrentUser, services: ServicesDep) -> FileResponse:
     job = project_job(services, job_id, user)
-    name = JobPresenter(services).payload(job)["name"]
+    name = str(job.get("display_name") or job.get("script_name") or job["id"])
     return JobDownloadService(services).archive_response(job, str(name))
 
 
@@ -305,7 +311,7 @@ def export_accepted(
     job_id: str, user: CurrentUser, services: ServicesDep
 ) -> FileResponse:
     job = project_job(services, job_id, user)
-    name = JobPresenter(services).payload(job)["name"]
+    name = str(job.get("display_name") or job.get("script_name") or job["id"])
     return JobDownloadService(services).accepted_archive_response(job, str(name))
 
 

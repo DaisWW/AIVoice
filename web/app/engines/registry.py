@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 from ..profiles import Profiles
 from ..provider_config import ProviderConfigStore
 from ..settings import Settings
+from ..error_utils import safe_exception_summary
 from .contracts import GenerationResult, ModelStatus, ReferenceAudio, VoiceAdapter
 from .cosyvoice import CosyVoice3Adapter
 from .elevenlabs import ElevenLabsAdapter
@@ -15,6 +17,9 @@ from .gpt_sovits import GptSovitsAdapter
 from .minimax import MiniMaxAdapter
 from .qwen_tts import Qwen3TtsAdapter
 from .reference_audio import ReferenceAudioBuilder
+
+
+logger = logging.getLogger(__name__)
 
 
 class VoiceEngine:
@@ -54,15 +59,26 @@ class VoiceEngine:
     def model_status(self) -> dict[str, Any]:
         statuses: dict[str, dict[str, Any]] = {}
         required_missing: set[str] = set()
+        required_unavailable: list[str] = []
         for profile in self._profiles.all():
-            status = self._status(profile).public()
             model_id = str(profile["id"])
+            try:
+                status = self._status(profile).public()
+            except Exception as error:
+                logger.error(
+                    "Failed to inspect model status for %s (%s)",
+                    model_id,
+                    safe_exception_summary(error, "模型状态检查失败"),
+                )
+                status = ModelStatus(False, reason="模型状态检查失败").public()
             statuses[model_id] = {
                 "id": model_id,
                 "label": str(profile.get("label") or model_id),
                 **status,
             }
             if profile.get("required"):
+                if not status.get("available"):
+                    required_unavailable.append(model_id)
                 required_missing.update(
                     path
                     for path in status.get("missing_files", [])
@@ -71,6 +87,7 @@ class VoiceEngine:
         return {
             "loaded": self.is_loaded,
             "missing_models": sorted(required_missing),
+            "unavailable_required_models": sorted(required_unavailable),
             "models": statuses,
         }
 

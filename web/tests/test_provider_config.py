@@ -120,6 +120,28 @@ def test_provider_public_payload_masks_secret_and_blank_update_preserves_key(
         client.__exit__(None, None, None)
 
 
+def test_provider_routes_handle_corrupt_config_without_path_leak(
+    settings_factory, monkeypatch
+) -> None:
+    client, application = _admin_client(settings_factory(), monkeypatch)
+    try:
+        path = application.state.services.provider_config.path
+        path.write_text("{", encoding="utf-8")
+
+        response = client.get("/api/admin/providers")
+        assert response.status_code == 503
+        assert str(path) not in response.text
+
+        response = client.patch(
+            "/api/admin/providers/elevenlabs", json=_provider_payload()
+        )
+        assert response.status_code == 200
+        assert str(path) not in response.text
+        assert response.json()["providers"]["elevenlabs"]["api_key_configured"] is True
+    finally:
+        client.__exit__(None, None, None)
+
+
 @pytest.mark.parametrize(
     "changes",
     (

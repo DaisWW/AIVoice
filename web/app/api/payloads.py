@@ -9,6 +9,7 @@ from ..domain import ScriptItem
 from ..generation_settings import stored_generation_settings
 from ..services import ApplicationServices
 from ..search import search_text
+from ..value_utils import stored_int
 
 
 SCRIPT_FIELDS = (
@@ -20,6 +21,7 @@ SCRIPT_FIELDS = (
     "source_kind",
     "prompt",
     "item_count",
+    "version",
     "created_at",
 )
 
@@ -59,9 +61,9 @@ def _voice_summary(voice: dict[str, Any], can_edit: bool) -> dict[str, Any]:
         "project_id": voice.get("project_id") or "",
         "source_kind": voice["source_kind"],
         "notes": voice["notes"],
-        "file_count": int(voice.get("file_count") or 0),
-        "enabled_file_count": int(voice.get("enabled_file_count") or 0),
-        "size_bytes": int(voice.get("size_bytes") or 0),
+        "file_count": stored_int(voice.get("file_count")),
+        "enabled_file_count": stored_int(voice.get("enabled_file_count")),
+        "size_bytes": stored_int(voice.get("size_bytes")),
         "created_at": voice["created_at"],
         "can_edit": can_edit,
         "search_text": search_text(voice["name"], voice["notes"]),
@@ -72,7 +74,7 @@ def _voice_file_payload(voice: dict[str, Any], item: dict[str, Any]) -> dict[str
     return {
         "id": item["id"],
         "original_name": item["original_name"],
-        "size_bytes": int(item["size_bytes"]),
+        "size_bytes": stored_int(item.get("size_bytes")),
         "enabled": bool(item["enabled"]),
         "emotion_tag": item.get("emotion_tag") or "neutral",
         "reference_text": item.get("reference_text") or "",
@@ -195,8 +197,8 @@ class JobPresenter:
         payload["can_export"] = bool(items) and payload["accepted_items"] == len(items)
 
     def _summary(self, job: dict[str, Any]) -> dict[str, Any]:
-        total = int(job["total_items"])
-        completed = int(job["completed_items"])
+        total = stored_int(job.get("total_items"))
+        completed = min(stored_int(job.get("completed_items")), total)
         model_id = str(job["model_id"])
         model_label = self._model_label(model_id)
         return {
@@ -213,7 +215,7 @@ class JobPresenter:
             "model_id": model_id,
             "model_label": model_label,
             "output_type": self._output_type(model_id),
-            "candidate_count": int(job.get("candidate_count") or 1),
+            "candidate_count": max(1, stored_int(job.get("candidate_count"), 1)),
             "reference_emotion": job.get("reference_emotion") or "all",
             "status": job["status"],
             "total_items": total,
@@ -251,7 +253,7 @@ class JobPresenter:
     @staticmethod
     def _eta(job: dict[str, Any]) -> int | None:
         value = job["eta_seconds"]
-        return max(0, int(value)) if value is not None else None
+        return max(0, stored_int(value)) if value is not None else None
 
     def _queue(
         self, job: dict[str, Any], snapshot: dict[str, Any] | None

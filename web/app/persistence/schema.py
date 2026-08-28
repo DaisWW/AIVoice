@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     default_voice_id TEXT,
     default_effect_id TEXT,
     item_count INTEGER NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
 
@@ -126,8 +127,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     submitted_at TEXT NOT NULL,
     started_at TEXT,
     finished_at TEXT,
+    run_token TEXT NOT NULL DEFAULT '',
     eta_seconds INTEGER,
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    reference_files_json TEXT NOT NULL DEFAULT '[]',
+    reference_snapshot_version INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS job_items (
@@ -148,6 +152,7 @@ CREATE TABLE IF NOT EXISTS job_items (
     processing_backend TEXT NOT NULL DEFAULT '',
     accepted_candidate_id TEXT NOT NULL DEFAULT '',
     error TEXT NOT NULL DEFAULT '',
+    run_token TEXT NOT NULL DEFAULT '',
     UNIQUE(job_id, sequence)
 );
 
@@ -179,6 +184,7 @@ CREATE TABLE IF NOT EXISTS job_item_candidates (
     started_at TEXT,
     finished_at TEXT,
     error TEXT NOT NULL DEFAULT '',
+    run_token TEXT NOT NULL DEFAULT '',
     UNIQUE(origin_type, origin_id)
 );
 
@@ -315,10 +321,40 @@ def initialize_schema(database: SQLiteConnection) -> None:
             connection, "scripts", "prompt", "TEXT NOT NULL DEFAULT ''"
         )
         _add_column_if_missing(
+            connection, "scripts", "version", "INTEGER NOT NULL DEFAULT 1"
+        )
+        _add_column_if_missing(
             connection, "jobs", "project_id", "TEXT NOT NULL DEFAULT ''"
         )
         _add_column_if_missing(
             connection, "jobs", "created_by", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(
+            connection, "jobs", "reference_files_json", "TEXT NOT NULL DEFAULT '[]'"
+        )
+        _add_column_if_missing(
+            connection,
+            "jobs",
+            "reference_snapshot_version",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            connection,
+            "jobs",
+            "run_token",
+            "TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection,
+            "job_items",
+            "run_token",
+            "TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection,
+            "job_item_candidates",
+            "run_token",
+            "TEXT NOT NULL DEFAULT ''",
         )
         _migrate_project_member_roles(connection)
         connection.executescript(

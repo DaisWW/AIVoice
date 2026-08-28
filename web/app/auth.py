@@ -21,6 +21,13 @@ SESSION_DAYS = 14
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
+_SCRYPT_MIN_N = 2**10
+_SCRYPT_MAX_N = 2**20
+_SCRYPT_MAX_R = 32
+_SCRYPT_MAX_P = 8
+_SCRYPT_MAX_MEMORY_BYTES = 32 * 1024 * 1024
+_SCRYPT_MIN_DKLEN = 16
+_SCRYPT_MAX_DKLEN = 64
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,32}$")
 
 
@@ -91,20 +98,27 @@ class AuthService:
         ):
             self._login_limiter.record_failure(ip_address, username)
             raise AuthError("用户名或密码不正确")
+        verified_hash = str(user["password_hash"])
         self._login_limiter.record_success(ip_address, username)
         self._database.auth.note_login(str(user["id"]))
-        return self._database.auth.get_user(str(user["id"])) or user
+        refreshed = self._database.auth.get_user(str(user["id"])) or user
+        if str(refreshed.get("password_hash") or "") != verified_hash:
+            raise AuthError("登录凭据已变化，请重试")
+        return user
 
     def create_session(self, user: dict[str, Any], ip: str, user_agent: str) -> str:
         token = secrets.token_urlsafe(32)
         expires = datetime.now(UTC) + timedelta(days=SESSION_DAYS)
-        self._database.auth.create_session(
+        created = self._database.auth.create_session(
             token_hash=token_hash(token),
             user_id=str(user["id"]),
             expires_at=expires.isoformat(timespec="microseconds"),
             ip_address=ip,
             user_agent=user_agent,
+            expected_password_hash=str(user["password_hash"]),
         )
+        if not created:
+            raise AuthError("登录凭据已变化，请重新登录")
         return token
 
     def user_for_token(self, token: str) -> dict[str, Any] | None:
@@ -142,7 +156,13 @@ class AuthService:
             raise AuthError("用户名已经存在") from error
         return user, password
 
-    def change_password(self, user: dict[str, Any], old: str, new: str) -> None:
+    def change_password(
+        self,
+        user: dict[str, Any],
+        old: str,
+        new: str,
+        current_token: str = "",
+    ) -> None:
         if not verify_password(old, str(user["password_hash"])):
             raise AuthError("当前密码不正确")
         validate_password(new)
@@ -150,7 +170,9 @@ class AuthService:
             str(user["id"]),
             hash_password(new),
             must_change=False,
-            invalidate_sessions=False,
+            invalidate_sessions=True,
+            preserve_session_hash=token_hash(current_token) if current_token else None,
+            expected_password_hash=str(user["password_hash"]),
         ):
             raise AuthError("账户不存在")
         if str(user.get("role")) == "system_admin":
@@ -194,16 +216,32 @@ def verify_password(password: str, encoded: str) -> bool:
         scheme, n, r, p, salt_hex, digest_hex = encoded.split("$", 5)
         if scheme != "scrypt":
             return False
+        n_value = int(n)
+        r_value = int(r)
+        p_value = int(p)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+        if (
+            n_value < _SCRYPT_MIN_N
+            or n_value > _SCRYPT_MAX_N
+            or n_value & (n_value - 1)
+            or not 1 <= r_value <= _SCRYPT_MAX_R
+            or not 1 <= p_value <= _SCRYPT_MAX_P
+            or 128 * n_value * r_value > _SCRYPT_MAX_MEMORY_BYTES
+            or not _SCRYPT_MIN_DKLEN <= len(expected) <= _SCRYPT_MAX_DKLEN
+            or not 8 <= len(salt) <= 64
+        ):
+            return False
         digest = hashlib.scrypt(
             password.encode("utf-8"),
-            salt=bytes.fromhex(salt_hex),
-            n=int(n),
-            r=int(r),
-            p=int(p),
-            dklen=len(bytes.fromhex(digest_hex)),
+            salt=salt,
+            n=n_value,
+            r=r_value,
+            p=p_value,
+            dklen=len(expected),
         )
         return hmac.compare_digest(digest.hex(), digest_hex)
-    except (ValueError, TypeError):
+    except (MemoryError, OverflowError, ValueError, TypeError):
         return False
 
 

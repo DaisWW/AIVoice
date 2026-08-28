@@ -11,6 +11,7 @@ from .domain import ScriptItem
 from .persistence import Database
 from .persistence.repositories.legacy import LegacyJob
 from .script_parser import ScriptFormatError, parse_file, parse_guide
+from .storage import ensure_within
 
 
 EFFECT_IDS = {
@@ -70,7 +71,10 @@ class LegacyImporter:
         self, source_root: Path, voice_id: str, row: dict[str, str]
     ) -> None:
         raw_path = str(row.get("audio_path") or "").strip()
-        audio_path = (source_root / raw_path).resolve()
+        try:
+            audio_path = ensure_within(source_root / raw_path, self._root / "input")
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return
         if not audio_path.is_file():
             return
         file_id = legacy_id("legacy-voice-file", str(audio_path))
@@ -172,7 +176,15 @@ class LegacyImporter:
     def _import_jobs(self) -> None:
         path = self._root / "output" / "07_generated_final" / "script_manifest.json"
         for script_name, rows in self._manifest_groups(path).items():
-            ordered = sorted(rows, key=lambda item: int(item.get("audio_order") or 0))
+            ordered = [self._normalized_manifest_row(row) for row in rows]
+            ordered.sort(key=lambda item: item["audio_order"])
+            for row in ordered:
+                raw_audio = str(row.get("raw_audio") or "").strip()
+                if raw_audio:
+                    try:
+                        ensure_within(Path(raw_audio), self._root / "output")
+                    except (OSError, RuntimeError, TypeError, ValueError):
+                        row["raw_audio"] = ""
             first = ordered[0]
             script_path = Path(str(first.get("script_file") or ""))
             job = LegacyJob(
@@ -193,6 +205,10 @@ class LegacyImporter:
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
             final_path = Path(str(row.get("final_audio") or ""))
+            try:
+                final_path = ensure_within(final_path, path.parent.parent)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
             if not final_path.is_file():
                 continue
             if str(row.get("status")) not in {"generated", "existing"}:
@@ -200,6 +216,22 @@ class LegacyImporter:
             name = str(row.get("script_name") or final_path.parent.name)
             groups[name].append(row)
         return groups
+
+    @staticmethod
+    def _normalized_manifest_row(row: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(row)
+        normalized["audio_order"] = LegacyImporter._safe_int(row.get("audio_order"))
+        normalized["source_line"] = LegacyImporter._safe_int(row.get("source_line"))
+        raw_audio = str(row.get("raw_audio") or "").strip()
+        normalized["raw_audio"] = raw_audio
+        return normalized
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _manifest_rows(path: Path) -> list[dict[str, Any]]:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
 import os
-import re
 import stat
 import threading
 from copy import deepcopy
@@ -15,6 +15,7 @@ import httpx
 
 
 REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "max"}
+CONFIG_ERROR = "文本模型配置无效，请在管理员设置中修复"
 DEFAULT_TEXT_MODEL = {
     "version": 1,
     "enabled": False,
@@ -28,6 +29,64 @@ DEFAULT_TEXT_MODEL = {
     "max_output_tokens": 4000,
     "temperature": 0.7,
 }
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in {"true", "1", "yes", "on"}:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {
+        "false",
+        "0",
+        "no",
+        "off",
+        "",
+    }:
+        return False
+    raise ValueError(CONFIG_ERROR)
+
+
+def _as_int(
+    value: Any,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if value is None or value == "":
+        value = default
+    if isinstance(value, bool):
+        raise ValueError(CONFIG_ERROR)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(CONFIG_ERROR) from error
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(CONFIG_ERROR)
+    return parsed
+
+
+def _as_float(
+    value: Any,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if value is None or value == "":
+        value = default
+    if isinstance(value, bool):
+        raise ValueError(CONFIG_ERROR)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(CONFIG_ERROR) from error
+    if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        raise ValueError(CONFIG_ERROR)
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -62,25 +121,51 @@ class TextModelConfigStore:
     def config(self) -> TextModelConfig:
         with self._lock:
             raw = self._read()
-            return TextModelConfig(
-                enabled=bool(raw.get("enabled")),
-                label=str(raw.get("label") or DEFAULT_TEXT_MODEL["label"]),
-                base_url=str(raw.get("base_url") or "").rstrip("/"),
-                api_key=str(raw.get("api_key") or ""),
-                model=str(raw.get("model") or ""),
-                protocol=str(raw.get("protocol") or "responses"),
-                reasoning_effort=str(raw.get("reasoning_effort") or ""),
-                timeout_seconds=int(raw.get("timeout_seconds") or 180),
-                max_output_tokens=int(raw.get("max_output_tokens") or 4000),
-                temperature=float(
-                    raw.get("temperature")
-                    if raw.get("temperature") is not None
-                    else 0.7
-                ),
-            )
+            try:
+                payload = {**deepcopy(DEFAULT_TEXT_MODEL), **raw}
+                self._validate(payload)
+                return TextModelConfig(
+                    enabled=_as_bool(payload.get("enabled")),
+                    label=str(payload.get("label") or DEFAULT_TEXT_MODEL["label"]),
+                    base_url=str(payload.get("base_url") or "").rstrip("/"),
+                    api_key=str(payload.get("api_key") or ""),
+                    model=str(payload.get("model") or ""),
+                    protocol=str(payload.get("protocol") or "responses"),
+                    reasoning_effort=str(payload.get("reasoning_effort") or ""),
+                    timeout_seconds=_as_int(
+                        payload.get("timeout_seconds"),
+                        180,
+                        minimum=10,
+                        maximum=600,
+                    ),
+                    max_output_tokens=_as_int(
+                        payload.get("max_output_tokens"),
+                        4000,
+                        minimum=128,
+                        maximum=32000,
+                    ),
+                    temperature=_as_float(
+                        payload.get("temperature"),
+                        0.7,
+                        minimum=0,
+                        maximum=2,
+                    ),
+                )
+            except (TypeError, ValueError, OverflowError) as error:
+                raise RuntimeError(CONFIG_ERROR) from error
 
     def public(self) -> dict[str, Any]:
-        config = self.config()
+        try:
+            config = self.config()
+        except RuntimeError:
+            return {
+                "enabled": False,
+                "configured": False,
+                "label": DEFAULT_TEXT_MODEL["label"],
+                "model": "",
+                "protocol": "responses",
+                "invalid": True,
+            }
         return {
             "enabled": config.enabled,
             "configured": config.configured,
@@ -90,7 +175,18 @@ class TextModelConfigStore:
         }
 
     def editable(self) -> dict[str, Any]:
-        config = self.config()
+        try:
+            config = self.config()
+        except RuntimeError:
+            return {
+                **self.public(),
+                "base_url": "",
+                "has_api_key": False,
+                "timeout_seconds": DEFAULT_TEXT_MODEL["timeout_seconds"],
+                "max_output_tokens": DEFAULT_TEXT_MODEL["max_output_tokens"],
+                "reasoning_effort": DEFAULT_TEXT_MODEL["reasoning_effort"],
+                "temperature": DEFAULT_TEXT_MODEL["temperature"],
+            }
         return {
             **self.public(),
             "base_url": config.base_url,
@@ -103,7 +199,12 @@ class TextModelConfigStore:
 
     def update(self, changes: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            current = self._read()
+            try:
+                current = self._read()
+            except RuntimeError:
+                # A valid admin update must be able to replace a truncated or
+                # hand-edited file; an unreadable old key cannot be preserved.
+                current = deepcopy(DEFAULT_TEXT_MODEL)
             supplied_key = str(changes.get("api_key") or "").strip()
             if changes.get("clear_api_key"):
                 effective_key = ""
@@ -125,19 +226,23 @@ class TextModelConfigStore:
                     changes.get("reasoning_effort", current.get("reasoning_effort"))
                     or ""
                 ).strip(),
-                "timeout_seconds": int(
-                    changes.get("timeout_seconds", current.get("timeout_seconds"))
-                    or 180
+                "timeout_seconds": _as_int(
+                    changes.get("timeout_seconds", current.get("timeout_seconds")),
+                    180,
+                    minimum=10,
+                    maximum=600,
                 ),
-                "max_output_tokens": int(
-                    changes.get("max_output_tokens", current.get("max_output_tokens"))
-                    or 4000
+                "max_output_tokens": _as_int(
+                    changes.get("max_output_tokens", current.get("max_output_tokens")),
+                    4000,
+                    minimum=128,
+                    maximum=32000,
                 ),
-                "temperature": float(
-                    changes.get("temperature", current.get("temperature"))
-                    if changes.get("temperature", current.get("temperature"))
-                    is not None
-                    else 0.7
+                "temperature": _as_float(
+                    changes.get("temperature", current.get("temperature")),
+                    0.7,
+                    minimum=0,
+                    maximum=2,
                 ),
                 "version": 1,
             }
@@ -150,9 +255,9 @@ class TextModelConfigStore:
             try:
                 value = json.loads(self._path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as error:
-                raise RuntimeError(f"文本模型配置无法读取: {self._path}") from error
+                raise RuntimeError(CONFIG_ERROR) from error
             if not isinstance(value, dict):
-                raise RuntimeError("文本模型配置必须是 JSON 对象")
+                raise RuntimeError(CONFIG_ERROR)
         else:
             value = {}
         payload = {**deepcopy(DEFAULT_TEXT_MODEL), **value}
@@ -185,29 +290,34 @@ class TextModelConfigStore:
             raise ValueError("文本模型名称不能为空且不能超过 100 个字符")
         base_url = str(payload.get("base_url") or "").strip()
         if base_url:
-            parsed = urlsplit(base_url)
+            try:
+                parsed = urlsplit(base_url)
+                parsed.port
+            except ValueError as error:
+                raise ValueError(CONFIG_ERROR) from error
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise ValueError("文本模型 API 地址必须是有效的 HTTP(S) 地址")
+                raise ValueError(CONFIG_ERROR)
             if parsed.username or parsed.password or parsed.query or parsed.fragment:
-                raise ValueError("文本模型 API 地址不能包含凭据、查询参数或片段")
+                raise ValueError(CONFIG_ERROR)
             if parsed.path not in {"", "/", "/v1"}:
-                raise ValueError("文本模型 API 地址只能填写主机或 /v1")
+                raise ValueError(CONFIG_ERROR)
         model = str(payload.get("model") or "").strip()
         if str(payload.get("protocol")) not in {"responses", "chat_completions"}:
-            raise ValueError("文本模型协议必须是 responses 或 chat_completions")
+            raise ValueError(CONFIG_ERROR)
         if str(payload.get("reasoning_effort") or "") not in REASONING_EFFORTS:
-            raise ValueError("推理强度配置无效")
-        if not 10 <= int(payload.get("timeout_seconds") or 0) <= 600:
-            raise ValueError("请求超时必须在 10 到 600 秒之间")
-        if not 128 <= int(payload.get("max_output_tokens") or 0) <= 32000:
-            raise ValueError("最大输出 token 必须在 128 到 32000 之间")
-        temperature = float(payload.get("temperature") or 0)
-        if not 0 <= temperature <= 2:
-            raise ValueError("温度必须在 0 到 2 之间")
-        if bool(payload.get("enabled")) and not (
+            raise ValueError(CONFIG_ERROR)
+        _as_int(payload.get("timeout_seconds"), 180, minimum=10, maximum=600)
+        _as_int(
+            payload.get("max_output_tokens"),
+            4000,
+            minimum=128,
+            maximum=32000,
+        )
+        _as_float(payload.get("temperature"), 0.7, minimum=0, maximum=2)
+        if _as_bool(payload.get("enabled")) and not (
             base_url and model and str(payload.get("api_key") or "")
         ):
-            raise ValueError("启用文本模型前必须配置 API 地址、模型 ID 和 API Key")
+            raise ValueError(CONFIG_ERROR)
 
 
 class TextGenerationClient:
@@ -253,11 +363,12 @@ class TextGenerationClient:
             )
         except httpx.TimeoutException as error:
             raise RuntimeError("文本模型请求超时") from error
+        except httpx.InvalidURL as error:
+            raise RuntimeError("文本模型 API 地址无效") from error
         except httpx.RequestError as error:
-            raise RuntimeError(f"文本模型无法连接: {error}") from error
+            raise RuntimeError("文本模型网络请求失败") from error
         if response.status_code >= 400:
-            detail = response.text[:500].strip()
-            raise RuntimeError(f"文本模型返回 HTTP {response.status_code}: {detail}")
+            raise RuntimeError(f"文本模型请求失败（HTTP {response.status_code}）")
         try:
             body = response.json()
         except ValueError as error:
@@ -361,6 +472,37 @@ class TextGenerationService:
         raw = self.client.complete(config, system=system, user=user)
         return self._parse_lines(raw, line_count)
 
+    def analyze_script_import(
+        self,
+        *,
+        project_prompt: str,
+        units: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        config = self.store.config()
+        system = (
+            "你是台本结构分析器。只识别台本归属、角色、台词和非台词，并标注原文字符区间；"
+            "绝对不要改写、纠错、补充、翻译或复述任何原文。"
+            '只返回 JSON 对象，格式为 {"segments":[{"unit_id":1,"start":0,"end":8,'
+            '"content_start":2,"script":"场次或台本名","speaker":"角色名",'
+            '"kind":"dialogue"}]}，不要 Markdown 或额外字段。'
+            "start、end 使用 Python 字符下标且 end 不包含；每个单元的全部字符必须被连续、无重叠地归类一次，"
+            "标题、场景说明、舞台指示等使用 kind=note。"
+            "existing_segment=true 表示用户已经分好段：该单元必须只返回一个从 0 到 length 的完整区间，不能再拆句。"
+            "只有 existing_segment=false 的连续文本才能按角色变化和自然句意拆分。"
+            "content_start 通常等于 start；仅当 dialogue 区间以原文中的‘角色名：’或‘角色名:’开头时，"
+            "才可设为冒号后的下标以排除角色标签。未知的台本名或角色名返回空字符串。"
+        )
+        user = json.dumps(
+            {"project_context": project_prompt.strip(), "units": units},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        raw = self.client.complete(config, system=system, user=user)
+        value = self._parse_json_object(raw)
+        if not isinstance(value, dict) or not isinstance(value.get("segments"), list):
+            raise RuntimeError("文本模型没有返回有效的台本分析结果")
+        return value
+
     def rewrite_line(
         self,
         *,
@@ -402,16 +544,7 @@ class TextGenerationService:
 
     @staticmethod
     def _parse_lines(raw: str, line_count: int) -> list[dict[str, str]]:
-        value: Any = None
-        try:
-            value = json.loads(raw)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-            if match:
-                try:
-                    value = json.loads(match.group(0))
-                except json.JSONDecodeError:
-                    value = None
+        value = TextGenerationService._parse_json_object(raw)
         raw_lines = value.get("lines") if isinstance(value, dict) else None
         if not isinstance(raw_lines, list):
             raw_lines = [
@@ -435,3 +568,22 @@ class TextGenerationService:
         if not result:
             raise RuntimeError("文本模型没有生成有效台词")
         return result
+
+    @staticmethod
+    def _parse_json_object(raw: str) -> dict[str, Any] | None:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            value = None
+            for start, character in enumerate(raw):
+                if character != "{":
+                    continue
+                try:
+                    candidate, _ = decoder.raw_decode(raw[start:])
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(candidate, dict):
+                    value = candidate
+                    break
+        return value if isinstance(value, dict) else None

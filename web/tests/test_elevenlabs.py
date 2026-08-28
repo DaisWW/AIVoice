@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -83,6 +84,10 @@ def test_elevenlabs_enrolls_once_and_reuses_cached_voice(tmp_path, monkeypatch) 
         reference.source_paths, store.provider("elevenlabs")
     )
     assert store.enrollment("elevenlabs", "voice-1", fingerprint) == "remote-voice-1"
+    entry = json.loads(store.path.read_text(encoding="utf-8"))["enrollments"][
+        "elevenlabs"
+    ]["voice-1"]
+    assert entry["last_used_at"]
 
 
 def test_elevenlabs_uploads_all_enabled_source_samples(tmp_path, monkeypatch) -> None:
@@ -136,6 +141,47 @@ def test_elevenlabs_uploads_all_enabled_source_samples(tmp_path, monkeypatch) ->
     )
 
 
+def test_elevenlabs_closes_streamed_sample_handles(tmp_path, monkeypatch) -> None:
+    store = _store(tmp_path)
+    adapter = ElevenLabsAdapter(store)
+    reference = _reference(tmp_path)
+    captured = []
+
+    def request(config, action, method, path, **options):
+        del config, action, method, path
+        captured.extend(file[1][1] for file in options["files"])
+        assert all(not handle.closed for handle in captured)
+        return httpx.Response(200, json={"voice_id": "remote-voice-1"})
+
+    monkeypatch.setattr(adapter, "_request", request)
+
+    adapter._ensure_voice(reference, store.provider("elevenlabs"))
+
+    assert captured
+    assert all(handle.closed for handle in captured)
+
+
+def test_elevenlabs_rejects_empty_text_before_voice_enrollment(
+    tmp_path, monkeypatch
+) -> None:
+    adapter = ElevenLabsAdapter(_store(tmp_path))
+    monkeypatch.setattr(
+        adapter,
+        "_ensure_voice",
+        lambda *_args, **_kwargs: pytest.fail("empty text must not enroll a voice"),
+    )
+
+    with pytest.raises(RuntimeError, match="生成文本不能为空"):
+        adapter.generate(
+            {"generated_text": ""},
+            _reference(tmp_path),
+            {},
+            7,
+            tmp_path / "result.wav",
+            {},
+        )
+
+
 def test_elevenlabs_connection_can_be_checked_before_enable(
     tmp_path, monkeypatch
 ) -> None:
@@ -181,6 +227,26 @@ def test_elevenlabs_network_errors_are_sanitized(tmp_path, monkeypatch) -> None:
     assert "secret-api-key-must-not-escape" not in str(error.value)
 
 
+@pytest.mark.parametrize(
+    "config",
+    (
+        {
+            "base_url": "https://example.com:bad",
+            "api_key": "key",
+            "request_timeout_seconds": 30,
+        },
+        {
+            "base_url": "https://example.com",
+            "api_key": "key",
+            "request_timeout_seconds": {},
+        },
+    ),
+)
+def test_elevenlabs_rejects_invalid_url_or_numeric_config(config) -> None:
+    with pytest.raises(RuntimeError, match="(地址无效|配置无效)"):
+        ElevenLabsAdapter._request(config, "连接检测", "GET", "/v1/models")
+
+
 def test_elevenlabs_is_unavailable_without_key(tmp_path) -> None:
     store = ProviderConfigStore(tmp_path / "provider-settings.json")
     store.update_provider("elevenlabs", {"enabled": True, "api_key": ""})
@@ -196,3 +262,20 @@ def test_elevenlabs_is_unavailable_without_key(tmp_path) -> None:
             tmp_path / "out.wav",
             {},
         )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    (
+        ({"detail": {"status": "voice_not_found"}}, True),
+        ({"detail": {"status": "voice_expired"}}, True),
+        (
+            {"detail": {"status": "invalid_api_key", "message": "invalid API key"}},
+            False,
+        ),
+    ),
+)
+def test_elevenlabs_reclone_requires_explicit_voice_error(payload, expected) -> None:
+    response = httpx.Response(404, json=payload)
+
+    assert ElevenLabsAdapter._is_missing_voice(response) is expected

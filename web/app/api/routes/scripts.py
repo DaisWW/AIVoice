@@ -103,26 +103,33 @@ def select_script_candidate(
     request: Request,
 ) -> dict[str, Any]:
     script = project_script(services, script_id, user)
-    job = project_job_for_script(services, changes.job_id, script_id, user)
-    item = services.database.jobs.item(changes.job_id, changes.item_id)
-    if not item or int(item["sequence"]) != changes.sequence:
-        raise HTTPException(status_code=404, detail="找不到对应台词行")
-    candidate, _ = JobDownloadService(services).candidate_path(
-        job, changes.item_id, changes.candidate_id
-    )
-    if candidate["status"] != "completed":
-        raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
-    if not services.database.candidates.accept(changes.item_id, changes.candidate_id):
-        raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
-    selection = services.database.selections.upsert(
-        script_id,
-        changes.sequence,
-        changes.job_id,
-        changes.item_id,
-        changes.candidate_id,
-        str(user["id"]),
-    )
-    remove_script_exports(services, script_id)
+    with services.job_mutation_lock:
+        job = project_job_for_script(services, changes.job_id, script_id, user)
+        item = services.database.jobs.item(changes.job_id, changes.item_id)
+        try:
+            sequence = int(item.get("sequence")) if item else 0
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(status_code=409, detail="任务记录损坏，无法采纳") from None
+        if not item or sequence != changes.sequence:
+            raise HTTPException(status_code=404, detail="找不到对应台词行")
+        candidate, _ = JobDownloadService(services).candidate_path(
+            job, changes.item_id, changes.candidate_id
+        )
+        if candidate["status"] != "completed":
+            raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
+        if not services.database.candidates.accept(
+            changes.item_id, changes.candidate_id
+        ):
+            raise HTTPException(status_code=409, detail="候选音频完成后才能采纳")
+        selection = services.database.selections.upsert(
+            script_id,
+            changes.sequence,
+            changes.job_id,
+            changes.item_id,
+            changes.candidate_id,
+            str(user["id"]),
+        )
+        remove_script_exports(services, script_id)
     record_action(
         services,
         request,
@@ -144,10 +151,11 @@ def clear_script_selection(
     services: ServicesDep,
     request: Request,
 ) -> Response:
-    script = project_script(services, script_id, user)
-    if not services.database.selections.delete(script_id, sequence):
-        raise HTTPException(status_code=404, detail="该台词行尚未采纳音频")
-    remove_script_exports(services, script_id)
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        if not services.database.selections.delete(script_id, sequence):
+            raise HTTPException(status_code=404, detail="该台词行尚未采纳音频")
+        remove_script_exports(services, script_id)
     record_action(
         services,
         request,
@@ -169,20 +177,26 @@ def update_script(
     services: ServicesDep,
     request: Request,
 ) -> dict[str, Any]:
-    script = project_script(services, script_id, user)
     name = changes.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="台本名称不能为空")
-    prompt = (
-        changes.prompt
-        if changes.prompt is not None
-        else str(script.get("prompt") or "")
-    )
-    if not services.database.scripts.update(script_id, name, prompt):
-        raise HTTPException(status_code=404, detail="找不到台本")
-    updated = services.database.scripts.get(script_id)
-    if not updated:  # pragma: no cover - guarded by the update above
-        raise HTTPException(status_code=500, detail="台本更新后未找到")
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        prompt = (
+            changes.prompt
+            if changes.prompt is not None
+            else str(script.get("prompt") or "")
+        )
+        if not services.database.scripts.update(
+            script_id, name, prompt, expected_version=changes.version
+        ):
+            if changes.version is not None and services.database.scripts.get(script_id):
+                raise HTTPException(status_code=409, detail="台本已被其他用户修改，请刷新后重试")
+            raise HTTPException(status_code=404, detail="找不到台本")
+        remove_script_exports(services, script_id)
+        updated = services.database.scripts.get(script_id)
+        if not updated:  # pragma: no cover - guarded by the update above
+            raise HTTPException(status_code=500, detail="台本更新后未找到")
     record_action(
         services,
         request,
@@ -304,14 +318,19 @@ def update_script_items(
     services: ServicesDep,
     request: Request,
 ) -> dict[str, Any]:
-    script = project_script(services, script_id, user)
     items = _build_items(changes)
-    ScriptStorage(services).save_items(script, items)
-    services.database.selections.clear_for_script(script_id)
-    remove_script_exports(services, script_id)
-    updated = services.database.scripts.get(script_id)
-    if not updated:  # pragma: no cover - guarded by update_source
-        raise HTTPException(status_code=500, detail="台本保存后未找到")
+    storage = ScriptStorage(services)
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        old_items = storage.load_items(script)
+        changed = _items_changed(old_items, items)
+        storage.save_items(script, items, expected_version=changes.version)
+        if changed:
+            services.database.selections.clear_for_script(script_id)
+        remove_script_exports(services, script_id)
+        updated = services.database.scripts.get(script_id)
+        if not updated:  # pragma: no cover - guarded by update_source
+            raise HTTPException(status_code=500, detail="台本保存后未找到")
     record_action(
         services,
         request,
@@ -323,7 +342,9 @@ def update_script_items(
         details={"item_count": len(items)},
     )
     payload = script_detail_payload(updated, items)
-    payload["selections"] = []
+    payload["selections"] = (
+        [] if changed else services.database.selections.list_for_script(script_id)
+    )
     return {"script": payload}
 
 
@@ -334,14 +355,32 @@ async def import_script(
     user: CurrentUser,
     services: ServicesDep,
     request: Request,
+    version: int | None = None,
 ) -> dict[str, Any]:
-    script = project_script(services, script_id, user)
-    items = await ScriptStorage(services).replace_from_upload(script, file)
-    services.database.selections.clear_for_script(script_id)
-    remove_script_exports(services, script_id)
-    updated = services.database.scripts.get(script_id)
-    if not updated:  # pragma: no cover - guarded by update_source
-        raise HTTPException(status_code=500, detail="台本导入后未找到")
+    storage = ScriptStorage(services)
+    items, original_name = await storage.prepare_upload(file)
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        try:
+            script_version = int(script.get("version") or 1)
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(status_code=409, detail="台本记录损坏，无法导入") from None
+        if version is not None and script_version != version:
+            raise HTTPException(status_code=409, detail="台本已被其他用户修改，请刷新后重试")
+        old_items = storage.load_items(script)
+        changed = _items_changed(old_items, items)
+        storage.save_items(
+            script,
+            items,
+            original_name=original_name,
+            expected_version=version,
+        )
+        if changed:
+            services.database.selections.clear_for_script(script_id)
+        remove_script_exports(services, script_id)
+        updated = services.database.scripts.get(script_id)
+        if not updated:  # pragma: no cover - guarded by update_source
+            raise HTTPException(status_code=500, detail="台本导入后未找到")
     record_action(
         services,
         request,
@@ -353,7 +392,9 @@ async def import_script(
         details={"item_count": len(items), "filename": file.filename or ""},
     )
     payload = script_detail_payload(updated, items)
-    payload["selections"] = []
+    payload["selections"] = (
+        [] if changed else services.database.selections.list_for_script(script_id)
+    )
     return {"script": payload}
 
 
@@ -395,15 +436,25 @@ def delete_script(
     services: ServicesDep,
     request: Request,
 ) -> Response:
-    script = project_script(services, script_id, user)
-    if services.database.scripts.has_jobs(script_id):
-        raise HTTPException(status_code=409, detail="请先删除引用该台本的生成记录")
-    source_path = ensure_within(
-        Path(str(script["source_path"])), services.settings.root
-    )
-    if not services.database.scripts.delete(script_id):
-        raise HTTPException(status_code=404, detail="找不到台本")
-    source_path.unlink(missing_ok=True)
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        if services.database.scripts.has_jobs(script_id):
+            raise HTTPException(status_code=409, detail="请先删除引用该台本的生成记录")
+        try:
+            source_path = ensure_within(
+                Path(str(script["source_path"])), services.settings.root
+            )
+        except ValueError:
+            raise HTTPException(status_code=409, detail="台本源文件路径无效") from None
+        if not services.database.scripts.delete(script_id):
+            raise HTTPException(status_code=404, detail="找不到台本")
+        try:
+            source_path.unlink(missing_ok=True)
+        except OSError:
+            # The database row is already gone; an inaccessible source file
+            # should not turn a successful delete into a 500 response.
+            pass
+        remove_script_exports(services, script_id)
     record_action(
         services,
         request,
@@ -436,6 +487,12 @@ def _build_items(changes: ScriptItemsUpdate) -> list[ScriptItem]:
     return items
 
 
+def _items_changed(before: list[ScriptItem], after: list[ScriptItem]) -> bool:
+    return [(item.text, item.pronunciation) for item in before] != [
+        (item.text, item.pronunciation) for item in after
+    ]
+
+
 def project_job_for_script(
     services: ServicesDep,
     job_id: str,
@@ -445,5 +502,7 @@ def project_job_for_script(
     job = services.database.jobs.get(job_id)
     if not job or str(job.get("script_id")) != script_id:
         raise HTTPException(status_code=404, detail="找不到该生成任务")
-    project_script(services, script_id, user)
+    script = project_script(services, script_id, user)
+    if str(job.get("project_id") or "") != str(script.get("project_id") or ""):
+        raise HTTPException(status_code=404, detail="找不到该生成任务")
     return job

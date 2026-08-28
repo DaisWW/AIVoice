@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse
 from ...audio_quality import AudioQualityAnalyzer
 from ...reference_emotions import validate_emotion
 from ...storage import ensure_within
+from ..downloads import JobDownloadService
 from ..access import project_voice, resolve_project_id
 from ..audit import record_action
 from ..dependencies import CurrentUser, ServicesDep
@@ -19,6 +21,7 @@ from ..uploads import VoiceFileStorage
 
 
 router = APIRouter(prefix="/api/voices")
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -207,10 +210,16 @@ def play_voice_file(
     file_row = services.database.voices.get_file(file_id)
     if not file_row or str(file_row["voice_id"]) != voice_id:
         raise HTTPException(status_code=404, detail="找不到声音录音")
-    path = ensure_within(Path(str(file_row["source_path"])), services.settings.root)
+    try:
+        path = ensure_within(Path(str(file_row["source_path"])), services.settings.root)
+    except ValueError:
+        logger.warning(
+            "Voice file path rejected for file %s", str(file_row.get("id") or file_id)
+        )
+        raise HTTPException(status_code=404, detail="服务器上的录音文件不可用") from None
     if not path.is_file():
         raise HTTPException(status_code=404, detail="服务器上的录音文件已不存在")
-    return FileResponse(path, media_type="audio/wav")
+    return JobDownloadService(services).audio_response(path)
 
 
 def _editable_voice(
@@ -240,22 +249,31 @@ def _voice_files(services: ServicesDep, voice_id: str) -> list[dict[str, Any]]:
             path = ensure_within(Path(str(item["source_path"])), services.settings.root)
             quality = AudioQualityAnalyzer().analyze(path)
         except Exception as error:
-            quality = {
-                "score": 0,
-                "grade": "poor",
-                "issues": [
-                    {
-                        "code": "analysis",
-                        "label": "检测失败",
-                        "message": str(error),
-                    }
-                ],
-            }
+            logger.warning(
+                "Voice quality analysis failed for file %s (%s)",
+                str(item.get("id") or ""),
+                type(error).__name__,
+            )
+            quality = _quality_failure()
         services.database.voices.update_file_quality(str(item["id"]), quality)
         item["quality_json"] = json.dumps(
             quality, ensure_ascii=False, separators=(",", ":")
         )
     return files
+
+
+def _quality_failure() -> dict[str, Any]:
+    return {
+        "score": 0,
+        "grade": "poor",
+        "issues": [
+            {
+                "code": "analysis",
+                "label": "检测失败",
+                "message": "音频质量分析失败",
+            }
+        ],
+    }
 
 
 def _voice_fields(name: str, notes: str) -> tuple[str, str]:

@@ -160,6 +160,10 @@ def test_minimax_enrolls_once_and_wraps_raw_phonemes(
         store.enrollment("minimax", "voice-1", fingerprint)
         == tts_bodies[0]["voice_setting"]["voice_id"]
     )
+    entry = json.loads(store.path.read_text(encoding="utf-8"))["enrollments"][
+        "minimax"
+    ]["voice-1"]
+    assert entry["last_used_at"]
     assert fingerprint != adapter._enrollment_fingerprint(
         reference.source_paths,
         store.provider("minimax"),
@@ -200,6 +204,19 @@ def test_minimax_combined_audio_respects_five_minute_limit(tmp_path: Path) -> No
     assert source_seconds > 299
 
 
+def test_minimax_combined_audio_skips_empty_sources(tmp_path: Path) -> None:
+    empty = tmp_path / "empty.wav"
+    valid = tmp_path / "valid.wav"
+    _short_wav(empty, 0)
+    _short_wav(valid, 10)
+
+    payload, source_seconds = MiniMaxAdapter._combined_clone_wav((empty, valid))
+
+    with wave.open(io.BytesIO(payload), "rb") as audio:
+        assert audio.getnframes() == 10 * audio.getframerate()
+    assert source_seconds == pytest.approx(10)
+
+
 def test_minimax_reports_provider_status_errors(tmp_path: Path) -> None:
     store = _store(tmp_path)
     adapter = MiniMaxAdapter(store)
@@ -215,4 +232,53 @@ def test_minimax_reports_provider_status_errors(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="状态码 1004") as error:
         adapter._success_payload(response, "连接检测")
-    assert "invalid api key" in str(error.value)
+    assert "invalid api key" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "config",
+    (
+        {
+            "base_url": "https://example.com:bad",
+            "api_key": "key",
+            "request_timeout_seconds": 30,
+        },
+        {
+            "base_url": "https://example.com",
+            "api_key": "key",
+            "request_timeout_seconds": {},
+        },
+    ),
+)
+def test_minimax_rejects_invalid_url_or_numeric_config(config) -> None:
+    with pytest.raises(RuntimeError, match="(地址无效|配置无效)"):
+        MiniMaxAdapter._request(config, "连接检测", "GET", "/v1/models")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "payload", "expected"),
+    (
+        (404, {}, False),
+        (
+            400,
+            {"base_resp": {"status_code": 1004, "status_msg": "invalid voice setting"}},
+            False,
+        ),
+        (
+            404,
+            {"base_resp": {"status_code": 1004, "status_msg": "voice not found"}},
+            True,
+        ),
+        (
+            400,
+            {"base_resp": {"status_code": 1004, "status_msg": "voice expired"}},
+            True,
+        ),
+    ),
+)
+def test_minimax_reclone_requires_explicit_voice_error(
+    status_code, payload, expected
+) -> None:
+    response = httpx.Response(status_code, json=payload)
+
+    assert MiniMaxAdapter._is_missing_voice(response) is expected

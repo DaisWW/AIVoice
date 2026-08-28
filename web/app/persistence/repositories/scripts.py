@@ -59,11 +59,22 @@ class ScriptRepository:
             ).fetchone()
         return dict(row) if row else None
 
-    def update(self, script_id: str, name: str, prompt: str) -> bool:
+    def update(
+        self,
+        script_id: str,
+        name: str,
+        prompt: str,
+        expected_version: int | None = None,
+    ) -> bool:
         with self._database.write() as connection:
+            where = "id=?"
+            parameters: list[Any] = [name.strip(), prompt.strip(), script_id]
+            if expected_version is not None:
+                where += " AND version=?"
+                parameters.append(expected_version)
             cursor = connection.execute(
-                "UPDATE scripts SET name=?, prompt=? WHERE id=?",
-                (name.strip(), prompt.strip(), script_id),
+                f"UPDATE scripts SET name=?, prompt=?, version=version+1 WHERE {where}",
+                parameters,
             )
         return cursor.rowcount == 1
 
@@ -73,6 +84,7 @@ class ScriptRepository:
         source_path: Path,
         item_count: int,
         original_name: str | None = None,
+        expected_version: int | None = None,
     ) -> bool:
         fields = ["source_path=?", "item_count=?"]
         parameters: list[Any] = [str(source_path), item_count]
@@ -80,9 +92,14 @@ class ScriptRepository:
             fields.append("original_name=?")
             parameters.append(original_name)
         parameters.append(script_id)
+        where = "id=?"
+        if expected_version is not None:
+            where += " AND version=?"
+            parameters.append(expected_version)
         with self._database.write() as connection:
             cursor = connection.execute(
-                f"UPDATE scripts SET {', '.join(fields)} WHERE id=?", parameters
+                f"UPDATE scripts SET {', '.join(fields)}, version=version+1 WHERE {where}",
+                parameters,
             )
         return cursor.rowcount == 1
 

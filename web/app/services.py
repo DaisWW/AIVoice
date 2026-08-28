@@ -12,6 +12,7 @@ from .profiles import Profiles
 from .provider_config import ProviderConfigStore
 from .queue_worker import JobQueue
 from .settings import Settings
+from .storage import cleanup_download_snapshots
 from .text_generation import TextGenerationService, TextModelConfigStore
 
 
@@ -28,8 +29,9 @@ class ApplicationServices:
         seed_legacy: bool = True,
     ) -> None:
         self.settings = settings
-        self.export_lock = threading.Lock()
-        self.script_write_lock = threading.Lock()
+        self.export_lock = threading.RLock()
+        self.script_write_lock = threading.RLock()
+        self.job_mutation_lock = threading.RLock()
         self._engine_factory = engine_factory
         self._seed_legacy = seed_legacy
         self._initialize_lock = threading.Lock()
@@ -88,6 +90,7 @@ class ApplicationServices:
             if self._database is not None:
                 return
             self.settings.ensure_directories()
+            cleanup_download_snapshots(self.settings.export_root)
             database = Database(self.settings.database_path)
             database.initialize()
             auth = AuthService(database, self.settings.data_root)

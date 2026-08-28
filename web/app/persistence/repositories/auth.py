@@ -147,17 +147,36 @@ class AuthRepository:
         *,
         must_change: bool = False,
         invalidate_sessions: bool = True,
+        preserve_session_hash: str | None = None,
+        expected_password_hash: str | None = None,
     ) -> bool:
         with self._database.write() as connection:
-            cursor = connection.execute(
-                """
-                UPDATE users SET password_hash=?, must_change_password=?, updated_at=?
-                WHERE id=?
-                """,
-                (password_hash, int(must_change), utc_now(), user_id),
+            condition = " AND password_hash=?" if expected_password_hash else ""
+            parameters: tuple[Any, ...] = (
+                password_hash,
+                int(must_change),
+                utc_now(),
+                user_id,
             )
-            if invalidate_sessions:
-                connection.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            if expected_password_hash:
+                parameters += (expected_password_hash,)
+            cursor = connection.execute(
+                f"""
+                UPDATE users SET password_hash=?, must_change_password=?, updated_at=?
+                WHERE id=?{condition}
+                """,
+                parameters,
+            )
+            if invalidate_sessions and cursor.rowcount == 1:
+                if preserve_session_hash:
+                    connection.execute(
+                        "DELETE FROM sessions WHERE user_id=? AND token_hash<>?",
+                        (user_id, preserve_session_hash),
+                    )
+                else:
+                    connection.execute(
+                        "DELETE FROM sessions WHERE user_id=?", (user_id,)
+                    )
         return cursor.rowcount == 1
 
     def update_status(self, user_id: str, status: str) -> bool:
@@ -185,27 +204,33 @@ class AuthRepository:
         expires_at: str,
         ip_address: str,
         user_agent: str,
-    ) -> None:
+        expected_password_hash: str,
+    ) -> bool:
         timestamp = utc_now()
         with self._database.write() as connection:
             connection.execute("DELETE FROM sessions WHERE expires_at<=?", (timestamp,))
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO sessions(
                     token_hash, user_id, created_at, expires_at, last_seen_at,
                     ip_address, user_agent
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT ?, u.id, ?, ?, ?, ?, ?
+                FROM users u
+                WHERE u.id=? AND u.status='active' AND u.password_hash=?
                 """,
                 (
                     token_hash,
-                    user_id,
                     timestamp,
                     expires_at,
                     timestamp,
                     ip_address,
                     user_agent[:300],
+                    user_id,
+                    expected_password_hash,
                 ),
             )
+        return cursor.rowcount == 1
 
     def user_for_session(self, token_hash: str) -> dict[str, Any] | None:
         timestamp = utc_now()

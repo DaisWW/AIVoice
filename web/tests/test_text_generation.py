@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from app.text_generation import TextGenerationClient
+import httpx
+import pytest
+
+from app.text_generation import (
+    TextGenerationClient,
+    TextGenerationService,
+    TextModelConfigStore,
+)
 
 
 def test_text_model_endpoint_and_response_content() -> None:
@@ -19,6 +27,125 @@ def test_text_model_endpoint_and_response_content() -> None:
         == "你好"
     )
     assert TextGenerationClient._content({"output_text": "台词"}, "responses") == "台词"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    (
+        ('说明文字 {不是 JSON} 后续 {"lines":[{"text":"你好"}]}', {"lines": [{"text": "你好"}]}),
+        ('{"first": 1} {"second": 2}', {"first": 1}),
+        ('{"text":"包含 {大括号}"}', {"text": "包含 {大括号}"}),
+    ),
+)
+def test_parse_json_object_extracts_first_valid_object(raw, expected) -> None:
+    assert TextGenerationService._parse_json_object(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"timeout_seconds": {}},
+        {"max_output_tokens": "not-a-number"},
+        {"temperature": "nan"},
+        {"temperature": "inf"},
+    ),
+)
+def test_corrupt_text_model_config_is_reported_without_raising_public_status(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    path = tmp_path / "text-model.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    store = TextModelConfigStore(path)
+
+    public = store.public()
+
+    assert public["invalid"] is True
+    with pytest.raises(RuntimeError, match="配置无效"):
+        store.config()
+
+
+def test_text_model_config_rejects_invalid_port(tmp_path: Path) -> None:
+    store = TextModelConfigStore(tmp_path / "text-model.json")
+
+    with pytest.raises(ValueError, match="配置无效"):
+        store.update(
+            {
+                "enabled": False,
+                "label": "模型",
+                "base_url": "https://llm.example:invalid",
+                "model": "test",
+                "protocol": "responses",
+                "reasoning_effort": "",
+                "timeout_seconds": 30,
+                "max_output_tokens": 1000,
+                "temperature": 0.7,
+            }
+        )
+
+
+def test_admin_text_model_get_handles_corrupt_config_without_path_leak(
+    app_client,
+) -> None:
+    client, services = app_client
+    services.text_generation.store.path.write_text("{", encoding="utf-8")
+
+    response = client.get("/api/admin/text-model")
+
+    assert response.status_code == 200
+    payload = response.json()["text_model"]
+    assert payload["invalid"] is True
+    assert str(services.text_generation.store.path) not in response.text
+
+
+def test_admin_text_model_patch_replaces_corrupt_config(app_client) -> None:
+    client, services = app_client
+    services.text_generation.store.path.write_text("{", encoding="utf-8")
+
+    response = client.patch(
+        "/api/admin/text-model",
+        json={
+            "enabled": False,
+            "label": "修复后的模型",
+            "base_url": "https://llm.example/v1",
+            "api_key": "new-secret",
+            "model": "provider/test-model",
+            "protocol": "responses",
+            "reasoning_effort": "",
+            "timeout_seconds": 30,
+            "max_output_tokens": 1000,
+            "temperature": 0.7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert services.text_generation.store.config().api_key == "new-secret"
+
+
+def test_text_model_invalid_url_is_safe_error(monkeypatch, tmp_path: Path) -> None:
+    store = TextModelConfigStore(tmp_path / "text-model.json")
+    store.update(
+        {
+            "enabled": True,
+            "label": "模型",
+            "base_url": "https://llm.example/v1",
+            "api_key": "secret",
+            "model": "test",
+            "protocol": "responses",
+            "reasoning_effort": "",
+            "timeout_seconds": 30,
+            "max_output_tokens": 1000,
+            "temperature": 0.7,
+        }
+    )
+
+    def fail(*args, **kwargs):
+        del args, kwargs
+        raise httpx.InvalidURL("invalid")
+
+    monkeypatch.setattr("app.text_generation.httpx.post", fail)
+
+    with pytest.raises(RuntimeError, match="API 地址无效"):
+        TextGenerationClient().complete(store.config(), system="s", user="u")
 
 
 def test_prompt_suggestion_and_text_generation_layer_prompts(app_client) -> None:
@@ -138,3 +265,160 @@ def test_admin_text_model_config_masks_key(app_client) -> None:
     assert "api_key" not in payload
     assert payload["has_api_key"] is True
     assert services.text_generation.store.config().api_key == "secret-key"
+
+
+def test_smart_script_import_requires_confirmation_and_keeps_exact_dialogue(
+    app_client,
+) -> None:
+    client, services = app_client
+    project = services.database.projects.list_for_user(
+        str(services.database.auth.get_by_username("admin")["id"])
+    )[0]
+
+    class FakeImportClient:
+        @staticmethod
+        def complete(config, *, system: str, user: str) -> str:
+            del config
+            assert "绝对不要改写" in system
+            payload = json.loads(user)
+            assert payload["units"][0]["content"] == "第一幕甲：你好。乙：我来了。"
+            assert payload["units"][0]["existing_segment"] is False
+            return json.dumps(
+                {
+                    "segments": [
+                        {
+                            "unit_id": 1,
+                            "start": 0,
+                            "end": 3,
+                            "content_start": 0,
+                            "script": "第一幕",
+                            "speaker": "",
+                            "kind": "note",
+                        },
+                        {
+                            "unit_id": 1,
+                            "start": 3,
+                            "end": 8,
+                            "content_start": 5,
+                            "script": "第一幕",
+                            "speaker": "甲",
+                            "kind": "dialogue",
+                        },
+                        {
+                            "unit_id": 1,
+                            "start": 8,
+                            "end": 14,
+                            "content_start": 10,
+                            "script": "第一幕",
+                            "speaker": "乙",
+                            "kind": "dialogue",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            )
+
+    services.text_generation.client = FakeImportClient()
+    services.text_generation.store.update(
+        {
+            "enabled": True,
+            "label": "测试文本模型",
+            "base_url": "https://llm.example/v1",
+            "api_key": "secret",
+            "model": "provider/test-model",
+            "protocol": "responses",
+            "reasoning_effort": "",
+            "timeout_seconds": 30,
+            "max_output_tokens": 1000,
+            "temperature": 0.7,
+        }
+    )
+
+    analyzed = client.post(
+        f"/api/projects/{project['id']}/script-imports/analyze",
+        files={
+            "files": (
+                "raw.txt",
+                "第一幕甲：你好。乙：我来了。".encode(),
+                "text/plain",
+            )
+        },
+    )
+    assert analyzed.status_code == 200
+    batch = analyzed.json()["batch"]
+    assert [draft["speaker"] for draft in batch["drafts"]] == ["甲", "乙"]
+    assert [draft["lines"][0]["text"] for draft in batch["drafts"]] == [
+        "你好。",
+        "我来了。",
+    ]
+    assert services.database.scripts.list(str(project["id"])) == []
+
+    pending = client.get(f"/api/projects/{project['id']}/script-imports/pending")
+    assert pending.status_code == 200
+    assert pending.json()["batch"]["batch_id"] == batch["batch_id"]
+
+    confirmed = client.post(
+        f"/api/projects/{project['id']}/script-imports/confirm",
+        json={
+            "batch_id": batch["batch_id"],
+            "drafts": [
+                {"id": draft["id"], "name": draft["name"]} for draft in batch["drafts"]
+            ],
+        },
+    )
+    assert confirmed.status_code == 201
+    scripts = confirmed.json()["scripts"]
+    assert len(scripts) == 2
+    assert [
+        client.get(f"/api/scripts/{script['id']}").json()["script"]["items"][0]["text"]
+        for script in scripts
+    ] == ["你好。", "我来了。"]
+
+    repeated = client.post(
+        f"/api/projects/{project['id']}/script-imports/confirm",
+        json={
+            "batch_id": batch["batch_id"],
+            "drafts": [
+                {"id": draft["id"], "name": draft["name"]} for draft in batch["drafts"]
+            ],
+        },
+    )
+    assert repeated.status_code == 422
+    assert len(services.database.scripts.list(str(project["id"]))) == 2
+
+
+def test_corrupt_smart_import_manifest_requires_explicit_discard(app_client) -> None:
+    client, services = app_client
+    user = services.database.auth.get_by_username("admin")
+    assert user is not None
+    project = services.database.projects.list_for_user(str(user["id"]))[0]
+    manifest_path = (
+        services.settings.data_root
+        / "script-imports"
+        / str(project["id"])
+        / str(user["id"])
+        / "pending.json"
+    )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "project_id": project["id"],
+                "user_id": user["id"],
+                "batch": {"batch_id": "import-corrupt"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pending = client.get(f"/api/projects/{project['id']}/script-imports/pending")
+
+    assert pending.status_code == 409
+    assert "待确认台本数据" in pending.json()["detail"]
+    assert manifest_path.exists()
+
+    discarded = client.delete(f"/api/projects/{project['id']}/script-imports/pending")
+
+    assert discarded.status_code == 204
+    assert not manifest_path.exists()

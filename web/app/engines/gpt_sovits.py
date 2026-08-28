@@ -16,6 +16,9 @@ from .contracts import GenerationResult, ModelStatus, ReferenceAudio
 from .runtime import release_cuda_memory
 
 
+_CWD_LOCK = threading.RLock()
+
+
 class GptSovitsAdapter:
     engine_id = "gpt_sovits_v2"
 
@@ -119,9 +122,10 @@ class GptSovitsAdapter:
 
     @contextmanager
     def _working_directory(self) -> Iterator[None]:
-        previous = Path.cwd()
-        os.chdir(self._settings.root / "tools" / "GPT-SoVITS")
-        try:
-            yield
-        finally:
-            os.chdir(previous)
+        with _CWD_LOCK:
+            previous = Path.cwd()
+            os.chdir(self._settings.root / "tools" / "GPT-SoVITS")
+            try:
+                yield
+            finally:
+                os.chdir(previous)

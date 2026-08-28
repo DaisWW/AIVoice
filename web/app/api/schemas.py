@@ -67,6 +67,17 @@ class VoiceFileUpdate(BaseModel):
 class ScriptUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     prompt: str | None = Field(default=None, max_length=12000)
+    version: int | None = Field(default=None, ge=1)
+
+
+class ScriptImportSelection(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+
+
+class ScriptImportConfirm(BaseModel):
+    batch_id: str = Field(min_length=1, max_length=64)
+    drafts: list[ScriptImportSelection] = Field(min_length=1, max_length=800)
 
 
 class PromptSuggestionRequest(BaseModel):
@@ -109,6 +120,7 @@ class ScriptItemUpdate(BaseModel):
 
 class ScriptItemsUpdate(BaseModel):
     items: list[ScriptItemUpdate] = Field(min_length=1, max_length=MAX_SCRIPT_ITEMS)
+    version: int | None = Field(default=None, ge=1)
 
 
 class ElevenLabsProviderUpdate(BaseModel):

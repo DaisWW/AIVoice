@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import io
 import json
+import hashlib
+import os
 import sqlite3
+import time
 import wave
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.api.candidate_operations import _directional_text
+from app.api.downloads import JobDownloadService
+from app.auth import verify_password
 from app.main import create_app
 from conftest import (
     FakeEngine,
@@ -38,7 +46,52 @@ def test_identity_ignores_legacy_guest_cookie(app_client) -> None:
 
     assert response.status_code == 200
     assert response.json()["user"]["username"] == "admin"
-    assert response.json()["user"]["role"] == "system_admin"
+
+
+def test_password_verification_rejects_excessive_scrypt_memory(monkeypatch) -> None:
+    called = False
+
+    def unexpected_scrypt(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("scrypt should not run for an oversized record")
+
+    monkeypatch.setattr(hashlib, "scrypt", unexpected_scrypt)
+    encoded = "scrypt$1048576$32$1$" + "00" * 16 + "$" + "00" * 32
+
+    assert not verify_password("password", encoded)
+    assert not called
+
+
+def test_health_does_not_expose_engine_paths(app_client) -> None:
+    client, services = app_client
+    services.engine.model_status = lambda: {
+        "loaded": False,
+        "missing_models": [r"C:\\server\\models\\secret.safetensors"],
+        "models": {
+            "test_model": {
+                "id": "test_model",
+                "label": "Test",
+                "available": False,
+                "loaded": False,
+                "missing_files": [r"C:\\server\\models\\secret.safetensors"],
+                "availability_reason": "C:\\server\\private",
+            }
+        },
+    }
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    engine = response.json()["engine"]
+    assert r"C:\\server" not in response.text
+    assert engine["unavailable_models"] == ["test_model"]
+    assert engine["models"]["test_model"] == {
+        "id": "test_model",
+        "label": "Test",
+        "available": False,
+        "loaded": False,
+    }
 
 
 def test_invalid_wav_rolls_back_voice(app_client) -> None:
@@ -201,6 +254,141 @@ def test_clone_only_upload_queue_play_and_download_workflow(app_client) -> None:
     assert "postprocess_controls" not in config
     assert "不做降噪" in config["output_description"]
     assert "postprocess_queue" not in client.get("/api/health").json()
+
+
+def test_download_endpoints_reject_corrupt_database_numbers(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "corrupt download voice")
+    script = _create_script(client, "corrupt-download.txt", "第一句 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    )
+    assert created.status_code == 201
+    job = wait_for_job(client, created.json()["job"]["id"])
+    item = job["items"][0]
+
+    with sqlite3.connect(services.settings.database_path) as connection:
+        connection.execute(
+            "UPDATE jobs SET total_items='broken' WHERE id=?", (job["id"],)
+        )
+        connection.commit()
+    assert client.get(f"/api/jobs/{job['id']}/export").status_code == 409
+
+    with sqlite3.connect(services.settings.database_path) as connection:
+        connection.execute("UPDATE jobs SET total_items=1 WHERE id=?", (job["id"],))
+        connection.execute(
+            "UPDATE job_items SET sequence='broken' WHERE id=?", (item["id"],)
+        )
+        connection.commit()
+    assert (
+        client.get(f"/api/jobs/{job['id']}/items/{item['id']}/download").status_code
+        == 409
+    )
+
+
+def test_audio_response_snapshots_before_source_is_removed(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "snapshot voice")
+    script = _create_script(client, "snapshot.txt", "快照台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    item = job["items"][0]
+    source = Path(services.database.jobs.item(job["id"], item["id"])["audio_path"])
+    expected = source.read_bytes()
+
+    response = JobDownloadService(services).item_response(job, item["id"])
+    snapshot = Path(response.path)
+    source.unlink()
+
+    try:
+        assert snapshot.read_bytes() == expected
+    finally:
+        snapshot.unlink(missing_ok=True)
+
+
+def test_stale_download_snapshots_are_cleaned_on_startup(settings_factory) -> None:
+    settings = settings_factory()
+    settings.ensure_directories()
+    stale = settings.export_root / ".download-stale.zip"
+    fresh = settings.export_root / ".download-fresh.zip"
+    unrelated = settings.export_root / "keep.zip"
+    stale.write_bytes(b"stale")
+    fresh.write_bytes(b"fresh")
+    unrelated.write_bytes(b"keep")
+    old_time = time.time() - 2 * 24 * 60 * 60
+    os.utime(stale, (old_time, old_time))
+
+    application = create_app(settings, engine_factory=FakeEngine, seed_legacy=False)
+    with TestClient(application):
+        assert not stale.exists()
+        assert fresh.exists()
+        assert unrelated.exists()
+
+
+def test_regenerate_rejects_active_job_or_item(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "active regenerate voice")
+    script = _create_script(client, "active-regenerate.txt", "原台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    item = job["items"][0]
+    with sqlite3.connect(services.settings.database_path) as connection:
+        connection.execute("UPDATE jobs SET status='running' WHERE id=?", (job["id"],))
+        connection.execute(
+            "UPDATE job_items SET status='running' WHERE id=?", (item["id"],)
+        )
+        connection.commit()
+
+    response = client.post(
+        f"/api/jobs/{job['id']}/items/{item['id']}/regenerate",
+        json={"text": "重做", "pronunciation": "mo-la"},
+    )
+
+    assert response.status_code == 409
+    assert "处理完成后" in response.json()["detail"]
+
+
+def test_script_audio_export_rejects_corrupt_item_count(app_client) -> None:
+    client, services = app_client
+    _create_voice(client, "corrupt script voice")
+    script = _create_script(client, "corrupt-script.txt", "第一句 | mo-la\n")
+    with sqlite3.connect(services.settings.database_path) as connection:
+        connection.execute(
+            "UPDATE scripts SET item_count='broken' WHERE id=?", (script["id"],)
+        )
+        connection.commit()
+
+    response = client.get(f"/api/scripts/{script['id']}/audio-export?scope=accepted")
+
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("identifier", ("../escape", "C:\\escape", "bad/id"))
+def test_archive_paths_reject_unsafe_ids(app_client, identifier: str) -> None:
+    _, services = app_client
+
+    with pytest.raises(HTTPException) as error:
+        JobDownloadService(services)._archive_path(identifier, ".zip")
+    assert error.value.status_code == 409
 
 
 def test_script_library_keeps_voice_selection_in_generation(app_client) -> None:
@@ -467,6 +655,13 @@ def test_create_job_accepts_four_candidates(app_client) -> None:
     assert response.status_code == 201
     job = wait_for_job(client, response.json()["job"]["id"])
     assert len(job["items"][0]["candidates"]) == 4
+
+
+def test_raw_direction_override_keeps_ascii_punctuation() -> None:
+    assert _directional_text("ABC", "rise", True) == "ABC?"
+    assert _directional_text("ABC", "fall", True) == "ABC."
+    assert _directional_text("ABC", "rise", False) == "ABC？"
+    assert _directional_text("ABC", "fall", False) == "ABC。"
 
 
 def test_regenerate_accept_and_export_clone_candidate(app_client) -> None:
@@ -1015,6 +1210,44 @@ def test_historical_dsp_candidates_are_hidden_and_raw_audio_is_served(
     ]
     assert client.get(first["audio_url"]).content == raw_bytes
     assert client.get(detail["items"][0]["audio_url"]).content == raw_bytes
+
+
+def test_audio_download_and_accept_fall_back_to_legacy_audio_path(app_client) -> None:
+    client, services = app_client
+    voice = _create_voice(client, "fallback voice")
+    script = _create_script(client, "fallback.txt", "台词 | mo-la\n")
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    ).json()["job"]
+    job = wait_for_job(client, created["id"])
+    item = job["items"][0]
+    candidate = item["candidates"][0]
+    fallback = services.settings.job_root / job["id"] / "fallback.wav"
+    fallback.write_bytes(make_wav_bytes(0.12))
+    missing_raw = services.settings.job_root / job["id"] / "missing-raw.wav"
+
+    with sqlite3.connect(services.settings.database_path) as connection:
+        connection.execute(
+            "UPDATE job_item_candidates SET raw_audio_path=?, audio_path=? WHERE id=?",
+            (str(missing_raw), str(fallback), candidate["id"]),
+        )
+        connection.execute(
+            "UPDATE job_items SET raw_audio_path=?, audio_path=? WHERE id=?",
+            (str(missing_raw), str(fallback), item["id"]),
+        )
+
+    assert client.get(candidate["audio_url"]).content == fallback.read_bytes()
+    assert client.get(job["items"][0]["audio_url"]).content == fallback.read_bytes()
+    accepted = client.post(
+        f"/api/jobs/{job['id']}/items/{item['id']}/accept",
+        json={"candidate_id": candidate["id"]},
+    )
+    assert accepted.status_code == 200
 
 
 def test_jobs_are_project_private_and_system_admin_can_access_all(

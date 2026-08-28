@@ -24,6 +24,11 @@ def login(
             changes.password,
             ip_address,
         )
+        token = services.auth.create_session(
+            user,
+            ip_address,
+            request.headers.get("user-agent", ""),
+        )
     except LoginRateLimitError as error:
         services.database.audit.record(
             "auth.login_throttled",
@@ -44,11 +49,6 @@ def login(
             details={"username": changes.username.strip()[:64]},
         )
         raise HTTPException(status_code=401, detail=str(error)) from error
-    token = services.auth.create_session(
-        user,
-        ip_address,
-        request.headers.get("user-agent", ""),
-    )
     response.set_cookie(
         SESSION_COOKIE,
         token,
@@ -90,7 +90,10 @@ def change_password(
 ) -> dict[str, Any]:
     try:
         services.auth.change_password(
-            user, changes.current_password, changes.new_password
+            user,
+            changes.current_password,
+            changes.new_password,
+            request.cookies.get(SESSION_COOKIE, ""),
         )
     except AuthError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

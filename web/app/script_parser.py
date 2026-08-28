@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import io
 import re
+import zipfile
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from voice_core.pronunciation import (
@@ -18,6 +20,10 @@ from .domain import ScriptItem
 SUPPORTED_SCRIPT_EXTENSIONS = {".txt", ".md", ".csv", ".docx"}
 MARKER_RE = re.compile(r"^【\s*(?:\d+\s*)?发音\s*】\s*(.*?)\s*$")
 HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
+MAX_DOCX_MEMBERS = 4096
+MAX_DOCX_MEMBER_BYTES = 32 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 1000
 
 
 class ScriptFormatError(ValueError):
@@ -158,13 +164,99 @@ def parse_file(path: Path) -> list[ScriptItem]:
     return parse_content(path.read_bytes(), path.suffix)
 
 
+@dataclass
+class _DocxSectionParser:
+    sections: OrderedDict[str, list[ScriptItem]] = field(default_factory=OrderedDict)
+    paragraph_notes: dict[str, list[str]] = field(default_factory=dict)
+    no_dialogue_roles: set[str] = field(default_factory=set)
+    current_role: str | None = None
+    blank_paragraphs: int = 0
+    source_line: int = 0
+    previous_was_table: bool = False
+
+    def handle_paragraph(self, text: str) -> None:
+        if not text:
+            self.blank_paragraphs += 1
+            return
+        self.source_line += 1
+        is_heading = (
+            self.current_role is None
+            or self.blank_paragraphs >= 2
+            or (self.previous_was_table and self.blank_paragraphs >= 1)
+        )
+        if is_heading:
+            self.current_role = text
+            self.sections.setdefault(text, [])
+            self.paragraph_notes.setdefault(text, [])
+        else:
+            self.paragraph_notes.setdefault(self.current_role, []).append(text)
+        self.blank_paragraphs = 0
+        self.previous_was_table = False
+
+    def handle_table(self, table: object) -> None:
+        if self.current_role is None:
+            return
+        rows = self.sections.setdefault(self.current_role, [])
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            text = next((value for value in cells if value), "")
+            if not text:
+                continue
+            self.source_line += 1
+            rows.append(build_script_item(text, text, self.source_line, len(rows) + 1))
+        self.blank_paragraphs = 0
+        self.previous_was_table = True
+
+    def finalize(self) -> dict[str, list[ScriptItem]]:
+        for role, notes in self.paragraph_notes.items():
+            if any(
+                line.strip().startswith("无台词")
+                for note in notes
+                for line in note.splitlines()
+            ):
+                self.no_dialogue_roles.add(role)
+
+        for role, notes in self.paragraph_notes.items():
+            rows = self.sections.setdefault(role, [])
+            for note in notes:
+                for line in note.splitlines():
+                    text = line.strip()
+                    if not text:
+                        continue
+                    if text.startswith("无台词"):
+                        text = text[len("无台词") :].strip()
+                        if not text:
+                            continue
+                    elif text.startswith("（") and role not in self.no_dialogue_roles:
+                        continue
+                    if role in self.no_dialogue_roles:
+                        text = text.replace("（", "").replace("）", "")
+                    elif text.endswith("）"):
+                        text = text[:-1].rstrip()
+                    if not text:
+                        continue
+                    self.source_line += 1
+                    rows.append(
+                        build_script_item(text, text, self.source_line, len(rows) + 1)
+                    )
+
+        # Keep explicitly marked no-dialogue roles, including their stage-direction
+        # lines, so callers can preserve the complete cast list.
+        return {
+            role: rows
+            for role, rows in self.sections.items()
+            if rows or role in self.no_dialogue_roles
+        }
+
+
 def parse_docx_sections(content: bytes) -> dict[str, list[ScriptItem]]:
     """Group one-column DOCX tables by the nearest role heading.
 
     The source document uses blank paragraphs as section separators and can
     continue one role across several adjacent tables. Rows without text are
     intentionally skipped; pronunciation starts as the source text and can be
-    refined later in the script editor.
+    refined later in the script editor. Stage directions following an explicit
+    ``无台词`` marker are retained as generation lines for that role.
     """
     try:
         from docx import Document
@@ -172,70 +264,59 @@ def parse_docx_sections(content: bytes) -> dict[str, list[ScriptItem]]:
         from docx.text.paragraph import Paragraph
     except ImportError as error:  # pragma: no cover
         raise ScriptFormatError("当前环境未安装 python-docx") from error
+    validate_docx_archive(content)
     try:
         document = Document(io.BytesIO(content))
     except Exception as error:
         raise ScriptFormatError("DOCX 文件损坏或不是有效的 Word 文档") from error
 
-    sections: OrderedDict[str, list[ScriptItem]] = OrderedDict()
-    paragraph_notes: dict[str, list[str]] = {}
-    current_role: str | None = None
-    blank_paragraphs = 0
-    source_line = 0
-    previous_was_table = False
+    parser = _DocxSectionParser()
 
     for child in document.element.body.iterchildren():
         if child.tag.endswith("}p"):
             paragraph = Paragraph(child, document)
-            text = paragraph.text.strip()
-            if not text:
-                blank_paragraphs += 1
-                continue
-            source_line += 1
-            is_heading = (
-                current_role is None
-                or blank_paragraphs >= 2
-                or (previous_was_table and blank_paragraphs >= 1)
-            )
-            if is_heading:
-                current_role = text
-                sections.setdefault(current_role, [])
-                paragraph_notes.setdefault(current_role, [])
-            else:
-                paragraph_notes.setdefault(current_role, []).append(text)
-            blank_paragraphs = 0
-            previous_was_table = False
+            parser.handle_paragraph(paragraph.text.strip())
             continue
         if not child.tag.endswith("}tbl"):
             continue
-        if current_role is None:
-            continue
         table = Table(child, document)
-        rows = sections.setdefault(current_role, [])
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            text = next((value for value in cells if value), "")
-            if not text:
-                continue
-            source_line += 1
-            rows.append(build_script_item(text, text, source_line, len(rows) + 1))
-        blank_paragraphs = 0
-        previous_was_table = True
+        parser.handle_table(table)
+    return parser.finalize()
 
-    for role, notes in paragraph_notes.items():
-        rows = sections.setdefault(role, [])
-        for note in notes:
-            for line in note.splitlines():
-                text = line.strip()
-                if not text or text.startswith("无台词") or text.startswith("（"):
-                    continue
-                if text.endswith("）"):
-                    text = text[:-1].rstrip()
-                if not text:
-                    continue
-                source_line += 1
-                rows.append(build_script_item(text, text, source_line, len(rows) + 1))
-    return {role: rows for role, rows in sections.items() if rows}
+
+def validate_docx_archive(content: bytes) -> None:
+    """Reject oversized or suspicious ZIP structures before python-docx expands them."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            members = archive.infolist()
+    except (OSError, zipfile.BadZipFile) as error:
+        raise ScriptFormatError("DOCX 文件损坏或不是有效的 Word 文档") from error
+
+    if len(members) > MAX_DOCX_MEMBERS:
+        raise ScriptFormatError("DOCX 文件包含过多压缩条目")
+    names: set[str] = set()
+    total_size = 0
+    for member in members:
+        name = str(member.filename).replace("\\", "/")
+        if (
+            not name
+            or name in names
+            or name.startswith("/")
+            or any(part == ".." for part in name.split("/"))
+        ):
+            raise ScriptFormatError("DOCX 压缩包条目无效")
+        names.add(name)
+        if member.flag_bits & 0x1:
+            raise ScriptFormatError("DOCX 加密文档不受支持")
+        size = int(member.file_size)
+        compressed = int(member.compress_size)
+        if size < 0 or size > MAX_DOCX_MEMBER_BYTES:
+            raise ScriptFormatError("DOCX 单个压缩条目过大")
+        total_size += size
+        if total_size > MAX_DOCX_UNCOMPRESSED_BYTES:
+            raise ScriptFormatError("DOCX 解压后内容过大")
+        if size and (compressed <= 0 or size > compressed * MAX_DOCX_COMPRESSION_RATIO):
+            raise ScriptFormatError("DOCX 压缩比异常")
 
 
 def parse_guide(path: Path) -> dict[str, list[ScriptItem]]:

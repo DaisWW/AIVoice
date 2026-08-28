@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from contextlib import ExitStack
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -63,11 +64,12 @@ class ElevenLabsAdapter:
     ) -> GenerationResult:
         del profile, seed, generation_settings
         config = self._available_config()
-        started = perf_counter()
-        external_voice_id = self._ensure_voice(reference, config)
-        text = strip_pronunciation_dashes(str(item["generated_text"])).strip()
+        text = strip_pronunciation_dashes(str(item.get("generated_text") or "")).strip()
         if not text:
             raise RuntimeError("ElevenLabs 生成文本不能为空")
+        started = perf_counter()
+        voice_key, fingerprint = self._enrollment_context(reference, config)
+        external_voice_id = self._ensure_voice(reference, config)
         body = {
             "text": text,
             "model_id": str(config["tts_model_id"]),
@@ -87,8 +89,23 @@ class ElevenLabsAdapter:
             params={"output_format": str(config["output_format"])},
             json=body,
         )
+        if self._is_missing_voice(response):
+            self._config.forget_enrollment(self.provider_id, voice_key)
+            external_voice_id = self._ensure_voice(
+                reference, config, force_refresh=True
+            )
+            path = f"/v1/text-to-speech/{quote(external_voice_id, safe='')}"
+            response = self._request(
+                config,
+                "语音生成",
+                "POST",
+                path,
+                params={"output_format": str(config["output_format"])},
+                json=body,
+            )
         self._ensure_success(response, "语音生成")
         duration = self._validate_wav(response.content)
+        self._config.touch_enrollment(self.provider_id, voice_key, fingerprint)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(response.content)
         return GenerationResult(
@@ -101,22 +118,24 @@ class ElevenLabsAdapter:
     def unload(self) -> None:
         return None
 
-    def _ensure_voice(self, reference: ReferenceAudio, config: dict[str, Any]) -> str:
+    def _ensure_voice(
+        self,
+        reference: ReferenceAudio,
+        config: dict[str, Any],
+        *,
+        force_refresh: bool = False,
+    ) -> str:
         sample_paths = reference.source_paths or (reference.path,)
-        fingerprint = self._enrollment_fingerprint(sample_paths, config)
-        voice_key = reference.voice_id or fingerprint
-        cached = self._config.enrollment(self.provider_id, voice_key, fingerprint)
+        voice_key, fingerprint = self._enrollment_context(reference, config)
+        cached = (
+            None
+            if force_refresh
+            else self._config.enrollment(self.provider_id, voice_key, fingerprint)
+        )
         if cached:
             return cached
         display_name = (reference.voice_name or reference.voice_id or fingerprint[:12])[
             :60
-        ]
-        files = [
-            (
-                "files",
-                (path.name, path.read_bytes(), "audio/wav"),
-            )
-            for path in sample_paths
         ]
         data = {
             "name": f"Voice Lab · {display_name}",
@@ -125,14 +144,22 @@ class ElevenLabsAdapter:
                 bool(config["remove_background_noise"])
             ).lower(),
         }
-        response = self._request(
-            config,
-            "小样本声音克隆",
-            "POST",
-            "/v1/voices/add",
-            data=data,
-            files=files,
-        )
+        with ExitStack() as stack:
+            files = [
+                (
+                    "files",
+                    (path.name, stack.enter_context(path.open("rb")), "audio/wav"),
+                )
+                for path in sample_paths
+            ]
+            response = self._request(
+                config,
+                "小样本声音克隆",
+                "POST",
+                "/v1/voices/add",
+                data=data,
+                files=files,
+            )
         self._ensure_success(response, "小样本声音克隆")
         try:
             external_voice_id = str(response.json().get("voice_id") or "").strip()
@@ -147,6 +174,47 @@ class ElevenLabsAdapter:
             external_voice_id,
         )
         return external_voice_id
+
+    @staticmethod
+    def _enrollment_context(
+        reference: ReferenceAudio, config: dict[str, Any]
+    ) -> tuple[str, str]:
+        sample_paths = reference.source_paths or (reference.path,)
+        fingerprint = ElevenLabsAdapter._enrollment_fingerprint(sample_paths, config)
+        return reference.voice_id or fingerprint, fingerprint
+
+    @staticmethod
+    def _is_missing_voice(response: httpx.Response) -> bool:
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        detail = payload.get("detail", payload)
+        if not isinstance(detail, dict):
+            return False
+        status = str(detail.get("status") or "").strip().lower()
+        if status in {
+            "voice_not_found",
+            "voice_not_found_error",
+            "voice_deleted",
+            "voice_expired",
+            "voice_expired_error",
+        }:
+            return True
+        message = str(detail.get("message") or "").strip().lower()
+        return any(
+            marker in message
+            for marker in (
+                "voice was not found",
+                "voice could not be found",
+                "voice does not exist",
+                "voice has been deleted",
+                "voice has expired",
+                "voice expired",
+            )
+        )
 
     def _available_config(self) -> dict[str, Any]:
         status = self.status({})
@@ -198,8 +266,12 @@ class ElevenLabsAdapter:
                 return client.request(method, path, **options)
         except httpx.TimeoutException as error:
             raise RuntimeError(f"ElevenLabs {action}超时，请检查管理员超时设置和网络") from error
+        except httpx.InvalidURL as error:
+            raise RuntimeError(f"ElevenLabs {action} API 地址无效") from error
         except httpx.RequestError as error:
             raise RuntimeError(f"ElevenLabs {action}网络请求失败，请检查管理员 API 地址和网络") from error
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            raise RuntimeError(f"ElevenLabs {action}配置无效，请检查管理员设置") from error
 
     @staticmethod
     def _validate_wav(payload: bytes) -> float:
@@ -215,19 +287,4 @@ class ElevenLabsAdapter:
     def _ensure_success(response: httpx.Response, action: str) -> None:
         if response.is_success:
             return
-        message = ""
-        try:
-            payload = response.json()
-            detail = (
-                payload.get("detail", payload) if isinstance(payload, dict) else payload
-            )
-            if isinstance(detail, dict):
-                message = str(detail.get("message") or detail.get("status") or "")
-            elif detail:
-                message = str(detail)
-        except ValueError:
-            message = ""
-        suffix = f": {message[:300]}" if message else ""
-        raise RuntimeError(
-            f"ElevenLabs {action}失败（HTTP {response.status_code}）{suffix}"
-        )
+        raise RuntimeError(f"ElevenLabs {action}失败（HTTP {response.status_code}）")

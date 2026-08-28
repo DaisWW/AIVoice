@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from app.engines import cosyvoice, qwen_tts
 from app.engines.contracts import ModelStatus
@@ -11,6 +13,7 @@ from app.engines.cosyvoice import CosyVoice3Adapter
 from app.engines.gpt_sovits import GptSovitsAdapter
 from app.engines.qwen_tts import Qwen3TtsAdapter
 from app.engines.registry import VoiceEngine
+from app.api.routes.system import readiness
 from app.profiles import Profiles
 
 
@@ -25,6 +28,13 @@ class _AvailableAdapter:
         del profile
         self.status_calls += 1
         return ModelStatus(True)
+
+
+class _UnavailableAdapter(_AvailableAdapter):
+    def status(self, profile):
+        del profile
+        self.status_calls += 1
+        raise RuntimeError("model bootstrap failed")
 
 
 def test_registry_respects_explicit_model_disable() -> None:
@@ -65,6 +75,107 @@ def test_registry_model_status_includes_model_identity() -> None:
     assert model["id"] == "optional-model"
     assert model["label"] == "Optional Model"
     assert model["available"] is True
+
+
+def test_registry_marks_required_initialization_failure_unavailable() -> None:
+    adapter = _UnavailableAdapter()
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._profiles = Profiles(
+        {
+            "models": [
+                {
+                    "id": "required-model",
+                    "label": "Required Model",
+                    "engine": adapter.engine_id,
+                    "required": True,
+                }
+            ]
+        }
+    )
+    engine._adapters = {adapter.engine_id: adapter}
+
+    status = engine.model_status()
+
+    assert status["unavailable_required_models"] == ["required-model"]
+    assert status["models"]["required-model"]["available"] is False
+    assert status["models"]["required-model"]["availability_reason"] == "模型状态检查失败"
+
+
+def test_registry_status_logs_are_sanitized(caplog) -> None:
+    adapter = _UnavailableAdapter()
+    adapter.status = lambda profile: (_ for _ in ()).throw(
+        RuntimeError(r"C:\private\api_key=secret")
+    )
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._profiles = Profiles(
+        {
+            "models": [
+                {
+                    "id": "required-model",
+                    "label": "Required Model",
+                    "engine": adapter.engine_id,
+                    "required": True,
+                }
+            ]
+        }
+    )
+    engine._adapters = {adapter.engine_id: adapter}
+
+    with caplog.at_level(logging.ERROR, logger="app.engines.registry"):
+        engine.model_status()
+
+    assert "secret" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_registry_marks_required_profile_disable_unavailable() -> None:
+    adapter = _AvailableAdapter()
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._profiles = Profiles(
+        {
+            "models": [
+                {
+                    "id": "required-model",
+                    "label": "Required Model",
+                    "engine": adapter.engine_id,
+                    "required": True,
+                    "available": False,
+                    "availability_reason": "disabled",
+                }
+            ]
+        }
+    )
+    engine._adapters = {adapter.engine_id: adapter}
+
+    status = engine.model_status()
+
+    assert status["unavailable_required_models"] == ["required-model"]
+    assert status["models"]["required-model"]["available"] is False
+    assert adapter.status_calls == 0
+
+
+@pytest.mark.parametrize(
+    "engine_status",
+    (
+        {"missing_models": [], "unavailable_required_models": ["required-model"]},
+        RuntimeError("model bootstrap failed"),
+    ),
+)
+def test_readiness_rejects_required_model_unavailable(engine_status) -> None:
+    def model_status():
+        if isinstance(engine_status, Exception):
+            raise engine_status
+        return engine_status
+
+    services = SimpleNamespace(
+        job_queue=SimpleNamespace(is_running=True),
+        engine=SimpleNamespace(model_status=model_status),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        readiness(services)
+
+    assert error.value.status_code == 503
 
 
 def test_gpt_status_tracks_the_loaded_model_version(tmp_path: Path) -> None:

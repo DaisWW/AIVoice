@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from app.api.cleanup import (
+    remove_job_artifacts,
+    remove_job_exports,
+    remove_script_exports,
+)
 from app.api.payloads import JobPresenter
 from app.database import Database
 from app.legacy_import import LegacyImporter, legacy_id
@@ -99,6 +105,76 @@ def test_legacy_import_is_idempotent_and_preserves_display_text(
         item["accepted_candidate_id"]
     ]
     assert candidates[0]["text"] == "正常台词"
+
+
+def test_legacy_import_ignores_dirty_order_and_outside_paths(settings_factory) -> None:
+    settings = settings_factory()
+    settings.ensure_directories()
+    script_path, audio_path, final_path = _legacy_files(settings.root)
+    _legacy_configuration(settings.root, script_path, audio_path, final_path)
+    (settings.root / "input" / "voices" / "outside.wav").write_bytes(make_wav_bytes())
+    (settings.root / "input" / "voices" / "voice_source_list.csv").write_text(
+        "voice_id,audio_path,enabled\nsuqi,../outside.wav,1\n", encoding="utf-8"
+    )
+    manifest_path = (
+        settings.root / "output" / "07_generated_final" / "script_manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["rows"][0]["audio_order"] = "not-a-number"
+    manifest["rows"][0]["raw_audio"] = str(
+        settings.root / "input" / "voices" / "outside.wav"
+    )
+    outside_row = dict(manifest["rows"][0])
+    outside_row["final_audio"] = str(settings.root / "input" / "voices" / "outside.wav")
+    manifest["rows"].append(outside_row)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    database = Database(settings.database_path)
+    database.initialize()
+    counts = LegacyImporter(database, settings.root).run()
+
+    assert counts == {"voices": 1, "voice_files": 0, "scripts": 1, "legacy_jobs": 1}
+    job = database.jobs.get(legacy_id("legacy-job", "demo"))
+    item = database.jobs.items(str(job["id"]))[0]
+    assert item["sequence"] == 0
+    assert item["raw_audio_path"] == ""
+
+
+def test_cleanup_rejects_unsafe_ids(settings_factory) -> None:
+    settings = settings_factory()
+    settings.ensure_directories()
+    sentinel = settings.job_root / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    services = SimpleNamespace(settings=settings, export_lock=threading.RLock())
+
+    for value in ("", ".", "..", "nested/job", "C:\\outside", "/tmp/outside"):
+        remove_job_artifacts(services, value)
+        remove_job_exports(services, value)
+        remove_script_exports(services, value)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_cleanup_removes_interrupted_export_temps(settings_factory) -> None:
+    settings = settings_factory()
+    settings.ensure_directories()
+    services = SimpleNamespace(settings=settings, export_lock=threading.RLock())
+    job_id = "job-1"
+    script_id = "script-1"
+    for name in (
+        f"{job_id}.zip.tmp",
+        f"{job_id}-accepted.zip.tmp",
+        f"{script_id}-accepted.zip.tmp",
+        f"{script_id}-all.zip.tmp",
+    ):
+        path = settings.export_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stale")
+
+    remove_job_exports(services, job_id)
+    remove_script_exports(services, script_id)
+
+    assert not list(settings.export_root.glob("*.zip.tmp"))
 
 
 def _database_with_admin(settings_factory) -> tuple[Database, dict[str, Any]]:

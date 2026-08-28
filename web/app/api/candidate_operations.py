@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
-from voice_core.pronunciation import is_raw_pronunciation
-
 from ..domain import ScriptItem
 from ..generation_settings import stored_generation_settings
 from ..script_parser import ScriptFormatError, analyze_script_pronunciation
 from ..services import ApplicationServices
-from ..storage import ensure_within
+from ..storage import resolve_audio_path
+from .cleanup import remove_job_exports
 from .downloads import JobDownloadService
 from .payloads import candidate_payload
 from .schemas import CandidateRegenerate
@@ -25,35 +23,43 @@ def regenerate_candidate(
     request: CandidateRegenerate,
     api_prefix: str,
 ) -> dict[str, Any]:
-    item = _job_item(services, job, item_id)
-    _validate_name(request.name)
-    script_item = _script_item(item, request)
-    source_id = request.source_candidate_id or str(
-        item.get("accepted_candidate_id") or ""
-    )
-    source = _optional_source(services, job, item, source_id)
-    try:
-        generation_settings = services.profiles.resolve_generation_settings(
-            str(job["model_id"]),
-            stored_generation_settings(
-                source.get("generation_settings_json") if source else None
-            ),
-            request.generation_settings,
+    with services.job_mutation_lock:
+        current_job = services.database.jobs.get(str(job["id"]))
+        if not current_job:
+            raise HTTPException(status_code=404, detail="找不到任务")
+        if current_job.get("status") in {"queued", "running"}:
+            raise HTTPException(status_code=409, detail="任务处理完成后才能重新生成候选")
+        item = _job_item(services, current_job, item_id)
+        if item.get("status") in {"queued", "running"}:
+            raise HTTPException(status_code=409, detail="该段音频处理完成后才能重新生成候选")
+        _validate_name(request.name)
+        script_item = _script_item(item, request)
+        source_id = request.source_candidate_id or str(
+            item.get("accepted_candidate_id") or ""
         )
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    candidate_id = services.database.candidates.create_regeneration(
-        job_item=item,
-        script_item=script_item,
-        seed=_seed(request.seed),
-        generation_settings=generation_settings,
-        name=request.name,
-        source_candidate_id=str(source["id"]) if source else None,
-    )
-    candidate = services.database.candidates.get(candidate_id)
-    if not candidate:  # pragma: no cover
-        raise HTTPException(status_code=500, detail="逐句候选创建后未找到")
-    services.job_queue.submit_candidate(candidate_id)
+        source = _optional_source(services, current_job, item, source_id)
+        try:
+            generation_settings = services.profiles.resolve_generation_settings(
+                str(current_job["model_id"]),
+                stored_generation_settings(
+                    source.get("generation_settings_json") if source else None
+                ),
+                request.generation_settings,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        candidate_id = services.database.candidates.create_regeneration(
+            job_item=item,
+            script_item=script_item,
+            seed=_seed(request.seed),
+            generation_settings=generation_settings,
+            name=request.name,
+            source_candidate_id=str(source["id"]) if source else None,
+        )
+        candidate = services.database.candidates.get(candidate_id)
+        if not candidate:  # pragma: no cover
+            raise HTTPException(status_code=500, detail="逐句候选创建后未找到")
+        services.job_queue.submit_candidate(candidate_id)
     return candidate_payload(candidate, api_prefix)
 
 
@@ -63,14 +69,14 @@ def accept_candidate(
     item_id: str,
     candidate_id: str,
 ) -> None:
-    item = _job_item(services, job, item_id)
-    candidate = _source(services, job, item, candidate_id)
-    _validate_clone_audio(services, candidate)
-    if not services.database.candidates.accept(item_id, candidate_id):
-        raise HTTPException(status_code=409, detail="候选尚未完成，不能采用")
-    (services.settings.export_root / f"{job['id']}-accepted.zip").unlink(
-        missing_ok=True
-    )
+    with services.job_mutation_lock:
+        item = _job_item(services, job, item_id)
+        candidate = _source(services, job, item, candidate_id)
+        _validate_clone_audio(services, candidate)
+        if not services.database.candidates.accept(item_id, candidate_id):
+            raise HTTPException(status_code=409, detail="候选尚未完成，不能采用")
+        services.database.jobs.refresh_summary(str(job["id"]))
+        remove_job_exports(services, str(job["id"]))
 
 
 def candidate_audio_response(
@@ -79,8 +85,7 @@ def candidate_audio_response(
     item_id: str,
     candidate_id: str,
 ) -> FileResponse:
-    _, path = JobDownloadService(services).candidate_path(job, item_id, candidate_id)
-    return FileResponse(path, media_type="audio/wav")
+    return JobDownloadService(services).candidate_response(job, item_id, candidate_id)
 
 
 def _job_item(
@@ -133,7 +138,7 @@ def _script_item(item: dict[str, Any], request: CandidateRegenerate) -> ScriptIt
     except ScriptFormatError as error:
         raise HTTPException(status_code=422, detail=f"发音标记错误: {error}") from error
     direction = analysis.direction if request.direction == "auto" else request.direction
-    generated = _directional_text(analysis.generated_text, direction)
+    generated = _directional_text(analysis.generated_text, direction, analysis.raw_mode)
     return ScriptItem(
         order=int(item["sequence"]),
         source_line=int(item["source_line"]),
@@ -147,12 +152,12 @@ def _script_item(item: dict[str, Any], request: CandidateRegenerate) -> ScriptIt
     )
 
 
-def _directional_text(value: str, direction: str) -> str:
+def _directional_text(value: str, direction: str, raw_mode: bool = False) -> str:
     text = value.rstrip("。？！.!?")
     if direction == "rise":
-        return text + ("?" if is_raw_pronunciation(value) else "？")
+        return text + ("?" if raw_mode else "？")
     if direction == "fall":
-        return text + ("." if is_raw_pronunciation(value) else "。")
+        return text + ("." if raw_mode else "。")
     return value
 
 
@@ -174,12 +179,10 @@ def _validate_clone_audio(
 ) -> None:
     if candidate.get("status") != "completed":
         raise HTTPException(status_code=409, detail="候选尚未完成，不能采用")
-    value = str(candidate.get("raw_audio_path") or candidate.get("audio_path") or "")
-    if not value:
+    if not any(
+        str(candidate.get(field) or "").strip()
+        for field in ("raw_audio_path", "audio_path")
+    ):
         raise HTTPException(status_code=409, detail="候选尚未完成，不能采用")
-    try:
-        path = ensure_within(Path(value), services.settings.root)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail="克隆音频路径无效") from error
-    if not path.is_file():
+    if resolve_audio_path(candidate, services.settings.root) is None:
         raise HTTPException(status_code=409, detail="克隆音频已不存在")
