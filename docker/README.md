@@ -91,4 +91,4 @@ docker compose --project-directory C:\Workspace\Git\voice `
   -f C:\Workspace\Git\voice\docker\compose.yaml ps
 ```
 
-状态应为 `healthy`，容器探针 `/api/healthz` 返回 `ok: true`。登录工作台后，`/api/health` 会同时显示基准模型可用和 GPU 队列存活；可选模型状态会分别列出。正式验收再提交一条短台本生成，确认音频能播放和下载。
+状态应为 `healthy`，容器就绪探针 `/api/readyz` 返回 `ok: true`。该探针要求 GPU 队列存活且必需模型可用；可选模型缺失不会阻止容器启动。`/api/healthz` 仅表示 Web 进程存活。登录工作台后，`/api/health` 会显示完整模型与队列状态。正式验收再提交一条短台本生成，确认音频能播放和下载。

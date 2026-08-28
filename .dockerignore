@@ -16,6 +16,7 @@ tools/GPT-SoVITS/GPT_SoVITS/pretrained_models/
 tools/GPT-SoVITS/GPT_SoVITS/text/G2PWModel/
 tools/OpenVoice/
 tools/CosyVoice/
+tools/Qwen3-TTS/
 tools/downloads/
 tools/models/
 web/tests/

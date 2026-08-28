@@ -92,7 +92,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoLogo -NoProfile -Command "$port='!HOST_PORT!'; $deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri ('http://127.0.0.1:' + $port + '/api/healthz') -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
+powershell.exe -NoLogo -NoProfile -Command "$port='!HOST_PORT!'; $deadline=(Get-Date).AddSeconds(90); do { try { $r=Invoke-WebRequest -UseBasicParsing -Uri ('http://127.0.0.1:' + $port + '/api/readyz') -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $deadline); exit 1"
 if errorlevel 1 (
   echo [ERROR] 服务未在 90 秒内通过健康检查，最近日志如下:
   docker compose --project-directory "%PROJECT_ROOT%" --env-file "%ENV_FILE%" -f "%COMPOSE%" logs --tail=160 voice-lab

@@ -17,7 +17,15 @@ services:
     restart: unless-stopped
     init: true
     shm_size: "8gb"
-    gpus: all
+    gpus: ${VOICE_LAB_GPUS:-all}
+    mem_limit: ${VOICE_LAB_MEM_LIMIT:-16g}
+    cpus: ${VOICE_LAB_CPUS:-8}
+    pids_limit: ${VOICE_LAB_PIDS_LIMIT:-512}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     environment:
       PYTHONUNBUFFERED: "1"
       VOICE_LAB_HOST: "0.0.0.0"
@@ -44,7 +52,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/healthz', timeout=4)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/readyz', timeout=4)"
       interval: 15s
       timeout: 5s
       start_period: 45s

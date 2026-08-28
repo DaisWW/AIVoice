@@ -17,7 +17,7 @@ def test_docker_launcher_uses_configured_host_port_and_hides_existing_password()
     assert 'findstr /B "VOICE_LAB_PORT="' in launcher
     assert '"VOICE_LAB_PORT=18082"' in generated_environment
     assert "$port='!HOST_PORT!'" in launcher
-    assert "'http://127.0.0.1:' + $port + '/api/healthz'" in launcher
+    assert "'http://127.0.0.1:' + $port + '/api/readyz'" in launcher
     assert "http://127.0.0.1:!HOST_PORT!/admin" in launcher
     assert 'if "!ENV_CREATED!"=="1" echo 初始密码:' in launcher
     assert 'if not "!ENV_CREATED!"=="1" echo 初始密码:   已存在' in launcher

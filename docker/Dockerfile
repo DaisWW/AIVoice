@@ -48,6 +48,6 @@ RUN python -m pip uninstall -y praat-parselmouth pyloudnorm \
 EXPOSE 18082
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/healthz', timeout=4)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18082/api/readyz', timeout=4)" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/voice-lab-entrypoint"]
