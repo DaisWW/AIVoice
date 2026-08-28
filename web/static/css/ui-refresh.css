@@ -84,25 +84,10 @@ body.workstation-page .topbar-label {
 }
 
 body.workstation-page .auth-view {
-  grid-template-columns: minmax(0, 1.04fr) minmax(430px, .96fr);
+  grid-template-columns: minmax(0, 1fr);
   background-color: var(--ws-bg);
-  background-image:
-    linear-gradient(90deg, rgba(7, 9, 14, .12), rgba(7, 9, 14, .32) 54%, rgba(7, 9, 14, .72)),
-    url("../assets/voice-lab-login-bg.webp");
-  background-position: center;
-  background-size: cover;
-}
-
-body.workstation-page .auth-rail {
-  position: relative;
-  overflow: hidden;
-  padding: clamp(48px, 8vw, 124px);
-  border-right-color: rgba(255, 255, 255, .06);
-  background: linear-gradient(90deg, rgba(10, 13, 20, .72), rgba(10, 13, 20, .46) 72%, rgba(10, 13, 20, .18));
-}
-
-body.workstation-page .auth-signal {
-  margin-bottom: 42px;
+  background-image: none;
+  --login-background-asset: url("../assets/voice-lab-login-bg.webp");
 }
 
 body.workstation-page .auth-signal i,
@@ -110,50 +95,69 @@ body.workstation-page .empty-orbit i {
   background: var(--ws-accent);
 }
 
-body.workstation-page .auth-rail h1 {
-  max-width: 760px;
-  margin: 20px 0 22px;
-  font-size: clamp(38px, 4vw, 58px);
-  font-weight: 650;
-  line-height: 1.12;
-}
-
-body.workstation-page .auth-rail p {
-  max-width: 570px;
-  color: var(--ws-muted);
-  font-size: 16px;
-  line-height: 1.8;
-}
-
 body.workstation-page .auth-panel {
-  padding: 42px;
-  border-left: 1px solid rgba(255, 255, 255, .045);
-  background: linear-gradient(90deg, rgba(8, 10, 15, .62), rgba(8, 10, 15, .86));
+  min-height: 100dvh;
+  padding: 24px;
+  border-left: 0;
+  background: transparent;
 }
 
 body.workstation-page .login-card {
-  width: min(100%, 430px);
-  padding: 38px;
-  border-color: rgba(255, 255, 255, .09);
-  border-radius: 16px;
-  background: rgba(19, 22, 29, .94);
-  box-shadow: var(--shadow);
+  width: min(100%, 360px);
+  padding: 30px;
+  border-color: var(--ws-line);
+  border-radius: 8px;
+  background: var(--ws-surface);
+  box-shadow: none;
 }
 
 body.workstation-page .login-card h2 {
-  margin: 13px 0 9px;
-  font-size: 28px;
-  font-weight: 660;
+  margin: 0 0 24px;
+  font-size: 24px;
+  font-weight: 650;
 }
 
-body.workstation-page .login-card > p {
-  margin-bottom: 30px;
-  font-size: 14px;
+body.workstation-page .login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  color: var(--ws-ink-soft);
 }
+
+body.workstation-page .login-brand > strong {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .08em;
+}
+
+body.workstation-page .login-brand .auth-signal {
+  display: flex;
+  width: 30px;
+  height: 22px;
+  align-items: end;
+  gap: 3px;
+  margin: 0;
+}
+
+body.workstation-page .login-brand .auth-signal i {
+  display: block;
+  width: 4px;
+  border-radius: 2px 2px 0 0;
+}
+
+body.workstation-page .login-brand .auth-signal i:nth-child(1) { height: 9px; opacity: .45; }
+body.workstation-page .login-brand .auth-signal i:nth-child(2) { height: 17px; opacity: .7; }
+body.workstation-page .login-brand .auth-signal i:nth-child(3) { height: 12px; }
+body.workstation-page .login-brand .auth-signal i:nth-child(4) { height: 21px; opacity: .85; }
+body.workstation-page .login-brand .auth-signal i:nth-child(5) { height: 15px; opacity: .55; }
 
 body.workstation-page .login-card > small {
-  color: var(--ws-muted);
-  font-size: 12px;
+  display: block;
+  margin-top: 14px;
+  color: var(--ws-faint);
+  font-size: 11px;
+  text-align: center;
 }
 
 body.workstation-page .login-card label,

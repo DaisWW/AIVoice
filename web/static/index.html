@@ -12,26 +12,22 @@
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260826.1">
   <link rel="stylesheet" href="/assets/css/workstation.css?v=20260827.17">
-  <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.3">
+  <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.3&rev=20260828.1">
 </head>
 <body class="workstation-page">
   <section id="authView" class="auth-view" aria-label="登录 Voice Lab">
-    <div class="auth-rail" aria-hidden="true">
-      <div class="auth-signal"><i></i><i></i><i></i><i></i><i></i></div>
-      <span class="eyebrow">VOICE LAB</span>
-      <h1>从台本到成片声音，<br>都在一个工作台完成。</h1>
-      <p>集中管理台本、参考声音、生成与审核，让团队始终围绕同一份项目内容协作。</p>
-    </div>
     <div class="auth-panel">
       <form id="loginForm" class="login-card">
-        <span class="eyebrow">项目工作台</span>
-        <h2>欢迎回来</h2>
-        <p>登录后继续处理你的声音项目。</p>
+        <div class="login-brand" aria-label="Voice Lab">
+          <div class="auth-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <strong>VOICE LAB</strong>
+        </div>
+        <h2>登录</h2>
         <label for="loginUsername"><span>用户名</span><input id="loginUsername" name="username" autocomplete="username" maxlength="64" required placeholder="your.name"></label>
         <label for="loginPassword"><span>密码</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="输入密码"></label>
         <p id="loginError" class="form-error" role="alert"></p>
-        <button class="button button-primary button-large" type="submit"><span>登录工作台</span><strong aria-hidden="true">→</strong></button>
-        <small>账户由系统管理员创建，不开放公开注册。</small>
+        <button class="button button-primary button-large" type="submit"><span>登录</span></button>
+        <small>账户由管理员创建。</small>
       </form>
     </div>
   </section>
