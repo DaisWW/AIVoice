@@ -2,7 +2,7 @@ import { ApiClient } from "./core/api-client.js";
 import { AuthController } from "./auth/auth-controller.js?v=20260825.1";
 import { escapeHtml, setButtonBusy } from "./core/dom.js";
 import { safeResourceUrl } from "./core/url.js?v=20260826.1";
-import { GenerationConfigurationController } from "./generation/configuration-controller.js?v=20260826.1";
+import { GenerationConfigurationController } from "./generation/configuration-controller.js?v=20260831.2";
 import { generationSeedPlan } from "./generation/seed-plan.js";
 
 const byId = (id) => document.getElementById(id);
@@ -384,15 +384,41 @@ class WorkstationApp {
   lineResult(scriptId, sequence) {
     const jobs = this.generationJobsForScript(scriptId);
     const selection = (this.state.scriptDetail?.selections || []).find((row) => Number(row.sequence) === sequence);
-    const records = [];
+    const entries = [];
     for (const job of jobs) {
       const detail = this.state.jobDetails[job.id];
       const item = detail?.items?.find((entry) => Number(entry.sequence) === sequence);
-      if (item) records.push(this.renderLineHistory(job, item, selection));
-      else if (!detail && Number(job.total_items) > 1) records.push(this.renderLineHistory(job, null, selection));
+      if (item || (!detail && Number(job.total_items) > 1)) entries.push({ job, item, batchKey: this.historyBatchKey(job) });
     }
-    if (!records.length) return "";
-    return `<section class="line-history" aria-label="第 ${sequence} 行生成历史"><div class="line-history-heading"><span>生成历史</span><small>${records.length} 条</small></div><div class="line-history-grid">${records.join("")}</div></section>`;
+    if (!entries.length) return "";
+    const latestEntry = entries.reduce((latest, entry) => this.historyTimestamp(entry.job) > this.historyTimestamp(latest.job) ? entry : latest, entries[0]);
+    const latest = entries.filter((entry) => entry.batchKey === latestEntry.batchKey);
+    const archived = entries.filter((entry) => entry.batchKey !== latestEntry.batchKey);
+    const renderEntries = (items) => items.map(({ job, item }) => this.renderLineHistory(job, item, selection)).join("");
+    const archive = archived.length
+      ? `<details class="line-history-archive"><summary><span>历史批次</span><small>${archived.length} 条任务，默认收起</small></summary><div class="line-history-grid">${renderEntries(archived)}</div></details>`
+      : "";
+    return `<section class="line-history" aria-label="第 ${sequence} 行生成历史"><div class="line-history-heading"><span>最新批次</span><small>${latest.length} 条任务 · ${this.historyBatchStatus(latest)}</small></div><div class="line-history-grid">${renderEntries(latest)}</div>${archive}</section>`;
+  }
+
+  historyTimestamp(job) {
+    const timestamp = Date.parse(String(job?.submitted_at || ""));
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  historyBatchKey(job) {
+    const timestamp = this.historyTimestamp(job);
+    return timestamp ? `time:${Math.floor(timestamp / 1000)}` : `job:${job?.id || ""}`;
+  }
+
+  historyBatchStatus(entries) {
+    const statuses = new Set(entries.map(({ job, item }) => item?.status || job.status));
+    if (statuses.has("running")) return "生成中";
+    if (statuses.has("queued")) return "排队中";
+    if (statuses.has("completed") && statuses.has("failed")) return "部分完成";
+    if (statuses.has("completed")) return "已完成";
+    if (statuses.has("failed")) return "失败";
+    return "待确认";
   }
 
   renderLineHistory(job, item, selection) {
@@ -412,7 +438,9 @@ class WorkstationApp {
     const selected = Boolean(selection && selection.job_id === job.id && selection.item_id === item.id && selection.candidate_id === candidate.id);
     const action = selected
       ? `<button class="button button-quiet button-small" type="button" data-action="clear-generation-selection" data-sequence="${escapeHtml(item.sequence)}">取消采纳</button>`
-      : `<button class="button button-primary button-small" type="button" data-action="select-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}" data-sequence="${escapeHtml(item.sequence)}"${candidate.status === "completed" ? "" : " disabled"}>采纳</button>`;
+      : candidate.status === "completed"
+        ? `<button class="button button-primary button-small" type="button" data-action="select-generation" data-job-id="${escapeHtml(job.id)}" data-item-id="${escapeHtml(item.id)}" data-candidate-id="${escapeHtml(candidate.id)}" data-sequence="${escapeHtml(item.sequence)}">采纳</button>`
+        : "";
     const audioUrl = safeResourceUrl(candidate.audio_url);
     const audio = audioUrl ? `<audio controls preload="none" src="${escapeHtml(audioUrl)}"></audio>` : `<small class="candidate-pending">${escapeHtml(candidate.error || "候选生成后会显示在这里")}</small>`;
     const badge = selected ? "<span>已采纳</span>" : `<span>${escapeHtml(statusLabel(candidate.status))}</span>`;
@@ -835,7 +863,7 @@ class WorkstationApp {
       if (action === "open-settings-drawer") this.openSettingsDrawer(button.dataset.kind);
       if (action === "close-settings-drawer") this.closeSettingsDrawer();
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
-      if (action === "select-script") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); }
+      if (action === "select-script") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); for (const job of this.state.jobs.filter((item) => item.script_id === this.state.selectedScriptId)) void this.loadJobDetail(job.id); }
       if (action === "select-voice") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "rewrite-line") await this.runBusy(button, () => this.rewriteScriptLine(button));
       if (action === "adopt-line-rewrite") this.adoptLineRewrite(button);

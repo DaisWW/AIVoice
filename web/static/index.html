@@ -11,7 +11,7 @@
     html.app-loading .app-shell, html.app-loading .auth-view { opacity: 0; }
   </style>
   <link rel="stylesheet" href="/assets/css/base.css?v=20260826.1">
-  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260828.1">
+  <link rel="stylesheet" href="/assets/css/workstation.css?v=20260831.2">
   <link rel="stylesheet" href="/assets/css/ui-refresh.css?v=20260827.3&rev=20260828.2">
 </head>
 <body class="workstation-page">
@@ -150,10 +150,10 @@
   <dialog id="generationOptionsDialog" class="modal-dialog generation-options-dialog">
     <form id="generationOptionsForm" method="dialog">
       <header class="dialog-header"><div><span class="eyebrow">生成设置</span><h2 id="generationOptionsTitle">生成音频</h2></div><button class="icon-button" type="button" data-close-dialog="generationOptionsDialog" title="关闭" aria-label="关闭">×</button></header>
-      <p class="dialog-intro">每行配置代表一种声音与模型组合；需要对比时再添加多行。</p>
+      <p class="dialog-intro">每行配置只使用所选的原声与模型，不会自动遍历其他模型。列表只显示当前已安装且可用的模型，需要对比时添加多条配置。</p>
       <div class="generation-configuration-toolbar">
-        <div><strong>生成列表</strong><small>点击下拉先显示全部选项，也可在面板中搜索</small></div>
-        <button class="button button-quiet" type="button" data-action="add-generation-configuration"><span aria-hidden="true">＋</span> 添加生成</button>
+        <div><strong>生成列表</strong><small>点击下拉先显示全部选项，也可在面板中搜索</small><small id="generationModelHint" class="generation-model-hint" aria-live="polite"></small></div>
+        <button class="button button-quiet" type="button" data-action="add-generation-configuration"><span aria-hidden="true">＋</span> 添加对比配置</button>
       </div>
       <div id="generationConfigurationList" class="generation-configuration-list"></div>
       <p id="generationCombinationCount" class="generation-combination-count" aria-live="polite"></p>
@@ -172,6 +172,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/assets/js/app.js?v=20260828.1"></script>
+  <script type="module" src="/assets/js/app.js?v=20260831.2"></script>
 </body>
 </html>

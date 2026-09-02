@@ -166,8 +166,8 @@ def test_generation_candidate_keeps_only_compact_selection_action() -> None:
     javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
-    assert "workstation.css?v=20260828.1" in content
-    assert "app.js?v=20260828.1" in content
+    assert "workstation.css?v=20260831.2" in content
+    assert "app.js?v=20260831.2" in content
     assert '<div class="candidate-media">${audio}${action}</div>' in javascript
     assert 'class="candidate-actions"' not in javascript
     assert "candidate.download_url" not in javascript
@@ -178,7 +178,7 @@ def test_generation_history_uses_responsive_card_grid() -> None:
     javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
     stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
 
-    assert '<div class="line-history-grid">${records.join("")}</div>' in javascript
+    assert '<div class="line-history-grid">${renderEntries(latest)}</div>' in javascript
     assert ".line-history-grid { display: grid;" in stylesheet
     assert "repeat(auto-fit, minmax(min(100%, 520px), 1fr))" in stylesheet
     assert ".line-history-grid .line-history-candidates" in stylesheet
@@ -186,6 +186,27 @@ def test_generation_history_uses_responsive_card_grid() -> None:
     assert 'aria-label="删除这条生成记录"' in javascript
     assert '${deleteButton}</div><div class="line-history-meta"' in javascript
     assert ".icon-button.line-history-delete svg" in stylesheet
+
+
+def test_generation_history_prioritizes_latest_batch_and_hides_failed_actions() -> None:
+    javascript = (STATIC_ROOT / "js" / "app.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC_ROOT / "css" / "workstation.css").read_text(encoding="utf-8")
+
+    assert 'class="line-history-archive"' in javascript
+    assert "historyBatchKey(job)" in javascript
+    assert 'candidate.status === "completed"' in javascript
+    assert ".line-history-archive summary" in stylesheet
+
+
+def test_generation_dialog_explains_explicit_model_selection() -> None:
+    content = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (
+        STATIC_ROOT / "js" / "generation" / "configuration-controller.js"
+    ).read_text(encoding="utf-8")
+
+    assert "不会自动遍历其他模型" in content
+    assert 'id="generationModelHint"' in content
+    assert "系统不会自动调用其他模型" in javascript
 
 
 def test_script_and_voice_assets_use_compact_workspaces_and_settings_drawer() -> None:

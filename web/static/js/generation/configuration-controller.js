@@ -239,7 +239,15 @@ export class GenerationConfigurationController {
         const model = models.find((item) => item.id === configuration.modelId);
         return `<div class="generation-configuration" data-generation-configuration="${escapeHtml(configuration.id)}"><span class="generation-configuration-index">${String(index + 1).padStart(2, "0")}</span><div class="generation-configuration-field"><span>原声</span>${this.dropdown(configuration, index, "原声", configuration.voiceId, voiceOptions, "选择原声")}<small>${voice ? `${voice.enabled_file_count} 条可用录音` : "请选择原声"}</small></div><div class="generation-configuration-field"><span>模型</span>${this.dropdown(configuration, index, "模型", configuration.modelId, modelOptions, "选择模型")}<small>${escapeHtml(model?.engine || model?.id || "请选择模型")}</small></div><div class="generation-configuration-field generation-count-field"><span>条数</span>${this.dropdown(configuration, index, "条数", String(configuration.candidateCount), countOptions, "选择条数")}<small>每行候选</small></div><button class="icon-button generation-configuration-remove" type="button" data-action="remove-generation-configuration" data-configuration-id="${escapeHtml(configuration.id)}" title="移除这条配置" aria-label="移除第 ${index + 1} 条生成配置">×</button></div>`;
       }).join("")
-      : `<div class="generation-configuration-empty"><strong>还没有生成配置</strong><span>点击“＋ 添加生成”开始组装。</span></div>`;
+      : `<div class="generation-configuration-empty"><strong>还没有生成配置</strong><span>点击“添加对比配置”开始组装。</span></div>`;
+    const hint = byId("generationModelHint");
+    if (hint) {
+      const labels = [...new Set(this.state.generationConfigurations.map((configuration) => models.find((model) => model.id === configuration.modelId)?.label || configuration.modelId).filter(Boolean))];
+      const unavailable = this.state.config.models.filter((model) => model.available !== true).length;
+      hint.textContent = labels.length
+        ? `当前模型：${labels.join("、")} · 系统不会自动调用其他模型${unavailable ? ` · ${unavailable} 个模型未就绪，不会出现在列表中` : ""}`
+        : `可用模型 ${models.length} 个${unavailable ? ` · ${unavailable} 个模型未就绪，不会出现在列表中` : ""}`;
+    }
     this.updateCombinationCount();
     if (focusId) {
       byId("generationConfigurationList")
