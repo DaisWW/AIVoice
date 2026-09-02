@@ -29,6 +29,12 @@ server=(
 echo "[Voice Lab] starting on ${VOICE_LAB_HOST:-0.0.0.0}:${VOICE_LAB_PORT:-18082}"
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R voicelab:voicelab /app/web/data
+  # GPT-SoVITS writes its resolved runtime config on first model load.
+  chown -R voicelab:voicelab /app/tools/GPT-SoVITS/GPT_SoVITS/configs
+  export HOME=/home/voicelab
+  export MPLCONFIGDIR=/app/web/data/cache/matplotlib
+  mkdir -p "$MPLCONFIGDIR"
+  chown -R voicelab:voicelab "$MPLCONFIGDIR"
   exec setpriv --reuid=voicelab --regid=voicelab --init-groups "${server[@]}"
 fi
 exec "${server[@]}"
