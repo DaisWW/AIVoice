@@ -936,6 +936,33 @@ body.workstation-page .generation-configuration {
   background: var(--ws-surface-soft);
 }
 
+@media (min-width: 721px) {
+  body.workstation-page .generation-options-dialog {
+    width: min(1040px, calc(100vw - 48px));
+    max-height: min(900px, calc(100dvh - 48px));
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.workstation-page .generation-options-dialog form {
+    padding: 0 32px 30px;
+  }
+
+  body.workstation-page .generation-options-dialog .generation-configuration-list {
+    max-height: none;
+    gap: 12px;
+    margin-top: 16px;
+    padding-right: 0;
+    overflow: visible;
+  }
+
+  body.workstation-page .generation-options-dialog .generation-configuration {
+    grid-template-columns: 34px minmax(0, 1.35fr) minmax(0, 1fr) minmax(80px, 92px) 34px;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+}
+
 body.workstation-page .generation-dropdown-trigger,
 body.workstation-page .generation-dropdown-panel,
 body.workstation-page .generation-dropdown-search {
