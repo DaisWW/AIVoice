@@ -337,6 +337,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
 .line-rewrite-preview span { color: var(--ws-faint); font-size: 9px; }
 .line-rewrite-preview p { margin: 5px 0 0; color: var(--ws-ink-soft); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .line-rewrite-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.pronunciation-suggestions { display: grid; gap: 10px; margin-bottom: 14px; padding: 13px; border: 1px solid rgba(101, 216, 197, .3); border-radius: 7px; background: rgba(23, 51, 47, .42); }
+.pronunciation-suggestions header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pronunciation-suggestions header strong { color: var(--ws-cool); font-size: 11px; }
+.pronunciation-suggestions header small { color: var(--ws-muted); font-size: 10px; }
+.pronunciation-suggestions ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pronunciation-suggestions li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 9px; border: 1px solid rgba(101, 216, 197, .16); border-radius: 6px; background: var(--ws-surface-soft); }
+.pronunciation-suggestions li > span { color: var(--ws-faint); font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.pronunciation-suggestions li p { min-width: 0; margin: 0; color: var(--ws-ink-soft); font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pronunciation-suggestion-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .script-save-floating { position: fixed; z-index: 12; right: 28px; bottom: 28px; min-width: 118px; box-shadow: 0 12px 35px rgba(0, 0, 0, .42); }
 .line-fields label span { color: var(--ws-faint); font-size: 10px; }
 .line-fields textarea { min-height: 64px; font-size: 11px; }
@@ -683,6 +692,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--ws-accent); out
   .generation-actions { width: 100%; flex-wrap: wrap; }
   .generation-actions .button { min-width: 0; flex: 1 1 110px; }
   .line-fields { gap: 8px; }
+  .pronunciation-suggestions header { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .pronunciation-suggestions li { grid-template-columns: 24px minmax(0, 1fr); }
+  .pronunciation-suggestion-actions { justify-content: stretch; }
+  .pronunciation-suggestion-actions .button { flex: 1 1 0; }
   .line-rewrite-controls { grid-template-columns: 1fr; }
   .line-rewrite-controls .button { justify-self: start; }
   .character-context-actions { align-items: stretch; flex-direction: column; }

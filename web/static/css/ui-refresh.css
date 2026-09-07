@@ -775,6 +775,31 @@ body.workstation-page .line-rewrite-suggestion {
   background: rgba(32, 39, 68, .55);
 }
 
+body.workstation-page .pronunciation-suggestions {
+  border-color: rgba(101, 216, 197, .28);
+  border-radius: 10px;
+  background: rgba(23, 51, 47, .46);
+}
+
+body.workstation-page .pronunciation-suggestions header strong,
+body.workstation-page .pronunciation-suggestions li p {
+  font-size: 12px;
+}
+
+body.workstation-page .pronunciation-suggestions header small,
+body.workstation-page .pronunciation-suggestions li > span {
+  font-size: 11px;
+}
+
+body.workstation-page .pronunciation-suggestions li {
+  padding: 10px 11px;
+  border-radius: 8px;
+}
+
+body.workstation-page .pronunciation-suggestion-actions .button {
+  min-height: 40px;
+}
+
 body.workstation-page .line-rewrite-suggestion header strong,
 body.workstation-page .line-rewrite-preview p {
   font-size: 12px;

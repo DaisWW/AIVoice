@@ -18,7 +18,7 @@ const WORKSTATION_VIEWS = new Set(["script", "voice", "project"]);
 class WorkstationApp {
   constructor() {
     this.api = new ApiClient();
-    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, scriptImportBatch: null, scriptImportError: "", selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, scriptSearchQuery: "", voiceSearchQuery: "", settingsDrawer: null, assetRename: null, jobDetails: {} };
+    this.state = { user: null, project: null, projects: [], scripts: [], voices: [], jobs: [], config: { models: [] }, scriptImportBatch: null, scriptImportError: "", selectedScriptId: null, selectedVoiceId: null, selectedModelId: null, generationConfigurations: [], generationRequest: null, currentView: "script", projectPromptSuggestion: "", projectPromptDraft: null, scriptPromptSuggestion: "", scriptPromptDraft: null, generatedLines: [], generatedLinesScriptId: null, lineRewriteSuggestions: {}, lineRewriteInstructions: {}, scriptItemDrafts: {}, pronunciationSuggestions: [], pronunciationSuggestionsScriptId: null, scriptSearchQuery: "", voiceSearchQuery: "", settingsDrawer: null, assetRename: null, jobDetails: {} };
     this.auth = new AuthController(this.api, "appShell", (user) => this.boot(user));
     this.generation = new GenerationConfigurationController(this.state, {
       storePosition: () => this.storePosition(),
@@ -168,6 +168,8 @@ class WorkstationApp {
         this.state.lineRewriteSuggestions = {};
         this.state.lineRewriteInstructions = {};
         this.state.scriptItemDrafts = {};
+        this.state.pronunciationSuggestions = [];
+        this.state.pronunciationSuggestionsScriptId = null;
         this.loadingVoice = null;
         this.loadingMembers = null;
         this.loadingJobIds.clear();
@@ -326,13 +328,15 @@ class WorkstationApp {
     const models = this.state.config.models.filter((model) => model.available === true);
     const voices = this.state.voices.filter((voice) => voice.enabled_file_count);
     const canGenerate = Boolean(voices.length && models.length && detail.items.length);
+    const canGeneratePronunciations = Boolean(detail.items.length && this.state.config.text_model?.configured === true);
     const generationJobs = this.generationJobsForScript(detail.id);
     const selections = detail.selections || [];
     const selectedSequences = new Set(selections.map((row) => Number(row.sequence)));
     const selectedCount = detail.items.filter((item, index) => selectedSequences.has(Number(item.order || index + 1))).length;
     const lines = detail.items.map((item, index) => this.scriptLine(detail.id, item, index, canGenerate)).join("");
     const generationStatus = `${canGenerate ? `${detail.items.length} 行可生成 · 支持逐条配置` : "需要先添加可用声音和模型"}${generationJobs.length ? ` · ${generationJobs.length} 条生成记录` : ""} · 已采纳 ${selectedCount}/${detail.items.length}`;
-    return `<div class="detail-inner"><header class="detail-header asset-detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions asset-detail-actions"><div class="asset-detail-generation"><button class="button button-primary button-small" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"} aria-label="生成全部音频" title="生成全部音频">全部生成</button><small class="generation-help" title="${escapeHtml(generationStatus)}">${escapeHtml(generationStatus)}</small></div><button class="button button-quiet button-small asset-settings-trigger" type="button" data-action="open-settings-drawer" data-kind="script" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>设置</span></button></div></header><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>编辑内容、生成音频并试听采纳；修改后点击右下角保存。</p></div></div><div class="script-lines">${lines}</div><button class="button button-primary script-save-floating" type="submit" aria-label="保存全部台词与发音">保存台词</button></form></div>`;
+    const pronunciationStatus = canGeneratePronunciations ? "依据角色台词特性生成全部发音候选" : "需要系统管理员先启用台词文本模型";
+    return `<div class="detail-inner"><header class="detail-header asset-detail-header"><div><span class="eyebrow">SCRIPT DETAIL</span><h2>${escapeHtml(detail.name)}</h2><p>${detail.item_count} 行台词 · ${escapeHtml(detail.original_name)}</p></div><div class="detail-actions asset-detail-actions"><div class="asset-detail-generation"><button class="button button-quiet button-small" type="button" data-action="generate-pronunciations"${canGeneratePronunciations ? "" : " disabled"} aria-label="生成全部发音候选" title="${escapeHtml(pronunciationStatus)}">生成全部发音</button><button class="button button-primary button-small" type="button" data-action="generate-all"${canGenerate ? "" : " disabled"} aria-label="生成全部音频" title="生成全部音频">全部生成</button><small class="generation-help" title="${escapeHtml(generationStatus)}">${escapeHtml(generationStatus)}</small></div><button class="button button-quiet button-small asset-settings-trigger" type="button" data-action="open-settings-drawer" data-kind="script" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>设置</span></button></div></header><form id="scriptItemsForm" class="script-editor"><div class="editor-toolbar"><div><h3>台词与发音</h3><p>编辑内容、生成音频并试听采纳；修改后点击右下角保存。</p></div></div>${this.pronunciationSuggestionsPanel(detail.id)}<div class="script-lines">${lines}</div><button class="button button-primary script-save-floating" type="submit" aria-label="保存全部台词与发音">保存台词</button></form></div>`;
   }
 
   scriptSettingsDrawer(detail) {
@@ -367,12 +371,18 @@ class WorkstationApp {
     const draft = this.state.scriptItemDrafts[scriptId]?.[sequence];
     const text = draft?.text ?? item.text;
     const pronunciation = draft?.pronunciation ?? item.pronunciation;
-    const rewriteInstruction = this.state.lineRewriteInstructions[this.lineRewriteKey(scriptId, sequence)] || "";
+    const rewriteInstruction = draft?.rewrite_instruction ?? item.rewrite_instruction ?? this.state.lineRewriteInstructions[this.lineRewriteKey(scriptId, sequence)] ?? "";
     return `<div class="script-line" data-script-item data-line-number="${sequence}"><div class="line-heading"><span class="line-number">${String(sequence).padStart(2, "0")}</span><div class="line-actions"><button class="button button-quiet button-small" type="button" data-action="generate-line" data-line-number="${sequence}"${canGenerate ? "" : " disabled"}>生成音频</button></div></div><div class="line-fields"><label><span>台词</span><textarea name="text" maxlength="2000">${escapeHtml(text)}</textarea></label><label><span>发音</span><textarea name="pronunciation" maxlength="2000">${escapeHtml(pronunciation)}</textarea></label></div><div class="line-rewrite-controls"><label><span>AI 单行修改要求</span><input name="rewrite_instruction" maxlength="4000" value="${escapeHtml(rewriteInstruction)}" placeholder="例如：更克制、缩短到 20 字以内，不改变事实。"></label><button class="button button-quiet button-small" type="button" data-action="rewrite-line" data-line-number="${sequence}">生成修改候选</button></div><div class="line-rewrite-result">${this.lineRewriteSuggestion(scriptId, sequence)}</div>${this.lineResult(scriptId, sequence)}</div>`;
   }
 
   lineRewriteKey(scriptId, sequence) {
     return `${scriptId}:${sequence}`;
+  }
+
+  pronunciationSuggestionsPanel(scriptId) {
+    const lines = this.state.pronunciationSuggestionsScriptId === scriptId ? this.state.pronunciationSuggestions : [];
+    if (!lines.length) return "";
+    return `<section class="pronunciation-suggestions"><header><strong>批量发音候选</strong><small>${lines.length} 行 · 尚未替换当前发音</small></header><ol>${lines.map((line) => `<li><span>${String(line.sequence).padStart(2, "0")}</span><p>${escapeHtml(line.pronunciation)}</p></li>`).join("")}</ol><div class="pronunciation-suggestion-actions"><button class="button button-primary button-small" type="button" data-action="adopt-all-pronunciations">全部采用</button><button class="button button-quiet button-small" type="button" data-action="discard-all-pronunciations">放弃</button></div></section>`;
   }
 
   lineRewriteSuggestion(scriptId, sequence) {
@@ -863,9 +873,12 @@ class WorkstationApp {
       if (action === "open-settings-drawer") this.openSettingsDrawer(button.dataset.kind);
       if (action === "close-settings-drawer") this.closeSettingsDrawer();
       if (action === "refresh") await this.selectProject(this.state.project?.id || "", true);
-      if (action === "select-script") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.storePosition(); this.renderScript(); for (const job of this.state.jobs.filter((item) => item.script_id === this.state.selectedScriptId)) void this.loadJobDetail(job.id); }
+      if (action === "select-script") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedScriptId = button.dataset.id; this.state.scriptDetail = null; this.state.scriptPromptSuggestion = ""; this.state.scriptPromptDraft = null; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.state.pronunciationSuggestions = []; this.state.pronunciationSuggestionsScriptId = null; this.storePosition(); this.renderScript(); for (const job of this.state.jobs.filter((item) => item.script_id === this.state.selectedScriptId)) void this.loadJobDetail(job.id); }
       if (action === "select-voice") { this.closeSettingsDrawer({ restoreFocus: false }); this.state.selectedVoiceId = button.dataset.id; this.state.voiceDetail = null; this.storePosition(); this.renderVoice(); this.renderScript(); }
       if (action === "rewrite-line") await this.runBusy(button, () => this.rewriteScriptLine(button));
+      if (action === "generate-pronunciations") await this.runBusy(button, () => this.generateAllPronunciations());
+      if (action === "adopt-all-pronunciations") this.adoptAllPronunciations();
+      if (action === "discard-all-pronunciations") this.discardAllPronunciations();
       if (action === "adopt-line-rewrite") this.adoptLineRewrite(button);
       if (action === "discard-line-rewrite") this.discardLineRewrite(button);
       if (action === "select-generation") await this.selectGeneration(button.dataset);
@@ -894,7 +907,7 @@ class WorkstationApp {
     if (input.name === "prompt" && input.closest("#textGenerationForm")) {
       this.state.scriptPromptDraft = input.value;
     }
-    if (["text", "pronunciation"].includes(input.name) && input.closest("[data-script-item]")) {
+    if (["text", "pronunciation", "rewrite_instruction"].includes(input.name) && input.closest("[data-script-item]")) {
       this.captureScriptItemDraft(input.closest("[data-script-item]"));
     }
     if (input.name === "rewrite_instruction" && input.closest("[data-script-item]")) {
@@ -925,6 +938,7 @@ class WorkstationApp {
     this.state.scriptItemDrafts[scriptId][sequence] = {
       text: row.querySelector('[name="text"]').value,
       pronunciation: row.querySelector('[name="pronunciation"]').value,
+      rewrite_instruction: row.querySelector('[name="rewrite_instruction"]')?.value || "",
     };
   }
 
@@ -1047,7 +1061,7 @@ class WorkstationApp {
   }
   async createVoice(form) { const data = new FormData(form); data.set("project_id", this.state.project.id); const { voice } = await this.api.postForm("/api/voices", data); this.state.voices.unshift(voice); this.state.selectedVoiceId = voice.id; this.state.voiceDetail = null; form.reset(); byId("voiceFileName").textContent = "选择参考录音"; byId("voiceDialog").close(); this.render(); this.showView("voice"); this.toast("声音已创建"); }
   async saveScriptSettings(form) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const version = this.state.scriptDetail?.version; const payload = { name: form.name.value.trim(), prompt: this.currentCharacterContext() }; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.patch(`/api/scripts/${enc(id)}`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.merge(this.state.scripts, script); this.state.scriptDetail = { ...this.state.scriptDetail, ...script }; this.render(); this.toast("名称已保存"); }
-  async saveScriptItems(form, options = {}) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const version = this.state.scriptDetail?.version; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value })); const payload = { items }; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return null; this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
+  async saveScriptItems(form, options = {}) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const version = this.state.scriptDetail?.version; const items = [...form.querySelectorAll("[data-script-item]")].map((row) => ({ text: row.querySelector('[name="text"]').value, pronunciation: row.querySelector('[name="pronunciation"]').value, rewrite_instruction: row.querySelector('[name="rewrite_instruction"]')?.value || "" })); const payload = { items }; if (Number.isInteger(version)) payload.version = version; const { script } = await this.api.put(`/api/scripts/${enc(id)}/items`, payload); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return null; this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[id]; Object.keys(this.state.lineRewriteSuggestions).filter((key) => key.startsWith(`${id}:`)).forEach((key) => delete this.state.lineRewriteSuggestions[key]); if (options.rerender !== false) this.renderScript(); if (options.notify !== false) this.toast("台词与发音已保存"); return script; }
   scriptItemsNeedSave(form) {
     const detail = this.state.scriptDetail;
     if (!detail || detail.id !== this.state.selectedScriptId) return false;
@@ -1056,7 +1070,8 @@ class WorkstationApp {
     return rows.some((row, index) => {
       const item = detail.items[index] || {};
       return row.querySelector('[name="text"]')?.value !== String(item.text ?? "")
-        || row.querySelector('[name="pronunciation"]')?.value !== String(item.pronunciation ?? "");
+        || row.querySelector('[name="pronunciation"]')?.value !== String(item.pronunciation ?? "")
+        || row.querySelector('[name="rewrite_instruction"]')?.value !== String(item.rewrite_instruction ?? "");
     });
   }
   async saveVoiceSettings(form) { const projectId = this.state.project?.id; const id = this.state.selectedVoiceId; const requestVersion = this.requestVersion; const { voice } = await this.api.patch(`/api/voices/${enc(id)}`, { name: form.name.value.trim(), notes: form.notes.value.trim() }); if (!this.isCurrentVoiceRequest(projectId, id, requestVersion)) return; this.state.voiceDetail = voice; this.merge(this.state.voices, voice); this.render(); this.toast("声音信息已保存"); }
@@ -1231,6 +1246,57 @@ class WorkstationApp {
   async suggestScriptPrompt() { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const draft = this.currentCharacterContext(); const { suggestion } = await this.api.post(`/api/scripts/${enc(id)}/prompt-suggestion`, { goal: draft }); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.state.scriptPromptDraft = draft; this.state.scriptPromptSuggestion = suggestion; this.renderOpenSettingsDrawer("script"); this.toast("已生成角色台词特性建议"); }
   adoptScriptPrompt() { const form = byId("textGenerationForm"); if (!form || !this.state.scriptPromptSuggestion) return; this.state.scriptPromptDraft = this.state.scriptPromptSuggestion; form.prompt.value = this.state.scriptPromptDraft; this.toast("建议已放入角色特性框，请保存"); }
   async generateText(form) { const projectId = this.state.project?.id; const id = this.state.selectedScriptId; const requestVersion = this.requestVersion; const instruction = form.instruction?.value.trim() || ""; const lineCount = Number(form.line_count.value); if (!await this.persistCharacterContext() || !this.isCurrentScriptRequest(projectId, id, requestVersion)) return; const { lines } = await this.api.post(`/api/scripts/${enc(id)}/generate-text`, { instruction, line_count: lineCount }); if (!this.isCurrentScriptRequest(projectId, id, requestVersion)) return; this.state.generatedLines = lines; this.state.generatedLinesScriptId = id; this.renderOpenSettingsDrawer("script"); this.toast(`已生成 ${lines.length} 句台词候选`); }
+  async generateAllPronunciations() {
+    const projectId = this.state.project?.id;
+    const scriptId = this.state.selectedScriptId;
+    const requestVersion = this.requestVersion;
+    const form = byId("scriptItemsForm");
+    if (form && this.scriptItemsNeedSave(form) && !await this.saveScriptItems(form, { notify: false, rerender: false })) return;
+    const currentPrompt = this.currentCharacterContext().trim();
+    const savedPrompt = String(this.state.scriptDetail?.prompt || "").trim();
+    if (currentPrompt !== savedPrompt && !await this.persistCharacterContext()) return;
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
+    const version = this.state.scriptDetail?.version;
+    const payload = Number.isInteger(version) ? { version } : {};
+    const { lines, version: generatedVersion } = await this.api.post(`/api/scripts/${enc(scriptId)}/generate-pronunciations`, payload);
+    if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
+    if (Number.isInteger(generatedVersion) && generatedVersion !== Number(this.state.scriptDetail?.version)) {
+      this.toast("台本已被其他用户修改，请刷新后重试", true);
+      return;
+    }
+    this.state.pronunciationSuggestions = lines;
+    this.state.pronunciationSuggestionsScriptId = scriptId;
+    this.renderScript();
+    this.toast(`已生成 ${lines.length} 行发音候选，请确认`);
+  }
+  adoptAllPronunciations() {
+    const detail = this.state.scriptDetail;
+    const lines = this.state.pronunciationSuggestionsScriptId === detail?.id ? this.state.pronunciationSuggestions : [];
+    if (!detail || !lines.length) return;
+    document.querySelectorAll("#scriptItemsForm [data-script-item]").forEach((row) => this.captureScriptItemDraft(row));
+    const drafts = this.state.scriptItemDrafts[detail.id] ||= {};
+    const pronunciations = new Map(lines.map((line) => [Number(line.sequence), line.pronunciation]));
+    detail.items.forEach((item, index) => {
+      const sequence = Number(item.order || index + 1);
+      const pronunciation = pronunciations.get(sequence);
+      if (pronunciation === undefined) return;
+      const draft = drafts[sequence] || {
+        text: item.text,
+        pronunciation: item.pronunciation,
+        rewrite_instruction: item.rewrite_instruction || "",
+      };
+      drafts[sequence] = { ...draft, pronunciation };
+    });
+    this.state.pronunciationSuggestions = [];
+    this.state.pronunciationSuggestionsScriptId = null;
+    this.renderScript();
+    this.toast("已采用全部发音候选，请保存台词");
+  }
+  discardAllPronunciations() {
+    this.state.pronunciationSuggestions = [];
+    this.state.pronunciationSuggestionsScriptId = null;
+    this.renderScript();
+  }
   adoptGeneratedLines() { const detail = this.state.scriptDetail; const lines = this.state.generatedLinesScriptId === detail?.id ? this.state.generatedLines : []; if (!detail || !lines.length) return; const items = [...detail.items]; for (const line of lines) items.push({ order: items.length + 1, source_line: items.length + 1, text: line.text, pronunciation: line.pronunciation, generated_text: line.text, direction: "flat", emphasis: [], hold_units: [], raw_mode: false }); this.state.scriptDetail = { ...detail, items, item_count: items.length }; this.state.generatedLines = []; this.state.generatedLinesScriptId = null; this.renderScript(); this.renderOpenSettingsDrawer("script"); this.toast("候选已加入编辑器，请点击保存台词"); }
   async rewriteScriptLine(button) {
     const projectId = this.state.project?.id;
@@ -1244,9 +1310,15 @@ class WorkstationApp {
     if (!text.trim()) { this.toast("当前台词不能为空", true); return; }
     if (!instruction) { this.toast("请输入这一行的修改要求", true); row?.querySelector('[name="rewrite_instruction"]')?.focus(); return; }
     this.captureScriptItemDraft(row);
+    const form = byId("scriptItemsForm");
+    if (form && this.scriptItemsNeedSave(form) && !await this.saveScriptItems(form, { notify: false, rerender: false })) return;
     if (!await this.persistCharacterContext() || !this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
-    const { line } = await this.api.post(`/api/scripts/${enc(scriptId)}/rewrite-line`, { sequence, text, pronunciation, instruction });
+    const version = this.state.scriptDetail?.version;
+    const payload = { sequence, text, pronunciation, instruction };
+    if (Number.isInteger(version)) payload.version = version;
+    const { line, script } = await this.api.post(`/api/scripts/${enc(scriptId)}/rewrite-line`, payload);
     if (!this.isCurrentScriptRequest(projectId, scriptId, requestVersion)) return;
+    if (script) { this.state.scriptDetail = script; this.merge(this.state.scripts, script); delete this.state.scriptItemDrafts[scriptId]; }
     this.state.lineRewriteSuggestions[this.lineRewriteKey(scriptId, sequence)] = line;
     const target = row.querySelector(".line-rewrite-result");
     if (target) target.innerHTML = this.lineRewriteSuggestion(scriptId, sequence);

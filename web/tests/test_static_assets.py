@@ -126,6 +126,8 @@ def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save(
     )
 
     assert 'data-action="rewrite-line"' in javascript
+    assert 'data-action="generate-pronunciations"' in javascript
+    assert 'data-action="adopt-all-pronunciations"' in javascript
     assert 'data-action="adopt-line-rewrite"' in javascript
     assert 'data-action="discard-line-rewrite"' in javascript
     assert "rewrite-line`" in javascript
@@ -134,10 +136,12 @@ def test_script_editor_requires_confirmation_for_ai_rewrites_and_has_fixed_save(
     assert "项目级上下文" in javascript
     assert 'name="instruction" maxlength="4000"' in javascript
     assert ".script-save-floating { position: fixed;" in stylesheet
+    assert ".pronunciation-suggestions { display: grid;" in stylesheet
     assert (
         "body.workstation-page .line-rewrite-controls .button {\n  min-height: 44px;"
         in (refreshed_stylesheet)
     )
+    assert "body.workstation-page .pronunciation-suggestions {" in refreshed_stylesheet
 
 
 def test_system_admin_has_direct_workstation_admin_button() -> None:
