@@ -119,8 +119,8 @@ class JobRepository:
             """
             INSERT INTO job_items(
                 id, job_id, sequence, source_line, text, pronunciation, generated_text,
-                direction, emphasis, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
+                direction, emphasis, rewrite_instruction, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
             """,
             rows,
         )
@@ -222,6 +222,7 @@ class JobRepository:
             item.generated_text,
             item.direction,
             ",".join(item.emphasis),
+            item.rewrite_instruction,
         )
 
     @staticmethod

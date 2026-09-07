@@ -28,7 +28,7 @@ class CandidateRepository:
             rows = connection.execute(
                 """
                 SELECT c.*, ji.job_id, ji.sequence,
-                       ji.accepted_candidate_id
+                       ji.accepted_candidate_id, ji.rewrite_instruction
                 FROM job_item_candidates c
                 JOIN job_items ji ON ji.id=c.job_item_id
                 WHERE ji.job_id=?
@@ -43,7 +43,7 @@ class CandidateRepository:
             rows = connection.execute(
                 """
                 SELECT c.*, ji.job_id, ji.sequence,
-                       ji.accepted_candidate_id
+                       ji.accepted_candidate_id, ji.rewrite_instruction
                 FROM job_item_candidates c
                 JOIN job_items ji ON ji.id=c.job_item_id
                 WHERE c.job_item_id=?
@@ -58,6 +58,7 @@ class CandidateRepository:
             rows = connection.execute(
                 """
                 SELECT c.*, ji.job_id, ji.sequence, ji.accepted_candidate_id,
+                       ji.rewrite_instruction,
                        j.script_id, j.voice_id, j.model_id, j.submitted_at,
                        v.name AS voice_name
                 FROM job_item_candidates c
@@ -87,6 +88,7 @@ class CandidateRepository:
             row = connection.execute(
                 f"""
                 SELECT c.*, ji.job_id, ji.sequence, ji.accepted_candidate_id,
+                       ji.rewrite_instruction,
                        j.voice_id, j.model_id, j.reference_emotion
                 FROM job_item_candidates c
                 JOIN job_items ji ON ji.id=c.job_item_id
@@ -567,7 +569,7 @@ class CandidateRepository:
         with self._database.read() as connection:
             rows = connection.execute(
                 """
-                SELECT c.*, ji.sequence, ji.source_line
+                SELECT c.*, ji.sequence, ji.source_line, ji.rewrite_instruction
                 FROM job_items ji
                 JOIN job_item_candidates c ON c.id=ji.accepted_candidate_id
                 WHERE ji.job_id=? AND c.kind='gpt'

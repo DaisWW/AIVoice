@@ -95,6 +95,12 @@ class TextLineRewriteRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     pronunciation: str = Field(default="", max_length=2000)
     instruction: str = Field(min_length=1, max_length=4000)
+    version: int | None = Field(default=None, ge=1)
+
+
+class ScriptPronunciationGenerationRequest(BaseModel):
+    version: int | None = Field(default=None, ge=1)
+    model_id: str = Field(default="", max_length=64)
 
 
 class TextModelUpdate(BaseModel):
@@ -116,6 +122,7 @@ class TextModelUpdate(BaseModel):
 class ScriptItemUpdate(BaseModel):
     text: str = Field(default="", max_length=2000)
     pronunciation: str = Field(default="", max_length=2000)
+    rewrite_instruction: str = Field(default="", max_length=4000)
 
 
 class ScriptItemsUpdate(BaseModel):

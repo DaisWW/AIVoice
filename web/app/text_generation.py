@@ -531,6 +531,38 @@ class TextGenerationService:
         raw = self.client.complete(config, system=system, user=user)
         return self._parse_lines(raw, 1)[0]
 
+    def generate_pronunciations(
+        self,
+        *,
+        project_prompt: str,
+        script_prompt: str,
+        items: list[dict[str, Any]],
+        model_id: str = "",
+    ) -> list[dict[str, Any]]:
+        config = self.store.config()
+        if model_id and model_id != config.model:
+            raise ValueError("当前只配置了一个文本模型，请使用默认模型")
+        system = (
+            "你是专业发音编辑。根据项目级上下文和台本级角色特性，为每一行生成适合配音的发音文本。"
+            "只修改发音，不修改台词；每行的单行修改要求必须作为该行的重要约束。"
+            "必须完整返回所有输入行，序号保持不变。只返回 JSON 对象，格式为 "
+            '{"lines":[{"sequence":1,"pronunciation":"发音文本"}]}，不要 Markdown、解释或额外字段。'
+        )
+        task = (
+            f"为以下 {len(items)} 行生成发音文本。台词内容保持不变；如果某行没有单行修改要求，"
+            "请结合台本级特性和当前发音生成合适版本。输入行如下：\n"
+            + json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+        )
+        user = self._layered_context(
+            project_prompt=project_prompt,
+            script_prompt=script_prompt,
+            task=task,
+        )
+        raw = self.client.complete(config, system=system, user=user)
+        return self._parse_pronunciation_lines(
+            raw, [int(item["sequence"]) for item in items]
+        )
+
     @staticmethod
     def _layered_context(*, project_prompt: str, script_prompt: str, task: str) -> str:
         return (
@@ -568,6 +600,33 @@ class TextGenerationService:
         if not result:
             raise RuntimeError("文本模型没有生成有效台词")
         return result
+
+    @staticmethod
+    def _parse_pronunciation_lines(
+        raw: str, expected_sequences: list[int]
+    ) -> list[dict[str, Any]]:
+        value = TextGenerationService._parse_json_object(raw)
+        raw_lines = value.get("lines") if isinstance(value, dict) else None
+        if not isinstance(raw_lines, list) or len(raw_lines) != len(expected_sequences):
+            raise RuntimeError("文本模型没有完整返回所有行的发音")
+        parsed: dict[int, str] = {}
+        for item in raw_lines:
+            if not isinstance(item, dict):
+                raise RuntimeError("文本模型返回的发音格式无效")
+            try:
+                sequence = int(item.get("sequence"))
+            except (TypeError, ValueError, OverflowError):
+                raise RuntimeError("文本模型返回的行号无效") from None
+            pronunciation = str(item.get("pronunciation") or "").strip()
+            if sequence in parsed or not pronunciation:
+                raise RuntimeError("文本模型返回的发音格式无效")
+            parsed[sequence] = pronunciation
+        if set(parsed) != set(expected_sequences):
+            raise RuntimeError("文本模型返回的发音行号不完整")
+        return [
+            {"sequence": sequence, "pronunciation": parsed[sequence]}
+            for sequence in expected_sequences
+        ]
 
     @staticmethod
     def _parse_json_object(raw: str) -> dict[str, Any] | None:

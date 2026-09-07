@@ -208,9 +208,9 @@ class LegacyRepository:
             """
             INSERT INTO job_items(
                 id, job_id, sequence, source_line, text, pronunciation, generated_text,
-                direction, emphasis, status, audio_path, raw_audio_path,
+                direction, emphasis, rewrite_instruction, status, audio_path, raw_audio_path,
                 processing_backend
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
             """,
             rows,
         )
@@ -242,9 +242,9 @@ class LegacyRepository:
                     row[6],
                     row[7],
                     row[8],
-                    row[10],
-                    row[9],
                     row[11],
+                    row[10],
+                    row[12],
                     timestamp,
                     timestamp,
                     timestamp,
@@ -270,6 +270,7 @@ class LegacyRepository:
             generated_text,
             str(item.get("direction") or "flat"),
             str(item.get("emphasis") or ""),
+            str(item.get("rewrite_instruction") or ""),
             str(Path(str(item.get("final_audio"))).resolve()),
             str(item.get("raw_audio") or ""),
             str(item.get("processing_backend") or "legacy"),
@@ -295,6 +296,7 @@ class LegacyRepository:
                     item.generated_text,
                     item.direction,
                     ",".join(item.emphasis),
+                    item.rewrite_instruction,
                     script["id"],
                     item.order,
                 )
@@ -303,7 +305,7 @@ class LegacyRepository:
             connection.executemany(
                 """
                 UPDATE job_items SET text=?, pronunciation=?, generated_text=?,
-                    direction=?, emphasis=?
+                    direction=?, emphasis=?, rewrite_instruction=?
                 WHERE job_id IN (
                     SELECT id FROM jobs WHERE script_id=? AND client_id='legacy'
                 ) AND sequence=?
@@ -319,7 +321,18 @@ class LegacyRepository:
                     WHERE j.script_id=? AND j.client_id='legacy' AND ji.sequence=?
                 ) AND origin_type='job_item'
                 """,
-                updates,
+                [
+                    (
+                        update[0],
+                        update[1],
+                        update[2],
+                        update[3],
+                        update[4],
+                        update[6],
+                        update[7],
+                    )
+                    for update in updates
+                ],
             )
 
     @staticmethod

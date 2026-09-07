@@ -42,10 +42,14 @@ def build_script_item(
     pronunciation: str,
     line_number: int,
     order: int,
+    rewrite_instruction: str = "",
 ) -> ScriptItem:
     """Validate one editable row and derive its generation metadata."""
     pronunciation = pronunciation.strip()
     text = text.strip()
+    rewrite_instruction = str(rewrite_instruction or "").strip()
+    if len(rewrite_instruction) > 4000:
+        raise ScriptFormatError(f"第 {line_number} 行修改要求不能超过 4000 个字符")
     if not pronunciation:
         pronunciation = text
     if not pronunciation:
@@ -61,6 +65,7 @@ def build_script_item(
         emphasis=analysis.emphasis,
         hold_units=analysis.hold_units,
         raw_mode=analysis.raw_mode,
+        rewrite_instruction=rewrite_instruction,
     )
 
 
@@ -122,14 +127,43 @@ def _parse_csv(content: str) -> list[ScriptItem]:
         ),
         None,
     )
+    rewrite_instruction_key = next(
+        (
+            reader.fieldnames[i]
+            for i, name in enumerate(fieldnames)
+            if name
+            in {
+                "rewrite_instruction",
+                "rewrite_instruction_text",
+                "修改要求",
+                "单行修改要求",
+                "ai 单行修改要求",
+                "ai单行修改要求",
+            }
+        ),
+        None,
+    )
     if pronunciation_key is None:
         raise ScriptFormatError("CSV 必须包含 pronunciation（或 发音）列")
     result: list[ScriptItem] = []
     for line_number, row in enumerate(reader, start=2):
         pronunciation = str(row.get(pronunciation_key) or "").strip()
         text = str(row.get(text_key) or "").strip() if text_key else ""
+        rewrite_instruction = (
+            str(row.get(rewrite_instruction_key) or "").strip()
+            if rewrite_instruction_key
+            else ""
+        )
         if pronunciation:
-            result.append(_item(text, pronunciation, line_number, len(result) + 1))
+            result.append(
+                _item(
+                    text,
+                    pronunciation,
+                    line_number,
+                    len(result) + 1,
+                    rewrite_instruction,
+                )
+            )
     if not result:
         raise ScriptFormatError("CSV 没有可生成的发音行")
     return result

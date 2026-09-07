@@ -334,6 +334,9 @@ class JobDownloadService:
                             "sequence": sequence,
                             "text": _required_text(item, "text"),
                             "pronunciation": _required_text(item, "pronunciation"),
+                            "rewriteInstruction": str(
+                                item.get("rewrite_instruction") or ""
+                            ),
                             "direction": _required_text(item, "direction"),
                             "candidateId": _required_text(item, "id"),
                             "audio": archive_name,
@@ -398,6 +401,9 @@ class JobDownloadService:
                             "sequence": sequence,
                             "text": _required_text(candidate, "text"),
                             "pronunciation": _required_text(candidate, "pronunciation"),
+                            "rewriteInstruction": str(
+                                candidate.get("rewrite_instruction") or ""
+                            ),
                             "candidateId": candidate_component,
                             "jobId": job_component,
                             "voiceId": _required_text(candidate, "voice_id"),
@@ -450,6 +456,7 @@ class JobDownloadService:
                 "sequence": _safe_int(item.get("sequence"), minimum=1),
                 "text": _required_text(item, "text"),
                 "pronunciation": _required_text(item, "pronunciation"),
+                "rewriteInstruction": str(item.get("rewrite_instruction") or ""),
                 "file": archive_name,
             }
         )

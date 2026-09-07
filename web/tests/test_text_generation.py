@@ -238,9 +238,129 @@ def test_prompt_suggestion_and_text_generation_layer_prompts(app_client) -> None
     assert "用户刚刚手动修改、尚未保存的台词" in fake.users[-1]
     assert "语气更克制" in fake.users[-1]
 
+    rewritten_script = rewritten.json()["script"]
+    rewritten_item = rewritten_script["items"][0]
+    assert rewritten_item["text"] == "用户刚刚手动修改、尚未保存的台词"
+    assert rewritten_item["pronunciation"] == "用户刚刚手动修改、尚未保存的台词"
+    assert rewritten_item["rewrite_instruction"] == "语气更克制"
+    repeat = client.post(
+        f"/api/scripts/{script_id}/rewrite-line",
+        json={
+            "sequence": 1,
+            "text": "用户刚刚手动修改、尚未保存的台词",
+            "pronunciation": "用户刚刚手动修改、尚未保存的台词",
+            "instruction": "语气更克制",
+            "version": rewritten_script["version"],
+        },
+    )
+    assert repeat.status_code == 200
+    assert repeat.json()["script"]["version"] == rewritten_script["version"]
+    stale = client.post(
+        f"/api/scripts/{script_id}/rewrite-line",
+        json={
+            "sequence": 1,
+            "text": "用户刚刚手动修改、尚未保存的台词",
+            "pronunciation": "用户刚刚手动修改、尚未保存的台词",
+            "instruction": "语气更克制",
+            "version": rewritten_script["version"] - 1,
+        },
+    )
+    assert stale.status_code == 409
+
     unchanged = client.get(f"/api/scripts/{script_id}")
     assert unchanged.status_code == 200
-    assert unchanged.json()["script"]["items"][0]["text"] == "第一句"
+    assert unchanged.json()["script"]["items"][0]["text"] == "用户刚刚手动修改、尚未保存的台词"
+    assert unchanged.json()["script"]["items"][0]["rewrite_instruction"] == "语气更克制"
+
+
+def test_generate_pronunciations_uses_saved_line_instructions(app_client) -> None:
+    client, services = app_client
+    project = services.database.projects.list_for_user(
+        str(services.database.auth.get_by_username("admin")["id"])
+    )[0]
+    created = client.post(
+        "/api/scripts",
+        files={
+            "file": ("pronunciation.txt", "第一句 | mo-la\n第二句 | gu-la\n", "text/plain")
+        },
+        data={"project_id": project["id"]},
+    )
+    assert created.status_code == 201
+    script_id = created.json()["script"]["id"]
+    client.patch(
+        f"/api/projects/{project['id']}",
+        json={"name": project["name"], "description": "", "prompt": "项目总体设定"},
+    )
+    script = client.patch(
+        f"/api/scripts/{script_id}",
+        json={"name": "pronunciation", "prompt": "台本角色特性"},
+    ).json()["script"]
+    saved = client.put(
+        f"/api/scripts/{script_id}/items",
+        json={
+            "version": script["version"],
+            "items": [
+                {
+                    "text": "第一句",
+                    "pronunciation": "mo-la",
+                    "rewrite_instruction": "第一句要更轻声",
+                },
+                {
+                    "text": "第二句",
+                    "pronunciation": "gu-la",
+                    "rewrite_instruction": "第二句要停顿更长",
+                },
+            ],
+        },
+    )
+    assert saved.status_code == 200
+
+    class FakeTextClient:
+        def __init__(self) -> None:
+            self.user = ""
+
+        def complete(self, config, *, system: str, user: str) -> str:
+            del config, system
+            self.user = user
+            return json.dumps(
+                {
+                    "lines": [
+                        {"sequence": 2, "pronunciation": "第二句的批量发音"},
+                        {"sequence": 1, "pronunciation": "第一句的批量发音"},
+                    ]
+                }
+            )
+
+    fake = FakeTextClient()
+    services.text_generation.client = fake
+    services.text_generation.store.update(
+        {
+            "enabled": True,
+            "label": "测试文本模型",
+            "base_url": "https://llm.example/v1",
+            "api_key": "secret",
+            "model": "provider/test-model",
+            "protocol": "responses",
+            "reasoning_effort": "",
+            "timeout_seconds": 30,
+            "max_output_tokens": 1000,
+            "temperature": 0.7,
+        }
+    )
+
+    response = client.post(
+        f"/api/scripts/{script_id}/generate-pronunciations",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["lines"] == [
+        {"sequence": 1, "pronunciation": "第一句的批量发音"},
+        {"sequence": 2, "pronunciation": "第二句的批量发音"},
+    ]
+    assert "项目总体设定" in fake.user
+    assert "台本角色特性" in fake.user
+    assert '"rewrite_instruction":"第一句要更轻声"' in fake.user
+    assert '"rewrite_instruction":"第二句要停顿更长"' in fake.user
 
 
 def test_admin_text_model_config_masks_key(app_client) -> None:

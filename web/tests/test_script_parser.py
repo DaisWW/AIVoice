@@ -26,12 +26,17 @@ def test_parse_supported_text_and_csv_formats() -> None:
         "text,pronunciation\n台词甲,mo-la\n".encode("utf-8"),
         ".csv",
     )
+    instruction_csv_items = parse_content(
+        "text,pronunciation,rewrite_instruction\n台词乙,gu-la,更轻声\n".encode("utf-8"),
+        ".csv",
+    )
 
     assert [item.text for item in text_items[:2]] == ["台词甲", "台词乙"]
     assert text_items[0].direction == "rise"
     assert text_items[1].emphasis == ("gu",)
     assert text_items[2].text == "摸……啦……"
     assert csv_items[0].generated_text == "摸啦。"
+    assert instruction_csv_items[0].rewrite_instruction == "更轻声"
 
 
 @pytest.mark.parametrize("prefix", ["raw:", "ipa:", "phoneme:"])

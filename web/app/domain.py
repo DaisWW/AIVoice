@@ -19,6 +19,7 @@ class ScriptItem:
     emphasis: tuple[str, ...]
     hold_units: tuple[int, ...] = ()
     raw_mode: bool = False
+    rewrite_instruction: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -32,4 +33,5 @@ class ScriptItem:
             "hold_units": list(self.hold_units),
             "syllable_count": len(self.hold_units),
             "raw_mode": self.raw_mode,
+            "rewrite_instruction": self.rewrite_instruction,
         }

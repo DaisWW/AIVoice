@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS job_items (
     generated_text TEXT NOT NULL,
     direction TEXT NOT NULL,
     emphasis TEXT NOT NULL DEFAULT '',
+    rewrite_instruction TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     audio_path TEXT NOT NULL DEFAULT '',
     raw_audio_path TEXT NOT NULL DEFAULT '',
@@ -260,6 +261,12 @@ def initialize_schema(database: SQLiteConnection) -> None:
         connection.executescript(SCHEMA)
         connection.execute("PRAGMA journal_mode = WAL")
         _add_column_if_missing(connection, "job_items", "elapsed_seconds", "REAL")
+        _add_column_if_missing(
+            connection,
+            "job_items",
+            "rewrite_instruction",
+            "TEXT NOT NULL DEFAULT ''",
+        )
         _add_column_if_missing(
             connection,
             "jobs",

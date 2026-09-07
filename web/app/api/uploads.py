@@ -184,8 +184,22 @@ class ScriptStorage:
     def export_csv(items: list[ScriptItem]) -> str:
         output = io.StringIO(newline="")
         writer = csv.writer(output, lineterminator="\n")
-        writer.writerow(("text", "pronunciation"))
-        writer.writerows((item.text, item.pronunciation) for item in items)
+        include_rewrite_instruction = any(
+            item.rewrite_instruction.strip() for item in items
+        )
+        if include_rewrite_instruction:
+            writer.writerow(("text", "pronunciation", "rewrite_instruction"))
+            writer.writerows(
+                (
+                    item.text,
+                    item.pronunciation,
+                    item.rewrite_instruction,
+                )
+                for item in items
+            )
+        else:
+            writer.writerow(("text", "pronunciation"))
+            writer.writerows((item.text, item.pronunciation) for item in items)
         return output.getvalue()
 
     @staticmethod
@@ -227,8 +241,22 @@ class ScriptStorage:
     def _write_csv(path: Path, items: Sequence[ScriptItem]) -> None:
         with path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, lineterminator="\n")
-            writer.writerow(("text", "pronunciation"))
-            writer.writerows((item.text, item.pronunciation) for item in items)
+            include_rewrite_instruction = any(
+                item.rewrite_instruction.strip() for item in items
+            )
+            if include_rewrite_instruction:
+                writer.writerow(("text", "pronunciation", "rewrite_instruction"))
+                writer.writerows(
+                    (
+                        item.text,
+                        item.pronunciation,
+                        item.rewrite_instruction,
+                    )
+                    for item in items
+                )
+            else:
+                writer.writerow(("text", "pronunciation"))
+                writer.writerows((item.text, item.pronunciation) for item in items)
 
     @staticmethod
     def _unlink_quietly(path: Path) -> None:

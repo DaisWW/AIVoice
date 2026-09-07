@@ -18,6 +18,7 @@ from ..schemas import (
     PromptSuggestionRequest,
     ScriptLineSelectionCreate,
     ScriptItemsUpdate,
+    ScriptPronunciationGenerationRequest,
     ScriptUpdate,
     TextGenerationRequest,
     TextLineRewriteRequest,
@@ -281,17 +282,54 @@ def rewrite_script_line(
     request: Request,
 ) -> dict[str, Any]:
     script = project_script(services, script_id, user)
-    project = services.database.projects.get(str(script["project_id"])) or {}
     text = changes.text.strip()
     instruction = changes.instruction.strip()
     if not text:
         raise HTTPException(status_code=422, detail="当前台词不能为空")
     if not instruction:
         raise HTTPException(status_code=422, detail="请输入单行修改要求")
+    storage = ScriptStorage(services)
+    with services.job_mutation_lock:
+        script = project_script(services, script_id, user)
+        old_items = storage.load_items(script)
+        if changes.sequence > len(old_items):
+            raise HTTPException(status_code=404, detail="找不到对应台词行")
+        items = list(old_items)
+        current = old_items[changes.sequence - 1]
+        try:
+            items[changes.sequence - 1] = build_script_item(
+                text,
+                changes.pronunciation,
+                current.source_line,
+                current.order,
+                instruction,
+            )
+        except ScriptFormatError as error:
+            raise HTTPException(
+                status_code=422, detail=f"第 {changes.sequence} 行发音格式错误: {error}"
+            ) from error
+        changed = _items_changed(old_items, items)
+        persisted_changed = _items_persisted_changed(old_items, items)
+        if changes.version is not None:
+            try:
+                script_version = int(script.get("version") or 1)
+            except (TypeError, ValueError, OverflowError):
+                raise HTTPException(status_code=409, detail="台本记录损坏，无法保存") from None
+            if script_version != changes.version:
+                raise HTTPException(status_code=409, detail="台本已被其他用户修改，请刷新后重试")
+        if persisted_changed:
+            storage.save_items(script, items, expected_version=changes.version)
+            if changed:
+                services.database.selections.clear_for_script(script_id)
+            remove_script_exports(services, script_id)
+        updated = services.database.scripts.get(script_id)
+        if not updated:  # pragma: no cover - guarded by update_source
+            raise HTTPException(status_code=500, detail="台本保存后未找到")
+    project = services.database.projects.get(str(updated["project_id"])) or {}
     try:
         line = services.text_generation.rewrite_line(
             project_prompt=str(project.get("prompt") or ""),
-            script_prompt=str(script.get("prompt") or ""),
+            script_prompt=str(updated.get("prompt") or ""),
             text=text,
             pronunciation=changes.pronunciation,
             instruction=instruction,
@@ -307,7 +345,61 @@ def rewrite_script_line(
         ip_address=request.client.host if request.client else "",
         details={"sequence": changes.sequence},
     )
-    return {"line": line}
+    payload = script_detail_payload(updated, items)
+    payload["selections"] = (
+        [] if changed else services.database.selections.list_for_script(script_id)
+    )
+    return {"line": line, "script": payload}
+
+
+@router.post("/{script_id}/generate-pronunciations")
+def generate_script_pronunciations(
+    script_id: str,
+    user: CurrentUser,
+    services: ServicesDep,
+    request: Request,
+    changes: ScriptPronunciationGenerationRequest | None = None,
+) -> dict[str, Any]:
+    script = project_script(services, script_id, user)
+    try:
+        version = int(script.get("version") or 1)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=409, detail="台本记录损坏，无法生成发音") from None
+    requested_version = changes.version if changes else None
+    if requested_version is not None and version != requested_version:
+        raise HTTPException(status_code=409, detail="台本已被其他用户修改，请刷新后重试")
+    items = ScriptStorage(services).load_items(script)
+    if not items:
+        raise HTTPException(status_code=422, detail="台本没有可生成的台词")
+    project = services.database.projects.get(str(script["project_id"])) or {}
+    model_items = [
+        {
+            "sequence": item.order,
+            "text": item.text,
+            "pronunciation": item.pronunciation,
+            "rewrite_instruction": item.rewrite_instruction,
+        }
+        for item in items
+    ]
+    try:
+        lines = services.text_generation.generate_pronunciations(
+            project_prompt=str(project.get("prompt") or ""),
+            script_prompt=str(script.get("prompt") or ""),
+            items=model_items,
+            model_id=changes.model_id if changes else "",
+        )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    services.database.audit.record(
+        "script.pronunciations_generated",
+        actor=user,
+        target_type="script",
+        target_id=script_id,
+        project_id=str(script["project_id"]),
+        ip_address=request.client.host if request.client else "",
+        details={"line_count": len(lines)},
+    )
+    return {"lines": lines, "version": version}
 
 
 @router.put("/{script_id}/items")
@@ -478,6 +570,7 @@ def _build_items(changes: ScriptItemsUpdate) -> list[ScriptItem]:
                     row.pronunciation,
                     order,
                     order,
+                    row.rewrite_instruction,
                 )
             )
         except ScriptFormatError as error:
@@ -491,6 +584,12 @@ def _items_changed(before: list[ScriptItem], after: list[ScriptItem]) -> bool:
     return [(item.text, item.pronunciation) for item in before] != [
         (item.text, item.pronunciation) for item in after
     ]
+
+
+def _items_persisted_changed(before: list[ScriptItem], after: list[ScriptItem]) -> bool:
+    return [
+        (item.text, item.pronunciation, item.rewrite_instruction) for item in before
+    ] != [(item.text, item.pronunciation, item.rewrite_instruction) for item in after]
 
 
 def project_job_for_script(

@@ -256,6 +256,65 @@ def test_clone_only_upload_queue_play_and_download_workflow(app_client) -> None:
     assert "postprocess_queue" not in client.get("/api/health").json()
 
 
+def test_job_items_snapshot_saved_rewrite_instructions(app_client) -> None:
+    client, _ = app_client
+    voice = _create_voice(client, "snapshot instructions")
+    script = _create_script(
+        client,
+        "snapshot-instructions.txt",
+        "第一句 | mo-la\n第二句 | gu-la\n",
+    )
+    detail = client.get(f"/api/scripts/{script['id']}").json()["script"]
+    saved = client.put(
+        f"/api/scripts/{script['id']}/items",
+        json={
+            "version": detail["version"],
+            "items": [
+                {
+                    "text": "第一句",
+                    "pronunciation": "mo-la",
+                    "rewrite_instruction": "第一句要克制",
+                },
+                {
+                    "text": "第二句",
+                    "pronunciation": "gu-la",
+                    "rewrite_instruction": "第二句要更响亮",
+                },
+            ],
+        },
+    )
+    assert saved.status_code == 200
+
+    created = client.post(
+        "/api/jobs",
+        data={
+            "voice_id": voice["id"],
+            "model_id": "test_model",
+            "script_id": script["id"],
+        },
+    )
+    assert created.status_code == 201
+    job = wait_for_job(client, created.json()["job"]["id"])
+
+    assert [item["rewrite_instruction"] for item in job["items"]] == [
+        "第一句要克制",
+        "第二句要更响亮",
+    ]
+    assert [
+        candidate["rewrite_instruction"]
+        for item in job["items"]
+        for candidate in item["candidates"]
+    ] == ["第一句要克制", "第一句要克制", "第二句要更响亮", "第二句要更响亮"]
+    archive = client.get(job["download_url"])
+    assert archive.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(archive.content)) as package:
+        manifest = json.loads(package.read("台本与发音.json"))
+    assert [item["rewriteInstruction"] for item in manifest] == [
+        "第一句要克制",
+        "第二句要更响亮",
+    ]
+
+
 def test_download_endpoints_reject_corrupt_database_numbers(app_client) -> None:
     client, services = app_client
     voice = _create_voice(client, "corrupt download voice")
