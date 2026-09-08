@@ -86,6 +86,17 @@ def test_admin_username_pattern_accepts_email_style_username() -> None:
     assert re.fullmatch(pattern.group(1), "member@example.com")
 
 
+def test_admin_account_identity_does_not_add_at_prefix() -> None:
+    html = (STATIC_ROOT / "admin.html").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "js" / "admin.js").read_text(encoding="utf-8")
+
+    assert '<small>@<span id="adminUsername">' not in html
+    assert "<small>@${escapeHtml(user.username)}</small>" not in javascript
+    assert "`${user.display_name} @${user.username}`" not in javascript
+    assert "<small>${escapeHtml(user.username)}</small>" in javascript
+    assert "`${user.display_name} ${user.username}`" in javascript
+
+
 def test_generation_form_only_lists_explicitly_available_models() -> None:
     content = (
         STATIC_ROOT / "js" / "generation" / "configuration-controller.js"

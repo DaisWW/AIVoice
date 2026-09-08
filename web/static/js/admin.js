@@ -304,7 +304,7 @@ class AdminApp {
     $("#adminUserTable").innerHTML = table(
       ["账户", "角色", "项目 / 任务", "资产", "状态", "最近登录 / 活动", "操作"],
       filtered.map((user) => [
-        `<div class="table-identity"><span class="member-avatar">${escapeHtml(user.display_name.slice(0, 1))}</span><span><strong>${escapeHtml(user.display_name)}</strong><small>@${escapeHtml(user.username)}</small></span></div>`,
+        `<div class="table-identity"><span class="member-avatar">${escapeHtml(user.display_name.slice(0, 1))}</span><span><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.username)}</small></span></div>`,
         user.role === "system_admin" ? "系统管理员" : "项目成员",
         `${user.project_count} 个项目<small>${user.job_count || 0} 个任务</small>`,
         `${user.voice_count || 0} 声音库<small>${user.script_count || 0} 份台本</small>`,
@@ -418,7 +418,7 @@ class AdminApp {
 
   #userLabel(userId) {
     const user = this.#state.users.find((item) => String(item.id) === String(userId));
-    return user ? `${user.display_name} @${user.username}` : userId || "—";
+    return user ? `${user.display_name} ${user.username}` : userId || "—";
   }
 
   #projectLabel(projectId) {
