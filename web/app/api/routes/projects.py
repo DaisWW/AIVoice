@@ -51,6 +51,14 @@ def create_project(
     project = services.database.projects.create(
         str(user["id"]), name, description, prompt
     )
+    if prompt:
+        services.database.context_revisions.record(
+            scope="project",
+            project_id=str(project["id"]),
+            script_id=None,
+            content=prompt,
+            created_by=str(user["id"]),
+        )
     services.database.audit.record(
         "project.created",
         actor=user,
@@ -252,6 +260,13 @@ def update_project(
     )
     services.database.projects.update(project_id, name, description, prompt)
     refreshed = services.database.projects.get(project_id) or project
+    services.database.context_revisions.record(
+        scope="project",
+        project_id=project_id,
+        script_id=None,
+        content=prompt,
+        created_by=str(user["id"]),
+    )
     services.database.audit.record(
         "project.updated",
         actor=user,

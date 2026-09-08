@@ -6,6 +6,7 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,9 @@ class _SmartImportUnit:
     context: str = ""
 
 
+ProgressCallback = Callable[..., None]
+
+
 class SmartScriptImport:
     def __init__(self, services: ApplicationServices) -> None:
         self._services = services
@@ -65,13 +69,17 @@ class SmartScriptImport:
         project: dict[str, Any],
         user_id: str,
         sources: list[SmartImportSource],
+        progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         project_id = str(project["id"])
         if self.pending(project_id, user_id) is not None:
             raise SmartScriptImportError("已有一批台本等待确认，请先确认或放弃后再导入")
         units = _extract_smart_import_units(sources)
         segments: list[dict[str, Any]] = []
-        for chunk in _smart_import_analysis_chunks(units):
+        chunks = _smart_import_analysis_chunks(units)
+        for index, chunk in enumerate(chunks, start=1):
+            if progress is not None:
+                progress(stage=f"分析台本结构（第 {index}/{len(chunks)} 批）")
             analysis = self._services.text_generation.analyze_script_import(
                 project_prompt=str(project.get("prompt") or ""),
                 units=[
@@ -85,8 +93,11 @@ class SmartScriptImport:
                     }
                     for unit in chunk
                 ],
+                progress=progress,
             )
             segments.extend(_validate_smart_import_segments(chunk, analysis))
+        if progress is not None:
+            progress(stage="整理导入预览")
         batch = _build_smart_import_batch(
             sources=[safe_filename(source.filename, "台本.txt") for source in sources],
             units=units,
@@ -112,6 +123,34 @@ class SmartScriptImport:
             except _CorruptSmartImportManifest as error:
                 raise SmartScriptImportError("待确认台本数据已损坏，请清理后重新上传分析") from error
         return dict(manifest["batch"]) if manifest is not None else None
+
+    def restore_batch(
+        self, project_id: str, user_id: str, batch: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Restore a completed analysis as the current user's pending preview."""
+        try:
+            _validate_smart_import_batch(batch)
+        except _CorruptSmartImportManifest as error:
+            raise SmartScriptImportError(str(error)) from error
+        with self._services.job_mutation_lock:
+            with self._services.script_write_lock:
+                existing = self._load_manifest(project_id, user_id)
+                if existing is not None:
+                    existing_batch = existing.get("batch")
+                    if existing_batch == batch:
+                        return dict(batch)
+                    raise SmartScriptImportError("已有一批台本等待确认，请先确认或放弃后再恢复历史结果")
+                self._write_manifest(
+                    project_id,
+                    user_id,
+                    {
+                        "version": 1,
+                        "project_id": project_id,
+                        "user_id": user_id,
+                        "batch": batch,
+                    },
+                )
+        return dict(batch)
 
     def confirm(
         self,

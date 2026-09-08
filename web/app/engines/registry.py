@@ -17,6 +17,7 @@ from .gpt_sovits import GptSovitsAdapter
 from .minimax import MiniMaxAdapter
 from .qwen_tts import Qwen3TtsAdapter
 from .reference_audio import ReferenceAudioBuilder
+from .voxcpm import VoxCpmAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class VoiceEngine:
             GptSovitsAdapter(settings, config),
             CosyVoice3Adapter(settings),
             Qwen3TtsAdapter(settings),
+            VoxCpmAdapter(settings),
             ElevenLabsAdapter(provider_config),
             MiniMaxAdapter(provider_config),
         ]

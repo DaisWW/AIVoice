@@ -7,7 +7,7 @@ gpt_sovits_audio.py              音频解码、重采样与参考音构建
 gpt_sovits_clone.py              GPT-SoVITS 模型检查、加载与推理
 gpt_sovits_config.json           参考音与 GPT-SoVITS 基础配置
 download_gpt_sovits_models.ps1   模型下载、续传与文件校验
-download_optional_models.ps1     CosyVoice3 与 Qwen3-TTS 源码、权重准备
+download_optional_models.ps1     CosyVoice3、Qwen3-TTS 与 VoxCPM 源码、权重准备
 requirements-gpt-sovits.txt      推理环境依赖
 requirements-multimodel.txt      可选模型运行依赖
 ```

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("all", "qwen", "qwen17", "cosy")]
+    [ValidateSet("all", "qwen", "qwen17", "cosy", "voxcpm15", "voxcpm2")]
     [string]$Model = "all",
     [string]$Proxy = "http://127.0.0.1:7897"
 )

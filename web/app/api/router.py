@@ -12,6 +12,7 @@ from .routes import (
     system_router,
     voices_router,
 )
+from .text_generation_runs import router as text_generation_runs_router
 
 
 router = APIRouter()
@@ -25,3 +26,4 @@ router.include_router(jobs_router)
 router.include_router(admin_jobs_router)
 router.include_router(admin_system_router)
 router.include_router(providers_router)
+router.include_router(text_generation_runs_router)

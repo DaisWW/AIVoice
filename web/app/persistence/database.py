@@ -8,6 +8,7 @@ from .repositories import (
     AuthRepository,
     CandidateRepository,
     ClientRepository,
+    ContextRevisionRepository,
     JobRepository,
     LegacyRepository,
     MonitoringRepository,
@@ -15,6 +16,7 @@ from .repositories import (
     ScriptRepository,
     ScriptLineSelectionRepository,
     VoiceRepository,
+    TextGenerationRunRepository,
 )
 from .schema import initialize_schema
 
@@ -26,6 +28,7 @@ class Database:
         connection = SQLiteConnection(path)
         self.path = path
         self.clients = ClientRepository(connection)
+        self.context_revisions = ContextRevisionRepository(connection)
         self.auth = AuthRepository(connection)
         self.projects = ProjectRepository(connection)
         self.audit = AuditRepository(connection)
@@ -33,6 +36,7 @@ class Database:
         self.scripts = ScriptRepository(connection)
         self.selections = ScriptLineSelectionRepository(connection)
         self.jobs = JobRepository(connection)
+        self.text_generation_runs = TextGenerationRunRepository(connection)
         self.candidates = CandidateRepository(connection)
         self.monitoring = MonitoringRepository(connection)
         self.legacy = LegacyRepository(connection)
@@ -40,3 +44,4 @@ class Database:
 
     def initialize(self) -> None:
         initialize_schema(self._connection)
+        self.text_generation_runs.recover_interrupted()

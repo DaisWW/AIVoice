@@ -121,6 +121,46 @@
       }
     },
     {
+      "id": "voxcpm2_base",
+      "label": "VoxCPM2 2B",
+      "description": "30 语言、48 kHz 的参考音克隆；RTX 4070 可运行但单句耗时较高",
+      "engine": "voxcpm",
+      "model_path": "tools/models/voxcpm2",
+      "stage": "实验模型",
+      "license": "Apache-2.0",
+      "workflow": "text_to_speech",
+      "generation_parameters": [],
+      "voxcpm_parameters": {
+        "cfg_value": 2.0,
+        "inference_timesteps": 10,
+        "min_len": 2,
+        "max_len": 512,
+        "retry_badcase": true,
+        "retry_badcase_max_times": 2,
+        "retry_badcase_ratio_threshold": 6.0
+      }
+    },
+    {
+      "id": "voxcpm1_5_base",
+      "label": "VoxCPM1.5 0.6B",
+      "description": "中英双语低显存克隆对照；需要参考音频的准确逐字稿",
+      "engine": "voxcpm",
+      "model_path": "tools/models/voxcpm1_5",
+      "stage": "实验模型",
+      "license": "Apache-2.0",
+      "workflow": "text_to_speech",
+      "generation_parameters": [],
+      "voxcpm_parameters": {
+        "cfg_value": 2.0,
+        "inference_timesteps": 10,
+        "min_len": 2,
+        "max_len": 512,
+        "retry_badcase": true,
+        "retry_badcase_max_times": 2,
+        "retry_badcase_ratio_threshold": 6.0
+      }
+    },
+    {
       "id": "elevenlabs_clone",
       "label": "ElevenLabs 小样本克隆",
       "description": "管理员配置后，将声音库小样本注册为云端音色并批量生成 WAV",

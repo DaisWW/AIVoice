@@ -28,6 +28,16 @@ MODELS = {
             "vllm/*",
         ),
     },
+    "voxcpm15": {
+        "repo_id": "OpenBMB/VoxCPM1.5",
+        "directory": "voxcpm1_5",
+        "ignore_patterns": (),
+    },
+    "voxcpm2": {
+        "repo_id": "OpenBMB/VoxCPM2",
+        "directory": "voxcpm2",
+        "ignore_patterns": (),
+    },
 }
 
 

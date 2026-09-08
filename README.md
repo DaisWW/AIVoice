@@ -150,6 +150,7 @@ text,pronunciation
 - GPT-SoVITS V2 / V2ProPlus：提供稳定与表现预设，支持完整生成参数。
 - CosyVoice3 0.5B：可选模型，适合拼音、音素与虫语台本，当前暴露语速。
 - Qwen3-TTS 0.6B / 1.7B Base：可选声音克隆模型，支持随机性、候选范围和重复抑制。
+- VoxCPM2 2B / VoxCPM1.5 0.6B：实验模型，支持多语言参考音克隆；VoxCPM2 输出 48 kHz，1.5 需要准确参考稿。
 - ElevenLabs 小样本克隆：管理员配置 API 后，首次使用会注册启用的参考样本并缓存云端 `voice_id`，后续批量候选复用该音色并输出 WAV。
 - MiniMax 小样本克隆：管理员配置 API 后，首次使用会把启用样本按顺序合并为 10 秒至 5 分钟的 WAV，注册云端 `voice_id` 并在批量候选中复用；raw/IPA 台本会按 MiniMax 的括号音素格式发送。
 - IndexTTS 2.5：仅展示评估状态，确认许可和完成接入前不可选择。
@@ -160,6 +161,8 @@ text,pronunciation
 ```powershell
 .\code\download_optional_models.ps1 -Model qwen
 .\code\download_optional_models.ps1 -Model cosy
+.\code\download_optional_models.ps1 -Model voxcpm2
+.\code\download_optional_models.ps1 -Model voxcpm15
 ```
 
 多模型对比只让主模型使用页面参数，其他模型使用各自预设，避免把不兼容参数强行套用。填写基准种子可复现结果；留空时，多模型任务也会自动共享同一组随机种子。所有模型仍在同一个 GPU 队列中串行执行，切换模型时释放上一模型显存。

@@ -14,6 +14,7 @@ from .queue_worker import JobQueue
 from .settings import Settings
 from .storage import cleanup_download_snapshots
 from .text_generation import TextGenerationService, TextModelConfigStore
+from .text_generation_runner import TextGenerationRunner
 
 
 EngineFactory = Callable[[Settings, Profiles, ProviderConfigStore], Any]
@@ -42,6 +43,7 @@ class ApplicationServices:
         self._engine: Any | None = None
         self._job_queue: JobQueue | None = None
         self._text_generation: TextGenerationService | None = None
+        self._text_generation_runner: TextGenerationRunner | None = None
 
     @property
     def database(self) -> Database:
@@ -85,6 +87,12 @@ class ApplicationServices:
             raise RuntimeError("Application services are not initialized")
         return self._text_generation
 
+    @property
+    def text_generation_runner(self) -> TextGenerationRunner:
+        if self._text_generation_runner is None:
+            raise RuntimeError("Application services are not initialized")
+        return self._text_generation_runner
+
     def initialize(self) -> None:
         with self._initialize_lock:
             if self._database is not None:
@@ -112,6 +120,9 @@ class ApplicationServices:
             self._profiles = profiles
             self._provider_config = provider_config
             self._text_generation = text_generation
+            self._text_generation_runner = TextGenerationRunner(
+                database, text_generation
+            )
             self._engine = engine
             self._job_queue = JobQueue(self.settings, database, engine)
 
@@ -122,3 +133,5 @@ class ApplicationServices:
     def stop(self) -> None:
         if self._job_queue is not None:
             self._job_queue.stop()
+        if self._text_generation_runner is not None:
+            self._text_generation_runner.stop()

@@ -17,14 +17,19 @@ from .runtime import release_cuda_memory, set_generation_seed
 
 class CosyVoice3Adapter:
     engine_id = "cosyvoice3"
+    _INSTRUCT_PREFIX = "You are a helpful assistant.<|endofprompt|>"
     _REQUIRED_MODULES = (
         "conformer",
         "diffusers",
+        "gdown",
+        "hydra",
         "hyperpyyaml",
         "inflect",
+        "lightning",
         "modelscope",
         "omegaconf",
         "onnxruntime",
+        "pyworld",
         "whisper",
     )
     _REQUIRED_FILES = (
@@ -76,8 +81,11 @@ class CosyVoice3Adapter:
         model = self._load(profile)
         set_generation_seed(seed)
         started = perf_counter()
+        target_text = self._INSTRUCT_PREFIX + strip_pronunciation_dashes(
+            str(item["generated_text"])
+        )
         chunks = model.inference_cross_lingual(
-            strip_pronunciation_dashes(str(item["generated_text"])),
+            target_text,
             str(reference.path),
             stream=False,
             speed=float(generation_settings.get("speed_factor", 1.0)),

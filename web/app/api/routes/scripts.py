@@ -198,6 +198,13 @@ def update_script(
         updated = services.database.scripts.get(script_id)
         if not updated:  # pragma: no cover - guarded by the update above
             raise HTTPException(status_code=500, detail="台本更新后未找到")
+        services.database.context_revisions.record(
+            scope="script",
+            project_id=str(updated["project_id"]),
+            script_id=script_id,
+            content=prompt,
+            created_by=str(user["id"]),
+        )
     record_action(
         services,
         request,
@@ -532,12 +539,15 @@ def delete_script(
         script = project_script(services, script_id, user)
         if services.database.scripts.has_jobs(script_id):
             raise HTTPException(status_code=409, detail="请先删除引用该台本的生成记录")
+        if services.database.text_generation_runs.has_active_for_script(script_id):
+            raise HTTPException(status_code=409, detail="请先等待该台本的文本生成任务完成")
         try:
             source_path = ensure_within(
                 Path(str(script["source_path"])), services.settings.root
             )
         except ValueError:
             raise HTTPException(status_code=409, detail="台本源文件路径无效") from None
+        services.database.text_generation_runs.delete_for_script(script_id)
         if not services.database.scripts.delete(script_id):
             raise HTTPException(status_code=404, detail="找不到台本")
         try:

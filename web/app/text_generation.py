@@ -5,6 +5,7 @@ import math
 import os
 import stat
 import threading
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ import httpx
 
 
 REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "max"}
+ProgressCallback = Callable[..., None]
 CONFIG_ERROR = "文本模型配置无效，请在管理员设置中修复"
 DEFAULT_TEXT_MODEL = {
     "version": 1,
@@ -378,6 +380,139 @@ class TextGenerationClient:
             raise RuntimeError("文本模型返回了空内容")
         return content.strip()
 
+    def stream(
+        self,
+        config: TextModelConfig,
+        *,
+        system: str,
+        user: str,
+        on_delta: Callable[[str], None],
+    ) -> str:
+        """Stream text when the provider supports SSE, with one full-text fallback."""
+        if not config.configured:
+            raise ValueError("文本模型尚未配置或未启用")
+        endpoint = self._endpoint(config.base_url, config.protocol)
+        payload = self._request_payload(config, system=system, user=user, stream=True)
+        chunks: list[str] = []
+        try:
+            with httpx.stream(
+                "POST",
+                endpoint,
+                headers={
+                    "Accept": "text/event-stream, application/json",
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {config.api_key}",
+                },
+                json=payload,
+                timeout=config.timeout_seconds,
+            ) as response:
+                if response.status_code >= 400:
+                    raise RuntimeError(f"文本模型请求失败（HTTP {response.status_code}）")
+                content_type = str(response.headers.get("content-type") or "")
+                if "text/event-stream" not in content_type:
+                    try:
+                        body = json.loads(response.read())
+                    except ValueError as error:
+                        raise RuntimeError("文本模型返回的不是有效 JSON") from error
+                    content = self._content(body, config.protocol).strip()
+                    if content:
+                        on_delta(content)
+                        return content
+                    raise RuntimeError("文本模型返回了空内容")
+                for line in response.iter_lines():
+                    delta = self._sse_delta(line, config.protocol)
+                    if not delta:
+                        continue
+                    accumulated = "".join(chunks)
+                    if accumulated and delta.startswith(accumulated):
+                        delta = delta[len(accumulated) :]
+                    if not delta:
+                        continue
+                    chunks.append(delta)
+                    on_delta(delta)
+        except httpx.TimeoutException as error:
+            raise RuntimeError("文本模型请求超时") from error
+        except httpx.InvalidURL as error:
+            raise RuntimeError("文本模型 API 地址无效") from error
+        except httpx.RequestError as error:
+            raise RuntimeError("文本模型网络请求失败") from error
+        content = "".join(chunks).strip()
+        if not content:
+            raise RuntimeError("文本模型返回了空内容")
+        return content
+
+    @staticmethod
+    def _request_payload(
+        config: TextModelConfig, *, system: str, user: str, stream: bool
+    ) -> dict[str, Any]:
+        if config.protocol == "responses":
+            payload: dict[str, Any] = {
+                "model": config.model,
+                "instructions": system,
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": user}],
+                    }
+                ],
+                "stream": stream,
+                "max_output_tokens": config.max_output_tokens,
+            }
+            if config.reasoning_effort:
+                payload["reasoning"] = {"effort": config.reasoning_effort}
+            return payload
+        return {
+            "model": config.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": config.max_output_tokens,
+            "temperature": config.temperature,
+            "stream": stream,
+        }
+
+    @staticmethod
+    def _sse_delta(line: str | bytes, protocol: str) -> str:
+        if isinstance(line, bytes):
+            value = line.decode("utf-8", errors="replace").strip()
+        else:
+            value = str(line or "").strip()
+        if not value or not value.startswith("data:"):
+            return ""
+        payload = value[5:].strip()
+        if not payload or payload == "[DONE]":
+            return ""
+        try:
+            body = json.loads(payload)
+        except json.JSONDecodeError:
+            return ""
+        if protocol == "chat_completions":
+            choices = body.get("choices") if isinstance(body, dict) else None
+            first = choices[0] if isinstance(choices, list) and choices else {}
+            delta = first.get("delta") if isinstance(first, dict) else {}
+            if not isinstance(delta, dict):
+                return ""
+            content = delta.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return "".join(
+                    str(item.get("text") or "")
+                    for item in content
+                    if isinstance(item, dict)
+                )
+            return ""
+        if not isinstance(body, dict):
+            return ""
+        if body.get("type") == "response.output_text.delta":
+            return str(body.get("delta") or "")
+        if body.get("type") == "response.output_text.done":
+            # Some Responses-compatible providers emit only this final event;
+            # the stream loop removes any already accumulated prefix.
+            return str(body.get("text") or "")
+        return str(body.get("delta") or body.get("text") or "")
+
     @staticmethod
     def _endpoint(base_url: str, protocol: str) -> str:
         base = base_url.rstrip("/")
@@ -430,7 +565,13 @@ class TextGenerationService:
         return self.store.update(changes)
 
     def suggest_prompt(
-        self, *, scope: str, project_prompt: str, script_prompt: str, goal: str
+        self,
+        *,
+        scope: str,
+        project_prompt: str,
+        script_prompt: str,
+        goal: str,
+        progress: ProgressCallback | None = None,
     ) -> str:
         config = self.store.config()
         system = (
@@ -445,7 +586,7 @@ class TextGenerationService:
                 f"用户补充目标：{goal.strip() or '无'}"
             ),
         )
-        return self.client.complete(config, system=system, user=user)
+        return self._complete(config, system=system, user=user, progress=progress)
 
     def generate_lines(
         self,
@@ -455,6 +596,7 @@ class TextGenerationService:
         instruction: str,
         line_count: int,
         model_id: str = "",
+        progress: ProgressCallback | None = None,
     ) -> list[dict[str, str]]:
         config = self.store.config()
         if model_id and model_id != config.model:
@@ -469,7 +611,7 @@ class TextGenerationService:
             script_prompt=script_prompt,
             task=f"生成 {line_count} 句台词。具体要求：{instruction.strip() or '围绕台本设定推进一段自然对话。'}",
         )
-        raw = self.client.complete(config, system=system, user=user)
+        raw = self._complete(config, system=system, user=user, progress=progress)
         return self._parse_lines(raw, line_count)
 
     def analyze_script_import(
@@ -477,6 +619,7 @@ class TextGenerationService:
         *,
         project_prompt: str,
         units: list[dict[str, Any]],
+        progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         config = self.store.config()
         system = (
@@ -497,7 +640,7 @@ class TextGenerationService:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        raw = self.client.complete(config, system=system, user=user)
+        raw = self._complete(config, system=system, user=user, progress=progress)
         value = self._parse_json_object(raw)
         if not isinstance(value, dict) or not isinstance(value.get("segments"), list):
             raise RuntimeError("文本模型没有返回有效的台本分析结果")
@@ -511,6 +654,7 @@ class TextGenerationService:
         text: str,
         pronunciation: str,
         instruction: str,
+        progress: ProgressCallback | None = None,
     ) -> dict[str, str]:
         config = self.store.config()
         system = (
@@ -528,7 +672,7 @@ class TextGenerationService:
                 "请给出一个修改候选，不要直接替用户做最终决定。"
             ),
         )
-        raw = self.client.complete(config, system=system, user=user)
+        raw = self._complete(config, system=system, user=user, progress=progress)
         return self._parse_lines(raw, 1)[0]
 
     def generate_pronunciations(
@@ -538,6 +682,7 @@ class TextGenerationService:
         script_prompt: str,
         items: list[dict[str, Any]],
         model_id: str = "",
+        progress: ProgressCallback | None = None,
     ) -> list[dict[str, Any]]:
         config = self.store.config()
         if model_id and model_id != config.model:
@@ -558,7 +703,7 @@ class TextGenerationService:
             script_prompt=script_prompt,
             task=task,
         )
-        raw = self.client.complete(config, system=system, user=user)
+        raw = self._complete(config, system=system, user=user, progress=progress)
         return self._parse_pronunciation_lines(
             raw, [int(item["sequence"]) for item in items]
         )
@@ -573,6 +718,37 @@ class TextGenerationService:
             "【本次任务】\n"
             f"{task.strip()}"
         )
+
+    def _complete(
+        self,
+        config: TextModelConfig,
+        *,
+        system: str,
+        user: str,
+        progress: ProgressCallback | None,
+    ) -> str:
+        if progress is None:
+            return self.client.complete(config, system=system, user=user)
+        progress(stage="模型生成中")
+        stream = getattr(self.client, "stream", None)
+        if callable(stream):
+            accumulated: list[str] = []
+
+            def on_delta(delta: str) -> None:
+                accumulated.append(delta)
+                progress(output_text="".join(accumulated))
+
+            raw = stream(
+                config,
+                system=system,
+                user=user,
+                on_delta=on_delta,
+            )
+        else:
+            raw = self.client.complete(config, system=system, user=user)
+            progress(output_text=raw)
+        progress(stage="整理结果", output_text=raw)
+        return raw
 
     @staticmethod
     def _parse_lines(raw: str, line_count: int) -> list[dict[str, str]]:

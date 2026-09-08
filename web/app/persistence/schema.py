@@ -69,6 +69,38 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS context_revisions (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    script_id TEXT REFERENCES scripts(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    UNIQUE(scope, project_id, script_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS text_generation_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    script_id TEXT REFERENCES scripts(id) ON DELETE CASCADE,
+    parent_run_id TEXT REFERENCES text_generation_runs(id) ON DELETE SET NULL,
+    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    stage TEXT NOT NULL DEFAULT '排队中',
+    input_json TEXT NOT NULL DEFAULT '{}',
+    context_json TEXT NOT NULL DEFAULT '{}',
+    output_text TEXT NOT NULL DEFAULT '',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS voices (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -250,6 +282,18 @@ CREATE INDEX IF NOT EXISTS idx_members_user_project ON project_members(user_id, 
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_actor_created ON audit_logs(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_logs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_revisions_project_created
+    ON context_revisions(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_revisions_script_created
+    ON context_revisions(script_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_text_generation_runs_project_updated
+    ON text_generation_runs(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_text_generation_runs_script_updated
+    ON text_generation_runs(script_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_text_generation_runs_status_updated
+    ON text_generation_runs(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_text_generation_runs_parent
+    ON text_generation_runs(parent_run_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry ON sessions(user_id, expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 """
@@ -344,6 +388,12 @@ def initialize_schema(database: SQLiteConnection) -> None:
             "jobs",
             "reference_snapshot_version",
             "INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            connection,
+            "text_generation_runs",
+            "parent_run_id",
+            "TEXT REFERENCES text_generation_runs(id) ON DELETE SET NULL",
         )
         _add_column_if_missing(
             connection,

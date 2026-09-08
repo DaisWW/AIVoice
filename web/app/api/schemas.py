@@ -81,13 +81,28 @@ class ScriptImportConfirm(BaseModel):
 
 
 class PromptSuggestionRequest(BaseModel):
-    goal: str = Field(default="", max_length=2000)
+    goal: str = Field(default="", max_length=12000)
 
 
 class TextGenerationRequest(BaseModel):
     instruction: str = Field(default="", max_length=4000)
     line_count: int = Field(default=5, ge=1, le=100)
     model_id: str = Field(default="", max_length=64)
+
+
+class TextGenerationRunRequest(BaseModel):
+    kind: Literal[
+        "prompt_suggestion", "lines", "rewrite_line", "pronunciations", "script_import"
+    ]
+    goal: str = Field(default="", max_length=12000)
+    instruction: str = Field(default="", max_length=4000)
+    line_count: int = Field(default=5, ge=1, le=100)
+    sequence: int | None = Field(default=None, ge=1, le=MAX_SCRIPT_ITEMS)
+    text: str = Field(default="", max_length=2000)
+    pronunciation: str = Field(default="", max_length=2000)
+    version: int | None = Field(default=None, ge=1)
+    model_id: str = Field(default="", max_length=64)
+    parent_run_id: str | None = Field(default=None, max_length=64)
 
 
 class TextLineRewriteRequest(BaseModel):

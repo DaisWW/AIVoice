@@ -29,6 +29,124 @@ def test_text_model_endpoint_and_response_content() -> None:
     assert TextGenerationClient._content({"output_text": "台词"}, "responses") == "台词"
 
 
+def _configured_store(tmp_path: Path, protocol: str) -> TextModelConfigStore:
+    store = TextModelConfigStore(tmp_path / f"{protocol}.json")
+    store.update(
+        {
+            "enabled": True,
+            "label": "模型",
+            "base_url": "https://llm.example/v1",
+            "api_key": "secret",
+            "model": "provider/test-model",
+            "protocol": protocol,
+            "reasoning_effort": "",
+            "timeout_seconds": 30,
+            "max_output_tokens": 1000,
+            "temperature": 0.7,
+        }
+    )
+    return store
+
+
+@pytest.mark.parametrize(
+    ("protocol", "events", "expected"),
+    (
+        (
+            "chat_completions",
+            [
+                'data: {"choices":[{"delta":{"content":"你好"}}]}',
+                'data: {"choices":[{"delta":{"content":[{"text":"，世界"}]}}]}',
+                "data: [DONE]",
+            ],
+            "你好，世界",
+        ),
+        (
+            "responses",
+            [
+                'data: {"type":"response.output_text.delta","delta":"你好"}',
+                'data: {"type":"response.output_text.delta","delta":"，世界"}',
+                'data: {"type":"response.output_text.done","text":"你好，世界"}',
+                "data: [DONE]",
+            ],
+            "你好，世界",
+        ),
+        (
+            "responses",
+            ['data: {"type":"response.output_text.done","text":"只有完成事件"}'],
+            "只有完成事件",
+        ),
+        (
+            "responses",
+            ['data: {"type":"response.output_text.delta","delta":"字节事件"}'.encode()],
+            "字节事件",
+        ),
+    ),
+)
+def test_text_model_stream_parses_sse_deltas(
+    monkeypatch, tmp_path: Path, protocol: str, events: list[str], expected: str
+) -> None:
+    store = _configured_store(tmp_path, protocol)
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/event-stream"}
+
+        def iter_lines(self):
+            return iter(events)
+
+    class StreamContext:
+        def __enter__(self):
+            return FakeResponse()
+
+        def __exit__(self, exc_type, exc, traceback):
+            del exc_type, exc, traceback
+            return False
+
+    monkeypatch.setattr(
+        "app.text_generation.httpx.stream", lambda *args, **kwargs: StreamContext()
+    )
+    received: list[str] = []
+    result = TextGenerationClient().stream(
+        store.config(), system="system", user="user", on_delta=received.append
+    )
+
+    assert result == expected
+    assert "".join(received) == expected
+
+
+def test_text_model_stream_falls_back_to_json_response(
+    monkeypatch, tmp_path: Path
+) -> None:
+    store = _configured_store(tmp_path, "responses")
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        @staticmethod
+        def read():
+            return '{"output_text":"完整结果"}'.encode()
+
+    class StreamContext:
+        def __enter__(self):
+            return FakeResponse()
+
+        def __exit__(self, exc_type, exc, traceback):
+            del exc_type, exc, traceback
+            return False
+
+    monkeypatch.setattr(
+        "app.text_generation.httpx.stream", lambda *args, **kwargs: StreamContext()
+    )
+    received: list[str] = []
+    result = TextGenerationClient().stream(
+        store.config(), system="system", user="user", on_delta=received.append
+    )
+
+    assert result == "完整结果"
+    assert received == ["完整结果"]
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     (
