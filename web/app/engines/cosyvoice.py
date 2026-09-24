@@ -31,6 +31,7 @@ class CosyVoice3Adapter:
         "onnxruntime",
         "pyworld",
         "whisper",
+        "wget",
     )
     _REQUIRED_FILES = (
         "cosyvoice3.yaml",

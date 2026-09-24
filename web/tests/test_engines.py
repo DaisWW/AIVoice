@@ -228,6 +228,16 @@ def test_cosy_status_allows_missing_optional_speaker_catalog(
 
     assert status.available is True
 
+    monkeypatch.setattr(
+        cosyvoice,
+        "missing_modules",
+        lambda names: ("wget",) if "wget" in names else (),
+    )
+    status = adapter.status({"model_path": str(model_path)})
+
+    assert status.available is False
+    assert "Python:wget" in status.missing_files
+
 
 @pytest.mark.parametrize(
     ("adapter_type", "adapter_module"),
