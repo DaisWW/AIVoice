@@ -21,8 +21,10 @@
 
 ## 模型与迁移
 
-- 修改模型、队列、schema 或 legacy import 前确认单 Worker、显存、状态恢复和历史数据约束。
-- 新模型走现有 registry/contract；迁移可重复并保留旧数据。真实模型、GPU、Docker 和声音资产需用户明确授权。
+- 修改模型、队列、schema 或 legacy import 前核对单 Worker、显存、状态恢复和历史数据约束。
+- 新模型走现有 registry/contract；迁移可重复并保留旧数据。实际执行真实模型或 GPU 推理、
+  启动/停止/重建 Docker 服务、访问或改写真实声音资产及生产运行数据，须有用户对操作和范围的明确授权；
+  当前请求已明确指定即满足该要求。审阅或编辑源码、运行临时数据与 fake 引擎测试不触发这项批准。
 
 ## Grill Me
 
