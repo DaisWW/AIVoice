@@ -606,7 +606,7 @@ def test_reference_failure_removes_partial_reference(settings_factory) -> None:
     job_id = seed_job(database, settings.root)
 
     class PartialReferenceEngine(FakeEngine):
-        def prepare_reference(self, voice_files, target_path):
+        def prepare_reference(self, voice_files, target_path, model_id):
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_bytes(b"partial")
             raise RuntimeError("reference failed")
@@ -800,11 +800,11 @@ def test_queue_failure_isolated_and_pending_items_failed(settings_factory) -> No
             super().__init__(engine_settings, profiles)
             self.calls = 0
 
-        def prepare_reference(self, voice_files, target_path):
+        def prepare_reference(self, voice_files, target_path, model_id):
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("reference failed")
-            return super().prepare_reference(voice_files, target_path)
+            return super().prepare_reference(voice_files, target_path, model_id)
 
     engine = FailFirstReferenceEngine(settings, SimpleNamespace())
     worker = JobQueue(settings, database, engine)
@@ -956,9 +956,9 @@ def test_queue_restart_uses_a_new_reference_path(settings_factory) -> None:
             super().__init__(engine_settings, profiles)
             self.reference_paths: list[Path] = []
 
-        def prepare_reference(self, voice_files, target_path):
+        def prepare_reference(self, voice_files, target_path, model_id):
             self.reference_paths.append(target_path)
-            return super().prepare_reference(voice_files, target_path)
+            return super().prepare_reference(voice_files, target_path, model_id)
 
     engine = RecordingEngine(settings, SimpleNamespace())
     worker = JobQueue(settings, database, engine)

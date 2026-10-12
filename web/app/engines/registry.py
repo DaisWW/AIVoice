@@ -97,9 +97,14 @@ class VoiceEngine:
         return self._status(self._profiles.model(model_id))
 
     def prepare_reference(
-        self, voice_files: list[dict[str, Any]], target_path: Path
+        self,
+        voice_files: list[dict[str, Any]],
+        target_path: Path,
+        model_id: str,
     ) -> ReferenceAudio:
-        return self._references.build(voice_files, target_path)
+        return self._references.build(
+            voice_files, target_path, self._profiles.model(model_id)
+        )
 
     def generate(
         self,

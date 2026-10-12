@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -m pip install --index-url "${PYPI_INDEX_URL}" \
         -r /tmp/requirements-gpt-sovits.txt -r /tmp/requirements-multimodel.txt -r /tmp/requirements-web.txt \
     && sox --version \
-    && python -c "import accelerate, conformer, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
+    && python -c "import accelerate, conformer, datasets, diffusers, hyperpyyaml, inflect, jieba_fast, matplotlib, omegaconf, pyarrow, sox, torch, torchaudio, transformers, whisper; expected='${TORCH_VERSION}'; assert torch.__version__.startswith(expected), (torch.__version__, expected); assert torchaudio.__version__.startswith(expected), (torchaudio.__version__, expected); print('Torch', torch.__version__, 'CUDA', torch.version.cuda); print('TorchAudio', torchaudio.__version__); print('Transformers', transformers.__version__); print('Multi-model runtime imports OK')" \
     && apt-get purge -y --auto-remove build-essential
 
 ARG APP_UID=10001

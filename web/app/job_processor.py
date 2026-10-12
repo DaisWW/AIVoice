@@ -225,7 +225,7 @@ class JobProcessor:
             target.replace(backup)
         try:
             reference = self._engine.prepare_reference(
-                self._reference_files(job), target
+                self._reference_files(job), target, str(job["model_id"])
             )
         except Exception:
             target.unlink(missing_ok=True)

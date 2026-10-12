@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -7,12 +8,16 @@ from typing import Any
 import numpy as np
 from scipy.io import wavfile
 
+from voice_core.cosyvoice_pronunciation import cosyvoice_text
 from voice_core.pronunciation import strip_pronunciation_dashes
 
 from ..settings import Settings
 from .contracts import GenerationResult, ModelStatus, ReferenceAudio
 from .dependencies import add_import_paths, missing_modules
 from .runtime import release_cuda_memory, set_generation_seed
+
+
+logger = logging.getLogger(__name__)
 
 
 class CosyVoice3Adapter:
@@ -82,17 +87,55 @@ class CosyVoice3Adapter:
         model = self._load(profile)
         set_generation_seed(seed)
         started = perf_counter()
-        target_text = self._INSTRUCT_PREFIX + strip_pronunciation_dashes(
-            str(item["generated_text"])
+        target_text = self._INSTRUCT_PREFIX + cosyvoice_text(
+            str(item.get("pronunciation") or ""),
+            strip_pronunciation_dashes(str(item["generated_text"])),
         )
-        chunks = model.inference_cross_lingual(
-            target_text,
-            str(reference.path),
-            stream=False,
-            speed=float(generation_settings.get("speed_factor", 1.0)),
-            text_frontend=False,
+        # Use the same frontend and model as the public cross-lingual method,
+        # without its logging of private script text.
+        inputs = model.frontend.frontend_cross_lingual(
+            target_text, str(reference.path), int(model.sample_rate), ""
         )
-        audio = self._collect_audio(chunks)
+        llm = model.model.llm
+        original = llm.inference_wrapper
+        decodes: list[tuple[int, int]] = []
+
+        def monitored_decode(lm_input, sampling, min_len, max_len, uuid):
+            emitted = 0
+            for speech_unit in original(lm_input, sampling, min_len, max_len, uuid):
+                emitted += 1
+                yield speech_unit
+            decodes.append((emitted, max_len))
+
+        # Inference runs only inside VoiceEngine's single GPU queue and lock.
+        # Count before CosyVoice removes repeated silence units, so exhausting
+        # the budget is detected even when the WAV is shorter than the limit.
+        llm.inference_wrapper = monitored_decode
+        try:
+            audio = self._collect_audio(
+                model.model.tts(
+                    **inputs,
+                    stream=False,
+                    speed=float(generation_settings.get("speed_factor", 1.0)),
+                )
+            )
+        finally:
+            llm.inference_wrapper = original
+        if not decodes:
+            raise RuntimeError("CosyVoice3 没有返回生成结束状态")
+        for emitted, limit in decodes:
+            exhausted = emitted >= limit
+            logger.info(
+                "CosyVoice3 decode seed=%s speech_units=%s limit=%s end=%s",
+                seed,
+                emitted,
+                limit,
+                "limit" if exhausted else "natural",
+            )
+            if exhausted:
+                raise RuntimeError("CosyVoice3 达到生成上限仍未自然结束，请换一个候选种子重试")
+        if not audio.size or not np.isfinite(audio).all():
+            raise RuntimeError("CosyVoice3 返回空音频或无效采样")
         self._write(output_path, audio, int(model.sample_rate))
         return GenerationResult(
             output_path,

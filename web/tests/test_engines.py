@@ -5,6 +5,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 from fastapi import HTTPException
 
 from app.engines import cosyvoice, qwen_tts
@@ -13,6 +14,7 @@ from app.engines.cosyvoice import CosyVoice3Adapter
 from app.engines.gpt_sovits import GptSovitsAdapter
 from app.engines.qwen_tts import Qwen3TtsAdapter
 from app.engines.registry import VoiceEngine
+from app.engines.reference_audio import ReferenceAudioBuilder
 from app.api.routes.system import readiness
 from app.profiles import Profiles
 
@@ -35,6 +37,51 @@ class _UnavailableAdapter(_AvailableAdapter):
         del profile
         self.status_calls += 1
         raise RuntimeError("model bootstrap failed")
+
+
+def test_registry_prepares_reference_with_the_selected_model_limit(
+    tmp_path: Path,
+) -> None:
+    sample_rate = 16_000
+    time = np.arange(sample_rate * 12, dtype=np.float32) / sample_rate
+    tone = (0.2 * np.sin(2 * np.pi * 220 * time)).astype(np.float32)
+    tone[8 * sample_rate : int(8.3 * sample_rate)] = 0
+    from scipy.io import wavfile
+
+    source = tmp_path / "source.wav"
+    wavfile.write(source, sample_rate, tone)
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._profiles = Profiles(
+        {
+            "models": [
+                {"id": "gpt", "generation_parameters": []},
+                {
+                    "id": "cosy",
+                    "engine": "cosyvoice3",
+                    "generation_parameters": [],
+                    "reference": {"target_seconds": 12.0, "max_seconds": 29.5},
+                },
+            ]
+        }
+    )
+    root = Path(__file__).resolve().parents[2]
+    engine._references = ReferenceAudioBuilder(
+        root,
+        {
+            "reference_sample_rate": sample_rate,
+            "trim": {"threshold_db": -42, "padding_ms": 45, "minimum_clip_ms": 80},
+            "voice_clone": {
+                "reference": {"target_seconds": 6.0, "max_seconds": 9.5, "gap_ms": 120}
+            },
+        },
+    )
+    files = [{"voice_id": "test", "source_path": source}]
+
+    short = engine.prepare_reference(files, tmp_path / "gpt.wav", "gpt")
+    complete = engine.prepare_reference(files, tmp_path / "cosy.wav", "cosy")
+
+    assert 7.9 < short.duration_seconds <= 8.3
+    assert 11.9 < complete.duration_seconds <= 12.0
 
 
 def test_registry_respects_explicit_model_disable() -> None:

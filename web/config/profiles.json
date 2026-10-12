@@ -70,6 +70,7 @@
       "description": "拼音、音素和语气指令能力较强，适合虫语台本",
       "engine": "cosyvoice3",
       "model_path": "tools/models/cosyvoice3_0_5b",
+      "reference": {"target_seconds": 12.0, "max_seconds": 29.5},
       "stage": "优先接入",
       "license": "Apache-2.0",
       "workflow": "text_to_speech",

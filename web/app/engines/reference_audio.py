@@ -13,13 +13,19 @@ class ReferenceAudioBuilder:
         self._config = config
 
     def build(
-        self, voice_files: list[dict[str, Any]], target_path: Path
+        self,
+        voice_files: list[dict[str, Any]],
+        target_path: Path,
+        profile: dict[str, Any] | None = None,
     ) -> ReferenceAudio:
         if not voice_files:
             raise ValueError("所选声音库没有启用的录音")
         audio = self._audio_module()
         records = [self._record(item, index) for index, item in enumerate(voice_files)]
-        reference = self._config["voice_clone"]["reference"]
+        reference = {
+            **self._config["voice_clone"]["reference"],
+            **(profile or {}).get("reference", {}),
+        }
         path, _, duration, prompt_text, prompt_lang = audio.build_reference_audio(
             records,
             target_path,

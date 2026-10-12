@@ -70,8 +70,9 @@ class FakeEngine:
         return SimpleNamespace(available=True, reason="")
 
     def prepare_reference(
-        self, voice_files: list[dict[str, object]], target_path: Path
+        self, voice_files: list[dict[str, object]], target_path: Path, model_id: str
     ) -> SimpleNamespace:
+        del model_id
         if not voice_files:
             raise ValueError("missing reference")
         target_path.parent.mkdir(parents=True, exist_ok=True)

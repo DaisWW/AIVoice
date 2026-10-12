@@ -203,6 +203,62 @@ def test_reference_builder_rejects_silent_recordings(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("max_seconds,expected_minimum", ((9.5, 7.9), (29.5, 11.9)))
+def test_reference_respects_model_limit_and_ends_at_pause(
+    tmp_path: Path, max_seconds: float, expected_minimum: float
+) -> None:
+    sample_rate = 16_000
+    time = np.arange(sample_rate * 12, dtype=np.float32) / sample_rate
+    source_audio = (0.2 * np.sin(2 * np.pi * 220 * time)).astype(np.float32)
+    source_audio[8 * sample_rate : int(8.3 * sample_rate)] = 0
+    source = tmp_path / "source.wav"
+    write_wav(source, source_audio, sample_rate)
+    original = source.read_bytes()
+    path, _, duration, _, _ = build_reference_audio(
+        [{"audio_path": source}],
+        tmp_path / "reference.wav",
+        sample_rate,
+        target_seconds=12.0,
+        max_seconds=max_seconds,
+        gap_seconds=0.12,
+        trim_settings={"threshold_db": -42, "padding_ms": 45, "minimum_clip_ms": 80},
+    )
+
+    assert expected_minimum < duration <= max_seconds
+    assert source.read_bytes() == original
+    if max_seconds == 9.5:
+        assert duration <= 8.3
+        _, audio = decode_audio(path)
+        assert np.max(np.abs(audio[-sample_rate // 50 :])) == 0
+
+
+@pytest.mark.parametrize("reference_text", ("", "测试参考稿"))
+def test_reference_rejects_unsafe_truncation(
+    tmp_path: Path, reference_text: str
+) -> None:
+    sample_rate = 16_000
+    time = np.arange(sample_rate * 12, dtype=np.float32) / sample_rate
+    source = tmp_path / "source.wav"
+    write_wav(source, 0.2 * np.sin(2 * np.pi * 220 * time), sample_rate)
+    target = tmp_path / "reference.wav"
+
+    with pytest.raises(ValueError, match="逐字对应|没有完整停顿"):
+        build_reference_audio(
+            [{"audio_path": source, "reference_text": reference_text}],
+            target,
+            sample_rate,
+            target_seconds=6.0,
+            max_seconds=9.5,
+            gap_seconds=0.12,
+            trim_settings={
+                "threshold_db": -42,
+                "padding_ms": 45,
+                "minimum_clip_ms": 80,
+            },
+        )
+    assert not target.exists()
+
+
 def test_pronunciation_holds_remain_metadata_for_external_editing() -> None:
     analysis = analyze_pronunciation("嗯——……GU-la。↘")
 

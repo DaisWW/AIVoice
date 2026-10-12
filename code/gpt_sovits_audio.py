@@ -163,7 +163,14 @@ def build_reference_audio(
         remaining = maximum_samples - current_samples - (gap.size if parts else 0)
         if remaining <= 0:
             break
-        clip = clip[:remaining]
+        if clip.size > remaining:
+            if str(record.get("reference_text") or "").strip():
+                if parts:
+                    break
+                raise ValueError("带参考文本的录音超过模型上限，请使用完整且逐字对应的短片段")
+            clip = _clip_at_pause(
+                clip, remaining, sample_rate, float(trim_settings["threshold_db"])
+            )
         if parts:
             parts.append(gap)
             current_samples += gap.size
@@ -177,8 +184,8 @@ def build_reference_audio(
 
     audio = np.concatenate(parts).astype(np.float32)
     duration = audio.size / sample_rate
-    if duration < 3.0 or duration > 10.0:
-        raise ValueError(f"GPT-SoVITS 参考音频必须为 3~10 秒，当前 {duration:.3f} 秒")
+    if duration < 3.0 or duration > max_seconds:
+        raise ValueError(f"参考音频必须为 3~{max_seconds:g} 秒，当前 {duration:.3f} 秒")
     fade = min(int(sample_rate * 0.012), audio.size // 4)
     if fade:
         curve = np.linspace(0.0, 1.0, fade, dtype=np.float32)
@@ -187,6 +194,24 @@ def build_reference_audio(
     write_wav(output_path, audio, sample_rate)
     prompt_text, prompt_lang = _reference_prompt(selected)
     return output_path, selected, duration, prompt_text, prompt_lang
+
+
+def _clip_at_pause(
+    audio: np.ndarray, maximum: int, sample_rate: int, threshold_db: float
+) -> np.ndarray:
+    """End an oversized model reference at a quiet gap, never in a syllable."""
+    window = max(1, int(sample_rate * 0.02))
+    samples = audio[:maximum]
+    frames = samples[: samples.size // window * window].reshape(-1, window)
+    rms = np.sqrt(np.mean(np.square(frames), axis=1))
+    quiet = rms < 10 ** (threshold_db / 20)
+    # Require at least 60 ms of quiet; a single low-energy frame can be part
+    # of a voiced consonant or a waveform zero crossing.
+    gaps = np.flatnonzero(quiet[:-2] & quiet[1:-1] & quiet[2:])
+    if not gaps.size:
+        raise ValueError("参考音频超过模型上限且没有完整停顿，无法安全截取")
+    end = int(gaps[-1] + 2) * window
+    return audio[:end]
 
 
 def _reference_prompt(records: list[dict[str, Any]]) -> tuple[str, str]:
