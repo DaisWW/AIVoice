@@ -59,7 +59,9 @@ def cosyvoice_text(pronunciation: str, generated_text: str) -> str:
                 phonemes = "<strong>" + phonemes + "</strong>"
             parts.append(phonemes)
         else:
-            separator = re.sub(r"[-—–―－↗↘]", " ", token)
+            # These marks separate syllables in the script, not spoken words.
+            # Spaces between native phonemes make the model read them apart.
+            separator = re.sub(r"[-—–―－↗↘\s]", "", token)
             parts.append(separator)
     text = re.sub(r"\s+", " ", "".join(parts)).strip()
     # Candidate direction overrides are carried by generated_text punctuation.

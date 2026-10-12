@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class CosyVoice3Adapter:
     engine_id = "cosyvoice3"
-    _INSTRUCT_PREFIX = "You are a helpful assistant.<|endofprompt|>"
+    _INSTRUCT_TEXT = "You are a helpful assistant.<|endofprompt|>"
     _REQUIRED_MODULES = (
         "conformer",
         "diffusers",
@@ -87,14 +87,18 @@ class CosyVoice3Adapter:
         model = self._load(profile)
         set_generation_seed(seed)
         started = perf_counter()
-        target_text = self._INSTRUCT_PREFIX + cosyvoice_text(
+        target_text = cosyvoice_text(
             str(item.get("pronunciation") or ""),
             strip_pronunciation_dashes(str(item["generated_text"])),
         )
-        # Use the same frontend and model as the public cross-lingual method,
-        # without its logging of private script text.
-        inputs = model.frontend.frontend_cross_lingual(
-            target_text, str(reference.path), int(model.sample_rate), ""
+        # Keep instructions outside the text used for minimum speech length.
+        # Calling the frontend directly also avoids logging private script text.
+        inputs = model.frontend.frontend_instruct2(
+            target_text,
+            self._INSTRUCT_TEXT,
+            str(reference.path),
+            int(model.sample_rate),
+            "",
         )
         llm = model.model.llm
         original = llm.inference_wrapper
@@ -166,8 +170,29 @@ class CosyVoice3Adapter:
             load_trt=False,
             load_vllm=False,
         )
+        self._preserve_cached_attention(self._model.model.llm.llm)
         self._loaded_path = model_path
         return self._model
+
+    @staticmethod
+    def _preserve_cached_attention(encoder: Any) -> None:
+        original = encoder.forward_one_step
+
+        def forward_one_step(xs, masks, cache=None):
+            if cache is not None:
+                import torch
+
+                # Transformers 4.57 requires a mask covering cached keys too.
+                # CosyVoice's non-stream decoder supplies only the new token;
+                # without this correction the text prefix becomes invisible.
+                masks = torch.ones(
+                    (xs.shape[0], 1, cache.get_seq_length() + xs.shape[1]),
+                    dtype=masks.dtype,
+                    device=masks.device,
+                )
+            return original(xs, masks, cache)
+
+        encoder.forward_one_step = forward_one_step
 
     def _configure_imports(self) -> None:
         add_import_paths(
