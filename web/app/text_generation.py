@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .error_utils import safe_error_message
+
 
 REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "max"}
 ProgressCallback = Callable[..., None]
@@ -690,6 +692,7 @@ class TextGenerationService:
         system = (
             "你是专业发音编辑。根据项目级上下文和台本级角色特性，为每一行生成适合配音的发音文本。"
             "只修改发音，不修改台词；每行的单行修改要求必须作为该行的重要约束。"
+            "每行 pronunciation 必须非空；无法改写时保留该行原有发音，禁止用空字符串表示跳过。"
             "必须完整返回所有输入行，序号保持不变。只返回 JSON 对象，格式为 "
             '{"lines":[{"sequence":1,"pronunciation":"发音文本"}]}，不要 Markdown、解释或额外字段。'
         )
@@ -704,9 +707,54 @@ class TextGenerationService:
             task=task,
         )
         raw = self._complete(config, system=system, user=user, progress=progress)
-        return self._parse_pronunciation_lines(
-            raw, [int(item["sequence"]) for item in items]
+        lines = self._parse_pronunciation_lines(
+            raw, [int(item["sequence"]) for item in items], allow_empty=True
         )
+        empty_sequences = [
+            line["sequence"] for line in lines if not line["pronunciation"]
+        ]
+        if not empty_sequences:
+            return lines
+        sequence_label = "、".join(str(sequence) for sequence in empty_sequences)
+        retry_items = [
+            item for item in items if int(item["sequence"]) in empty_sequences
+        ]
+        retry_user = self._layered_context(
+            project_prompt=project_prompt,
+            script_prompt=script_prompt,
+            task=(
+                f"上次返回的第 {sequence_label} 行发音为空。仅补生成以下 {len(retry_items)} 行的发音，"
+                "保持原始序号，不要返回其他行；发音必须非空，无法改写时保留原有发音。输入行如下：\n"
+                + json.dumps(retry_items, ensure_ascii=False, separators=(",", ":"))
+            ),
+        )
+
+        def retry_progress(
+            *, stage: str | None = None, output_text: str | None = None
+        ) -> None:
+            if progress is not None:
+                progress(
+                    stage=f"补生成第 {sequence_label} 行：{stage}" if stage else None,
+                    output_text=(
+                        f"{raw}\n\n【补生成第 {sequence_label} 行】\n{output_text}"
+                        if output_text is not None
+                        else None
+                    ),
+                )
+
+        try:
+            retry_raw = self._complete(
+                config,
+                system=system,
+                user=retry_user,
+                progress=retry_progress if progress is not None else None,
+            )
+            retry_lines = self._parse_pronunciation_lines(retry_raw, empty_sequences)
+        except (RuntimeError, ValueError) as error:
+            message = safe_error_message(error, "文本模型补生成失败")
+            raise RuntimeError(f"第 {sequence_label} 行发音补生成失败：{message}") from error
+        replacements = {line["sequence"]: line for line in retry_lines}
+        return [replacements.get(line["sequence"], line) for line in lines]
 
     @staticmethod
     def _layered_context(*, project_prompt: str, script_prompt: str, task: str) -> str:
@@ -779,7 +827,7 @@ class TextGenerationService:
 
     @staticmethod
     def _parse_pronunciation_lines(
-        raw: str, expected_sequences: list[int]
+        raw: str, expected_sequences: list[int], *, allow_empty: bool = False
     ) -> list[dict[str, Any]]:
         value = TextGenerationService._parse_json_object(raw)
         raw_lines = value.get("lines") if isinstance(value, dict) else None
@@ -794,11 +842,16 @@ class TextGenerationService:
             except (TypeError, ValueError, OverflowError):
                 raise RuntimeError("文本模型返回的行号无效") from None
             pronunciation = str(item.get("pronunciation") or "").strip()
-            if sequence in parsed or not pronunciation:
+            if sequence in parsed:
                 raise RuntimeError("文本模型返回的发音格式无效")
             parsed[sequence] = pronunciation
         if set(parsed) != set(expected_sequences):
             raise RuntimeError("文本模型返回的发音行号不完整")
+        empty_sequences = [
+            str(sequence) for sequence in expected_sequences if not parsed[sequence]
+        ]
+        if empty_sequences and not allow_empty:
+            raise RuntimeError(f"第 {'、'.join(empty_sequences)} 行发音为空，请重试")
         return [
             {"sequence": sequence, "pronunciation": parsed[sequence]}
             for sequence in expected_sequences

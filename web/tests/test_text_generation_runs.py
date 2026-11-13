@@ -4,6 +4,8 @@ import json
 import time
 from typing import Any
 
+import pytest
+
 
 def _configure_text_model(services: Any) -> None:
     services.text_generation.store.update(
@@ -367,3 +369,68 @@ def test_failed_text_run_keeps_partial_stream_output(app_client) -> None:
     run = _wait_for_run(client, response.json()["run"]["id"])
     assert run["status"] == "failed"
     assert run["output_text"] == "已输出的一部分"
+
+
+@pytest.mark.parametrize("retry_outcome", ("success", "empty", "timeout"))
+def test_pronunciation_retry_preserves_results_and_script(
+    app_client, retry_outcome: str
+) -> None:
+    client, services = app_client
+    user = services.database.auth.get_by_username("admin")
+    assert user is not None
+    project = services.database.projects.list_for_user(str(user["id"]))[0]
+    script = _script(client, str(project["id"]))
+    _configure_text_model(services)
+
+    class FakeTextClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stream(self, config: Any, *, system: str, user: str, on_delta: Any) -> str:
+            del config, system, user
+            self.calls += 1
+            if self.calls == 1:
+                lines = [
+                    {"sequence": 1, "pronunciation": "首轮有效发音"},
+                    {"sequence": 2, "pronunciation": ""},
+                ]
+            elif retry_outcome == "timeout":
+                on_delta('{"lines":[')
+                raise RuntimeError("文本模型请求超时")
+            else:
+                lines = [
+                    {
+                        "sequence": 2,
+                        "pronunciation": "补齐后的发音" if retry_outcome == "success" else "",
+                    }
+                ]
+            raw = json.dumps({"lines": lines}, ensure_ascii=False)
+            on_delta(raw)
+            return raw
+
+    fake = FakeTextClient()
+    services.text_generation.client = fake
+    response = client.post(
+        f"/api/scripts/{script['id']}/text-generation-runs",
+        json={"kind": "pronunciations"},
+    )
+    assert response.status_code == 202
+    run = _wait_for_run(client, response.json()["run"]["id"])
+
+    assert fake.calls == 2
+    if retry_outcome == "success":
+        assert run["status"] == "completed"
+        assert run["result"]["lines"] == [
+            {"sequence": 1, "pronunciation": "首轮有效发音"},
+            {"sequence": 2, "pronunciation": "补齐后的发音"},
+        ]
+        assert run["output_text"] == "首轮有效发音\n补齐后的发音"
+    else:
+        assert run["status"] == "failed"
+        assert "第 2 行" in run["error"]
+        assert ("发音为空" if retry_outcome == "empty" else "请求超时") in run["error"]
+        assert "首轮有效发音" in run["output_text"]
+
+    unchanged = client.get(f"/api/scripts/{script['id']}").json()["script"]
+    assert [item["pronunciation"] for item in unchanged["items"]] == ["mo-la", "gu-la"]
+    assert unchanged["version"] == script["version"]

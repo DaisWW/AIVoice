@@ -481,6 +481,105 @@ def test_generate_pronunciations_uses_saved_line_instructions(app_client) -> Non
     assert '"rewrite_instruction":"第二句要停顿更长"' in fake.user
 
 
+def test_generate_pronunciations_retries_only_empty_lines(tmp_path: Path) -> None:
+    class FakeTextClient:
+        def __init__(self) -> None:
+            self.users: list[str] = []
+
+        def complete(self, config, *, system: str, user: str) -> str:
+            del config, system
+            self.users.append(user)
+            lines = (
+                [
+                    {"sequence": 1, "pronunciation": "首轮有效发音"},
+                    {"sequence": 4, "pronunciation": None},
+                    {"sequence": 7, "pronunciation": "  "},
+                ]
+                if len(self.users) == 1
+                else [
+                    {"sequence": 7, "pronunciation": "第三句补齐发音"},
+                    {"sequence": 4, "pronunciation": "第二句补齐发音"},
+                ]
+            )
+            return json.dumps({"lines": lines})
+
+    fake = FakeTextClient()
+    service = TextGenerationService(_configured_store(tmp_path, "responses"), fake)
+    result = service.generate_pronunciations(
+        project_prompt="测试项目设定",
+        script_prompt="测试角色设定",
+        items=[
+            {"sequence": 1, "text": "第一句", "pronunciation": "mo-la"},
+            {
+                "sequence": 4,
+                "text": "第二句",
+                "pronunciation": "gu-la",
+                "rewrite_instruction": "放慢语速",
+            },
+            {"sequence": 7, "text": "第三句", "pronunciation": "ra-la"},
+        ],
+    )
+
+    assert result == [
+        {"sequence": 1, "pronunciation": "首轮有效发音"},
+        {"sequence": 4, "pronunciation": "第二句补齐发音"},
+        {"sequence": 7, "pronunciation": "第三句补齐发音"},
+    ]
+    assert len(fake.users) == 2
+    assert '"sequence":1' not in fake.users[1]
+    assert '"sequence":4' in fake.users[1]
+    assert '"sequence":7' in fake.users[1]
+    assert "测试项目设定" in fake.users[1]
+    assert "测试角色设定" in fake.users[1]
+    assert "放慢语速" in fake.users[1]
+
+
+@pytest.mark.parametrize(
+    ("lines", "message"),
+    (
+        ([{"sequence": 1, "pronunciation": "mo-la"}], "没有完整返回"),
+        (
+            [
+                {"sequence": 1, "pronunciation": "mo-la"},
+                {"sequence": 1, "pronunciation": "gu-la"},
+            ],
+            "发音格式无效",
+        ),
+        (
+            [
+                {"sequence": 1, "pronunciation": "mo-la"},
+                {"sequence": 99, "pronunciation": "gu-la"},
+            ],
+            "发音行号不完整",
+        ),
+    ),
+)
+def test_generate_pronunciations_does_not_retry_invalid_structure(
+    tmp_path: Path, lines: list[dict[str, object]], message: str
+) -> None:
+    class FakeTextClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, config, *, system: str, user: str) -> str:
+            del config, system, user
+            self.calls += 1
+            return json.dumps({"lines": lines})
+
+    fake = FakeTextClient()
+    service = TextGenerationService(_configured_store(tmp_path, "responses"), fake)
+    with pytest.raises(RuntimeError, match=message):
+        service.generate_pronunciations(
+            project_prompt="",
+            script_prompt="",
+            items=[
+                {"sequence": 1, "text": "第一句", "pronunciation": "mo-la"},
+                {"sequence": 2, "text": "第二句", "pronunciation": "gu-la"},
+            ],
+        )
+    assert fake.calls == 1
+
+
 def test_admin_text_model_config_masks_key(app_client) -> None:
     client, services = app_client
     response = client.patch(
