@@ -1,4 +1,5 @@
 .venv-gpt-sovits/
+downloads/
 docker-data/
 docker/voice-lab.env
 *.env
